@@ -856,8 +856,9 @@ If ARGS are omitted, the default is to pass
     ;; which may not even exist any more.
     (let ((dpy (frame-parameter nil 'display))
           classname)
-      (if (stringp dpy)
-        (cond
+      (when (and window-system
+                 (stringp dpy))
+                (cond
          ((featurep 'pgtk)
           (setq classname (pgtk-backend-display-class))
           (if (equal classname "GdkWaylandDisplay")

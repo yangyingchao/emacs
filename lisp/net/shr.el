@@ -1633,7 +1633,8 @@ The preference is a float determined from `shr-prefer-media-type'."
   (when (or url
 	    (and dom
 		 (or (> (length (dom-attr dom 'src)) 0)
-                     (> (length (dom-attr dom 'srcset)) 0))))
+                     (> (length (dom-attr dom 'srcset)) 0)
+                     (> (length (dom-attr dom 'data-src)) 0))))
     (when (> (current-column) 0)
       (insert "\n"))
     (let ((alt (dom-attr dom 'alt))
@@ -1764,7 +1765,7 @@ BASE is the URL of the HTML being rendered."
                   (> (cadr (car srcset)) frame-width))
         (setq candidate (caar srcset))
         (pop srcset)))
-    (or candidate (dom-attr dom 'src))))
+    (or candidate (dom-attr dom 'src) (dom-attr dom 'data-src))))
 
 (defun shr-string-number (string)
   (if (null string)
