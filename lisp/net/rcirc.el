@@ -130,7 +130,7 @@ be displayed instead."
 
 (defcustom rcirc-default-port 6667
   "The default port to connect to."
-  :type 'integer)
+  :type 'natnum)
 
 (defcustom rcirc-default-nick (user-login-name)
   "Your nick."
@@ -267,6 +267,7 @@ The ARGUMENTS for each METHOD symbol are:
 Examples:
  ((\"Libera.Chat\" nickserv \"bob\" \"p455w0rd\")
   (\"Libera.Chat\" chanserv \"bob\" \"#bobland\" \"passwd99\")
+  (\"Libera.Chat\" certfp \"/path/to/key\" \"/path/to/cert\")
   (\"bitlbee\" bitlbee \"robert\" \"sekrit\")
   (\"dal.net\" nickserv \"bob\" \"sekrit\" \"NickServ@services.dal.net\")
   (\"quakenet.org\" quakenet \"bobby\" \"sekrit\")
@@ -3301,7 +3302,7 @@ PROCESS is the process object for the current connection."
       (with-current-buffer chat-buffer
 	(rcirc-print process sender "NICK" old-nick new-nick)
 	(setq rcirc-target new-nick)
-	(rename-buffer (rcirc-generate-new-buffer-name process new-nick)))
+	(rename-buffer (rcirc-generate-new-buffer-name process new-nick) t))
       (setf rcirc-buffer-alist
             (cons (cons new-nick chat-buffer)
                   (delq (assoc-string old-nick rcirc-buffer-alist t)

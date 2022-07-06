@@ -63,7 +63,7 @@ This is intended for debugging the compiler itself.
   2 emit debug symbols and dump pseudo C code.
   3 emit debug symbols and dump: pseudo C code, GCC intermediate
   passes and libgccjit log file."
-  :type 'integer
+  :type 'natnum
   :safe #'natnump
   :version "28.1")
 
@@ -74,7 +74,7 @@ This is intended for debugging the compiler itself.
   1 final LIMPLE is logged.
   2 LAP, final LIMPLE, and some pass info are logged.
   3 max verbosity."
-  :type 'integer
+  :type 'natnum
   :risky t
   :version "28.1")
 
@@ -111,7 +111,7 @@ during bootstrap."
   "Default number of subprocesses used for async native compilation.
 Value of zero means to use half the number of the CPU's execution units,
 or one if there's just one execution unit."
-  :type 'integer
+  :type 'natnum
   :risky t
   :version "28.1")
 
@@ -4287,6 +4287,30 @@ of (commands) to run simultaneously."
   ;; Normalize: we only want to pass t or nil, never e.g. `late'.
   (let ((load (not (not load))))
     (native--compile-async files recursively load selector)))
+
+(defun native-compile-prune-cache ()
+  "Remove .eln files that aren't applicable to the current Emacs invocation."
+  (interactive)
+  (dolist (dir native-comp-eln-load-path)
+    ;; If a directory is non absolute it is assumed to be relative to
+    ;; `invocation-directory'.
+    (setq dir (expand-file-name dir invocation-directory))
+    (when (file-exists-p dir)
+      (dolist (subdir (directory-files dir t))
+        (when (and (file-directory-p subdir)
+                   (file-writable-p subdir)
+                   (not (equal (file-name-nondirectory
+                                (directory-file-name subdir))
+                               comp-native-version-dir)))
+          (message "Deleting %s..." subdir)
+          ;; We're being overly cautious here -- there shouldn't be
+          ;; anything but .eln files in these directories.
+          (dolist (eln (directory-files subdir t "\\.eln\\(\\.tmp\\)?\\'"))
+            (when (file-writable-p eln)
+              (delete-file eln)))
+          (when (directory-empty-p subdir)
+            (delete-directory subdir))))))
+  (message "Cache cleared"))
 
 (provide 'comp)
 

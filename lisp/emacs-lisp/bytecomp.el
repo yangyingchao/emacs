@@ -1123,10 +1123,8 @@ message buffer `default-directory'."
   :type '(repeat (choice (const :tag "Default" nil)
 			 (string :tag "Directory"))))
 
-(defvar emacs-lisp-compilation-mode-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map "g" 'emacs-lisp-compilation-recompile)
-    map))
+(defvar-keymap emacs-lisp-compilation-mode-map
+  "g" #'emacs-lisp-compilation-recompile)
 
 (defvar emacs-lisp-compilation--current-file nil)
 
@@ -1727,8 +1725,8 @@ The byte-compiler will emit a warning for documentation strings
 containing lines wider than this.  If `fill-column' has a larger
 value, it will override this variable."
   :group 'bytecomp
-  :type 'integer
-  :safe #'integerp
+  :type 'natnum
+  :safe #'natnump
   :version "28.1")
 
 (define-obsolete-function-alias 'byte-compile-docstring-length-warn

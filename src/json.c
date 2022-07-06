@@ -1071,7 +1071,9 @@ usage: (json-parse-buffer &rest args) */)
   json_error_t error;
   json_t *object
     = json_load_callback (json_read_buffer_callback, &data,
-                          JSON_DECODE_ANY | JSON_DISABLE_EOF_CHECK | JSON_ALLOW_NUL,
+                          JSON_DECODE_ANY
+			  | JSON_DISABLE_EOF_CHECK
+			  | JSON_ALLOW_NUL,
                           &error);
 
   if (object == NULL)

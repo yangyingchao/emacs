@@ -443,18 +443,59 @@ idle for `auto-save-visited-interval' seconds."
          (when auto-save--timer
            (timer-set-idle-time auto-save--timer value :repeat))))
 
+(defcustom auto-save-visited-predicate nil
+  "Predicate function for `auto-save-visited-mode'.
+
+If non-nil, the value should be a function of no arguments; it
+will be called once in each file-visiting buffer when the time
+comes to auto-save.  A buffer will be saved only if the predicate
+function returns a non-nil value.
+
+For example, you could add this to your Init file to only save
+files that are both in Org mode and in a particular directory:
+
+    (setq auto-save-visited-predicate
+          (lambda () (and (eq major-mode \\='org-mode)
+                          (string-match \"^/home/skangas/org/\"
+                                        buffer-file-name))))
+
+If the value of this variable is not a function, it is ignored.
+This is the same as having a predicate that always returns
+non-nil."
+  :group 'auto-save
+  :type '(choice :tag "Function:"
+                 (const :tag "No extra predicate" :value nil)
+                 (function :tag "Predicate function" :value always))
+  :risky t
+  :version "29.1")
+
+(defcustom remote-file-name-inhibit-auto-save-visited nil
+  "When nil, `auto-save-visited-mode' will auto-save remote files.
+Any other value means that it will not."
+  :group 'auto-save
+  :type 'boolean
+  :version "29.1")
+
 (define-minor-mode auto-save-visited-mode
   "Toggle automatic saving to file-visiting buffers on or off.
+
+When this mode is enabled, visited files are saved automatically.
+The user option `auto-save-visited-interval' controls how often.
 
 Unlike `auto-save-mode', this mode will auto-save buffer contents
 to the visited files directly and will also run all save-related
 hooks.  See Info node `Saving' for details of the save process.
 
+You can use `auto-save-visited-predicate' to control which
+buffers are saved.
+
 You can also set the buffer-local value of the variable
 `auto-save-visited-mode' to nil.  A buffer where the buffer-local
 value of this variable is nil is ignored for the purpose of
 `auto-save-visited-mode', even if `auto-save-visited-mode' is
-enabled."
+enabled.
+
+For more details, see Info node `(emacs) Auto Save Files'."
   :group 'auto-save
   :global t
   (when auto-save--timer (cancel-timer auto-save--timer))
@@ -467,7 +508,11 @@ enabled."
              (and buffer-file-name
                   auto-save-visited-mode
                   (not (and buffer-auto-save-file-name
-                            auto-save-visited-file-name))))))))
+                            auto-save-visited-file-name))
+                  (or (not (file-remote-p buffer-file-name))
+                      (not remote-file-name-inhibit-auto-save-visited))
+                  (or (not (functionp auto-save-visited-predicate))
+                      (funcall auto-save-visited-predicate))))))))
 
 ;; The 'set' part is so we don't get a warning for using this variable
 ;; above, while still catching code that _sets_ the variable to get
@@ -5144,6 +5189,24 @@ On most systems, this will be true:
                 components)
           (setq filename nil))))
     components))
+
+(defun file-parent-directory (filename)
+  "Return the directory name of the parent directory of FILENAME.
+If FILENAME is at the root of the filesystem, return nil.
+If FILENAME is relative, it is interpreted to be relative
+to `default-directory', and the result will also be relative."
+  (let* ((expanded-filename (expand-file-name filename))
+         (parent (file-name-directory (directory-file-name expanded-filename))))
+    (cond
+     ;; filename is at top-level, therefore no parent
+     ((or (null parent)
+          (file-equal-p parent expanded-filename))
+      nil)
+     ;; filename is relative, return relative parent
+     ((not (file-name-absolute-p filename))
+      (file-relative-name parent))
+     (t
+      parent))))
 
 (defcustom make-backup-file-name-function
   #'make-backup-file-name--default-function

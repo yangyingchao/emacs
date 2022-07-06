@@ -73,18 +73,13 @@ representing names.  For instance:
 (defvar emoji--insert-buffer)
 
 ;;;###autoload
-(defun emoji-insert (&optional text)
-  "Choose and insert an emoji glyph.
-If TEXT (interactively, the prefix argument), choose the emoji
-by typing its Unicode Standard name (with completion), instead
-of selecting from emoji display."
-  (interactive "*P")
+(defun emoji-insert ()
+  "Choose and insert an emoji glyph."
+  (interactive "*")
   (emoji--init)
-  (if text
-      (emoji--choose-emoji)
-    (unless (fboundp 'emoji--command-Emoji)
-      (emoji--define-transient))
-    (funcall (intern "emoji--command-Emoji"))))
+  (unless (fboundp 'emoji--command-Emoji)
+    (emoji--define-transient))
+  (funcall (intern "emoji--command-Emoji")))
 
 ;;;###autoload
 (defun emoji-recent ()
@@ -707,10 +702,12 @@ We prefer the earliest unique letter."
 ;;;###autoload
 (defun emoji-zoom-increase (&optional factor)
   "Increase the size of the character under point.
-FACTOR is the multiplication factor for the size.
-
-This command will be repeatable if `repeat-mode' is switched on."
+FACTOR is the multiplication factor for the size."
   (interactive)
+  (message
+   (substitute-command-keys
+    "Zoom with \\<emoji-zoom-map>\\[emoji-zoom-increase] and \\[emoji-zoom-decrease]"))
+  (set-transient-map emoji-zoom-map t)
   (let* ((factor (or factor 1.1))
          (old (get-text-property (point) 'face))
          (height (or (and (consp old)
@@ -728,17 +725,11 @@ This command will be repeatable if `repeat-mode' is switched on."
         (put-text-property (point) (1+ (point))
                            'rear-nonsticky t)))))
 
-(put 'emoji-zoom-increase 'repeat-map 'emoji-zoom-map)
-
 ;;;###autoload
 (defun emoji-zoom-decrease ()
-  "Decrease the size of the character under point.
-
-This command will be repeatable if `repeat-mode' is switched on."
+  "Decrease the size of the character under point."
   (interactive)
   (emoji-zoom-increase 0.9))
-
-(put 'emoji-zoom-decrease 'repeat-map 'emoji-zoom-map)
 
 (provide 'emoji)
 

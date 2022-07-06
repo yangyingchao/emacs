@@ -48,7 +48,7 @@
 
 (ert-deftest erc-networks--id ()
   (cl-letf (((symbol-function 'float-time)
-             (lambda () 0.0)))
+             (lambda (&optional _) 0.0)))
 
     ;; Fixed
     (should (equal (erc-networks--id-fixed-create 'foo)
@@ -81,7 +81,7 @@
 
 (ert-deftest erc-networks--id-create ()
   (cl-letf (((symbol-function 'float-time)
-             (lambda () 0.0)))
+             (lambda (&optional _) 0.0)))
 
     (should (equal (erc-networks--id-create 'foo)
                    (make-erc-networks--id-fixed :ts (float-time)
@@ -1187,7 +1187,7 @@
                                     nil (make-erc-response)))))
             (should (string-match-p "failed" (cadr err)))
             (should (eq (car err) 'error)))
-          (should (string-match-p "*** Failed" (car (pop calls)))))))
+          (should (string-match-p (rx "*** Failed") (car (pop calls)))))))
 
     (erc-networks-tests--clean-bufs)))
 

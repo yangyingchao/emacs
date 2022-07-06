@@ -415,7 +415,7 @@ word boundaries.  A negative prefix arg means replace backward.
 Use \\<minibuffer-local-map>\\[next-history-element] \
 to pull the last incremental search string to the minibuffer
 that reads FROM-STRING, or invoke replacements from
-incremental search with a key sequence like `C-s C-s M-%'
+incremental search with a key sequence like \\`C-s C-s M-%'
 to use its current search string as the string to replace.
 
 Matching is independent of case if both `case-fold-search'
@@ -472,8 +472,8 @@ To customize possible responses, change the bindings in `query-replace-map'."
 (defun query-replace-regexp (regexp to-string &optional delimited start end backward region-noncontiguous-p)
   "Replace some things after point matching REGEXP with TO-STRING.
 As each match is found, the user must type a character saying
-what to do with it.  Type SPC or `y' to replace the match,
-DEL or `n' to skip and go to the next match.  For more directions,
+what to do with it.  Type \\`SPC' or \\`y' to replace the match,
+\\`DEL' or \\`n' to skip and go to the next match.  For more directions,
 type \\[help-command] at that time.
 
 In Transient Mark mode, if the mark is active, operate on the contents
@@ -481,12 +481,12 @@ of the region.  Otherwise, operate from point to the end of the buffer's
 accessible portion.
 
 When invoked interactively, matching a newline with `\\n' will not work;
-use `C-q C-j' instead.  To match a tab character (`\\t'), just press `TAB'.
+use \\`C-q C-j' instead.  To match a tab character (`\\t'), just press \\`TAB'.
 
 Use \\<minibuffer-local-map>\\[next-history-element] \
 to pull the last incremental search regexp to the minibuffer
 that reads REGEXP, or invoke replacements from
-incremental search with a key sequence like `C-M-s C-M-s C-M-%'
+incremental search with a key sequence like \\`C-M-s C-M-s C-M-%'
 to use its current search regexp as the regexp to replace.
 
 Matching is independent of case if both `case-fold-search'
@@ -895,6 +895,23 @@ by this function to the end of values available via
    (regexp-quote (or (car search-ring) ""))
    (car (symbol-value query-replace-from-history-variable))))
 
+(defvar-keymap read-regexp-map
+  :parent minibuffer-local-map
+  "M-c" #'read-regexp-toggle-case-folding)
+
+(defvar read-regexp--case-fold nil)
+
+(defun read-regexp-toggle-case-folding ()
+  (interactive)
+  (setq read-regexp--case-fold
+        (if (or (eq read-regexp--case-fold 'fold)
+                (and read-regexp--case-fold
+                     (not (eq read-regexp--case-fold 'inhibit-fold))))
+            'inhibit-fold
+          'fold))
+  (minibuffer-message "Case folding is now %s"
+                      (if (eq read-regexp--case-fold 'fold) "on" "off")))
+
 (defun read-regexp (prompt &optional defaults history)
   "Read and return a regular expression as a string.
 Prompt with the string PROMPT.  If PROMPT ends in \":\" (followed by
@@ -931,11 +948,14 @@ in \":\", followed by optional whitespace), DEFAULT is added to the prompt.
 The optional argument HISTORY is a symbol to use for the history list.
 If nil, use `regexp-history'.
 
-If the user has used the `M-c' command to specify case
+If the user has used the \\<read-regexp-map>\\[read-regexp-toggle-case-folding] command to specify case
 sensitivity, the returned string will have a text property named
 `case-fold' that has a value of either `fold' or
 `inhibit-fold'.  (It's up to the caller of `read-regexp' to
-respect this or not; see `read-regexp-case-fold-search'.)"
+respect this or not; see `read-regexp-case-fold-search'.)
+
+This command uses the `read-regexp-map' keymap while reading the
+regexp from the user."
   (let* ((defaults
 	   (if (and defaults (symbolp defaults))
 	       (cond
@@ -951,29 +971,15 @@ respect this or not; see `read-regexp-case-fold-search'.)"
 	 (suggestions (delete-dups (delq nil (delete "" suggestions))))
 	 ;; Do not automatically add default to the history for empty input.
 	 (history-add-new-input nil)
-         (case-fold case-fold-search)
+         ;; `read-regexp--case-fold' dynamically bound and may be
+         ;; altered by `M-c'.
+         (read-regexp--case-fold case-fold-search)
 	 (input (read-from-minibuffer
                  (if (string-match-p ":[ \t]*\\'" prompt)
                      prompt
                    (format-prompt prompt (and (length> default 0)
                                               (query-replace-descr default))))
-		 nil
-                 (define-keymap
-                   :parent minibuffer-local-map
-                   "M-c" (lambda ()
-                           (interactive)
-                           (setq case-fold
-                                 (if (or (eq case-fold 'fold)
-                                         (and case-fold
-                                              (not (eq case-fold
-                                                       'inhibit-fold))))
-                                     'inhibit-fold
-                                   'fold))
-                           (minibuffer-message
-                            "Case folding is now %s"
-                            (if (eq case-fold 'fold)
-                                "on"
-                              "off"))))
+		 nil read-regexp-map
                  nil (or history 'regexp-history) suggestions t))
          (result (if (equal input "")
 	             ;; Return the default value when the user enters
@@ -983,9 +989,9 @@ respect this or not; see `read-regexp-case-fold-search'.)"
     (when result
       (add-to-history (or history 'regexp-history) result))
     (if (and result
-             (or (eq case-fold 'fold)
-                 (eq case-fold 'inhibit-fold)))
-        (propertize result 'case-fold case-fold)
+             (or (eq read-regexp--case-fold 'fold)
+                 (eq read-regexp--case-fold 'inhibit-fold)))
+        (propertize result 'case-fold read-regexp--case-fold)
       (or result input))))
 
 (defun read-regexp-case-fold-search (regexp)

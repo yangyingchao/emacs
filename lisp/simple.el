@@ -2211,7 +2211,7 @@ to get different commands to edit and resubmit."
 If it's nil, include all the commands.
 If it's a function, it will be called with two parameters: the
 symbol of the command and a buffer.  The predicate should return
-non-nil if the command should be present when doing `M-x TAB'
+non-nil if the command should be present when doing \\`M-x TAB'
 in that buffer."
   :version "28.1"
   :group 'completion
@@ -8937,7 +8937,19 @@ presented."
   :global t :group 'mode-line)
 
 (define-minor-mode auto-save-mode
-  "Toggle auto-saving in the current buffer (Auto Save mode)."
+  "Toggle auto-saving in the current buffer (Auto Save mode).
+
+When this mode is enabled, Emacs periodically saves each visited
+file in a separate file called the \"auto-save file\".  This is a
+safety measure to prevent you from losing more than a limited
+amount of work if the system crashes.
+
+Auto-saving does not alter the file you actually use: the visited
+file is changed only when you request saving it explicitly (such
+as with \\[save-buffer]).  If you want to save visited files
+automatically, use \\[auto-save-visited-mode]).
+
+For more details, see Info node `(emacs) Auto Save'."
   :variable ((and buffer-auto-save-file-name
                   ;; If auto-save is off because buffer has shrunk,
                   ;; then toggling should turn it on.
