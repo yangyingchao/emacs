@@ -233,18 +233,19 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
        EMACS_CHECK_MODULES([XFIXES], [$XFIXES_MODULES])
        if test $HAVE_XFIXES = no; then
 	 # Test old way in case pkg-config doesn't have it (older machines).
-	 AC_CHECK_HEADER(X11/extensions/Xfixes.h,
-	   [AC_CHECK_LIB(Xfixes, XFixesHideCursor, HAVE_XFIXES=yes)])
+	 AC_CHECK_HEADER([X11/extensions/Xfixes.h],
+	   [AC_CHECK_LIB([Xfixes], [XFixesHideCursor], [HAVE_XFIXES=yes])])
 	 if test $HAVE_XFIXES = yes; then
 	   XFIXES_LIBS=-lXfixes
 	 fi
        fi
        if test $HAVE_XFIXES = yes; then
-	 AC_DEFINE(HAVE_XFIXES, 1, [Define to 1 if you have the Xfixes extension.])
+	 AC_DEFINE([HAVE_XFIXES], [1],
+	   [Define to 1 if you have the Xfixes extension.])
        fi
      fi
-     AC_SUBST(XFIXES_CFLAGS)
-     AC_SUBST(XFIXES_LIBS)
+     AC_SUBST([XFIXES_CFLAGS])
+     AC_SUBST([XFIXES_LIBS])
 
   Then, make sure to adjust CFLAGS and LIBES in src/Makefile.in and
   add the new XFIXES_CFLAGS and XFIXES_LIBS variables to
@@ -1021,6 +1022,10 @@ static const struct x_atom_ref x_atom_refs[] =
     ATOM_REFS_INIT ("XdndLeave", Xatom_XdndLeave)
     ATOM_REFS_INIT ("XdndDrop", Xatom_XdndDrop)
     ATOM_REFS_INIT ("XdndFinished", Xatom_XdndFinished)
+    /* XDS source and target.  */
+    ATOM_REFS_INIT ("XdndDirectSave0", Xatom_XdndDirectSave0)
+    ATOM_REFS_INIT ("XdndActionDirectSave", Xatom_XdndActionDirectSave)
+    ATOM_REFS_INIT ("text/plain", Xatom_text_plain)
     /* Motif drop protocol support.  */
     ATOM_REFS_INIT ("_MOTIF_DRAG_WINDOW", Xatom_MOTIF_DRAG_WINDOW)
     ATOM_REFS_INIT ("_MOTIF_DRAG_TARGETS", Xatom_MOTIF_DRAG_TARGETS)
@@ -3855,6 +3860,7 @@ x_dnd_do_unsupported_drop (struct x_display_info *dpyinfo,
   event.xbutton.root = dpyinfo->root_window;
   event.xbutton.x_root = root_x;
   event.xbutton.y_root = root_y;
+
   x_catch_errors (dpyinfo->display);
 
   child = dpyinfo->root_window;
@@ -3887,6 +3893,8 @@ x_dnd_do_unsupported_drop (struct x_display_info *dpyinfo,
   if (owner != FRAME_X_WINDOW (f))
     goto cancel;
 
+  x_uncatch_errors ();
+
   event.xbutton.window = child;
   event.xbutton.subwindow = None;
   event.xbutton.x = dest_x;
@@ -3900,14 +3908,20 @@ x_dnd_do_unsupported_drop (struct x_display_info *dpyinfo,
   event.xbutton.type = ButtonPress;
   event.xbutton.time = before + 1;
 
+  x_ignore_errors_for_next_request (dpyinfo);
   XSendEvent (dpyinfo->display, child,
 	      True, ButtonPressMask, &event);
+  x_stop_ignoring_errors (dpyinfo);
 
   event.xbutton.type = ButtonRelease;
   event.xbutton.time = before + 2;
 
+  x_ignore_errors_for_next_request (dpyinfo);
   XSendEvent (dpyinfo->display, child,
 	      True, ButtonReleaseMask, &event);
+  x_stop_ignoring_errors (dpyinfo);
+
+  return;
 
  cancel:
   x_uncatch_errors ();
@@ -4597,6 +4611,34 @@ x_free_dnd_toplevels (void)
   x_dnd_free_toplevels (true);
 }
 
+/* Restore event masks and window properties changed during a
+   drag-and-drop operation, after it finishes.  */
+static void
+x_restore_events_after_dnd (struct frame *f, XWindowAttributes *wa)
+{
+  struct x_display_info *dpyinfo;
+
+  dpyinfo = FRAME_DISPLAY_INFO (f);
+
+  /* Restore the old event mask.  */
+  XSelectInput (dpyinfo->display, dpyinfo->root_window,
+		wa->your_event_mask);
+#ifdef HAVE_XKB
+  if (dpyinfo->supports_xkb)
+    XkbSelectEvents (dpyinfo->display, XkbUseCoreKbd,
+		     XkbStateNotifyMask, 0);
+#endif
+  /* Delete the Motif drag initiator info if it was set up.  */
+  if (x_dnd_motif_setup_p)
+    XDeleteProperty (dpyinfo->display, FRAME_X_WINDOW (f),
+		     x_dnd_motif_atom);
+
+  /* Remove any type list set as well.  */
+  if (x_dnd_init_type_lists && x_dnd_n_targets > 3)
+    XDeleteProperty (dpyinfo->display, FRAME_X_WINDOW (f),
+		     dpyinfo->Xatom_XdndTypeList);
+}
+
 static void
 x_dnd_cleanup_drag_and_drop (void *frame)
 {
@@ -4656,32 +4698,9 @@ x_dnd_cleanup_drag_and_drop (void *frame)
 #endif
   x_dnd_return_frame_object = NULL;
   x_dnd_movement_frame = NULL;
-
-  block_input ();
-  /* Restore the old event mask.  */
-  XSelectInput (FRAME_X_DISPLAY (f),
-		FRAME_DISPLAY_INFO (f)->root_window,
-		x_dnd_old_window_attrs.your_event_mask);
-
-#ifdef HAVE_XKB
-  if (FRAME_DISPLAY_INFO (f)->supports_xkb)
-    XkbSelectEvents (FRAME_X_DISPLAY (f), XkbUseCoreKbd,
-		     XkbStateNotifyMask, 0);
-#endif
-
-  /* Delete the Motif drag initiator info if it was set up.  */
-  if (x_dnd_motif_setup_p)
-    XDeleteProperty (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
-		     FRAME_DISPLAY_INFO (f)->Xatom_XdndSelection);
-
-  /* Remove any type list set as well.  */
-  if (x_dnd_init_type_lists && x_dnd_n_targets > 3)
-    XDeleteProperty (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
-		     FRAME_DISPLAY_INFO (f)->Xatom_XdndTypeList);
-
-  unblock_input ();
-
   x_dnd_frame = NULL;
+
+  x_restore_events_after_dnd (f, &x_dnd_old_window_attrs);
 }
 
 static void
@@ -11779,24 +11798,7 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
 	      current_hold_quit = NULL;
 #endif
 	      /* Restore the old event mask.  */
-	      XSelectInput (FRAME_X_DISPLAY (f),
-			    FRAME_DISPLAY_INFO (f)->root_window,
-			    root_window_attrs.your_event_mask);
-#ifdef HAVE_XKB
-	      if (FRAME_DISPLAY_INFO (f)->supports_xkb)
-		XkbSelectEvents (FRAME_X_DISPLAY (f), XkbUseCoreKbd,
-				 XkbStateNotifyMask, 0);
-#endif
-	      /* Delete the Motif drag initiator info if it was set up.  */
-	      if (x_dnd_motif_setup_p)
-		XDeleteProperty (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
-				 x_dnd_motif_atom);
-
-
-	      /* Remove any type list set as well.  */
-	      if (x_dnd_init_type_lists && x_dnd_n_targets > 3)
-		XDeleteProperty (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
-				 FRAME_DISPLAY_INFO (f)->Xatom_XdndTypeList);
+	      x_restore_events_after_dnd (f, &root_window_attrs);
 
 	      /* Call kbd_buffer_store event, which calls
 		 handle_interrupt and sets `last-event-frame' along
@@ -11913,27 +11915,8 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
 	      FRAME_DISPLAY_INFO (f)->grabbed = 0;
 	      current_hold_quit = NULL;
 
-	      block_input ();
 	      /* Restore the old event mask.  */
-	      XSelectInput (FRAME_X_DISPLAY (f),
-			    FRAME_DISPLAY_INFO (f)->root_window,
-			    root_window_attrs.your_event_mask);
-#ifdef HAVE_XKB
-	      if (FRAME_DISPLAY_INFO (f)->supports_xkb)
-		XkbSelectEvents (FRAME_X_DISPLAY (f), XkbUseCoreKbd,
-				 XkbStateNotifyMask, 0);
-#endif
-	      /* Delete the Motif drag initiator info if it was set up.  */
-	      if (x_dnd_motif_setup_p)
-		XDeleteProperty (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
-				 x_dnd_motif_atom);
-
-
-	      /* Remove any type list set as well.  */
-	      if (x_dnd_init_type_lists && x_dnd_n_targets > 3)
-		XDeleteProperty (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
-				 FRAME_DISPLAY_INFO (f)->Xatom_XdndTypeList);
-	      unblock_input ();
+	      x_restore_events_after_dnd (f, &root_window_attrs);
 
 	      quit ();
 	    }
@@ -11956,27 +11939,7 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
   current_hold_quit = NULL;
 #endif
   x_dnd_movement_frame = NULL;
-
-  block_input ();
-  /* Restore the old event mask.  */
-  XSelectInput (FRAME_X_DISPLAY (f),
-		FRAME_DISPLAY_INFO (f)->root_window,
-		root_window_attrs.your_event_mask);
-#ifdef HAVE_XKB
-  if (FRAME_DISPLAY_INFO (f)->supports_xkb)
-    XkbSelectEvents (FRAME_X_DISPLAY (f), XkbUseCoreKbd,
-		     XkbStateNotifyMask, 0);
-#endif
-  /* Delete the Motif drag initiator info if it was set up.  */
-  if (x_dnd_motif_setup_p)
-    XDeleteProperty (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
-		     x_dnd_motif_atom);
-
-  /* Remove any type list set as well.  */
-  if (x_dnd_init_type_lists && x_dnd_n_targets > 3)
-    XDeleteProperty (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
-		     FRAME_DISPLAY_INFO (f)->Xatom_XdndTypeList);
-  unblock_input ();
+  x_restore_events_after_dnd (f, &root_window_attrs);
 
   if (x_dnd_return_frame == 3
       && FRAME_LIVE_P (x_dnd_return_frame_object))
@@ -25254,9 +25217,14 @@ xembed_send_message (struct frame *f, Time t, enum xembed_message msg,
   event.xclient.data.l[3] = data1;
   event.xclient.data.l[4] = data2;
 
+  /* XXX: the XEmbed spec tells us to trap errors around this request,
+     but I don't understand why: there is no way for clients to
+     survive the death of the parent anyway.  */
+
+  x_ignore_errors_for_next_request (FRAME_DISPLAY_INFO (f));
   XSendEvent (FRAME_X_DISPLAY (f), FRAME_X_OUTPUT (f)->parent_desc,
 	      False, NoEventMask, &event);
-  XSync (FRAME_X_DISPLAY (f), False);
+  x_stop_ignoring_errors (FRAME_DISPLAY_INFO (f));
 }
 
 /* Change of visibility.  */
