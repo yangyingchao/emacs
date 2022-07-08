@@ -3921,6 +3921,8 @@ x_dnd_do_unsupported_drop (struct x_display_info *dpyinfo,
 	      True, ButtonReleaseMask, &event);
   x_stop_ignoring_errors (dpyinfo);
 
+  x_dnd_action_symbol = QXdndActionPrivate;
+
   return;
 
  cancel:
@@ -6448,20 +6450,6 @@ x_set_frame_alpha (struct frame *f)
   unsigned long opac;
   Window parent;
 
-#ifndef USE_XCB
-  unsigned char *data = NULL;
-  Atom actual;
-  int rc, format;
-  unsigned long n, left;
-  unsigned long value;
-#else
-  xcb_get_property_cookie_t opacity_cookie;
-  xcb_get_property_reply_t *opacity_reply;
-  xcb_generic_error_t *error;
-  bool rc;
-  uint32_t value;
-#endif
-
   if (dpyinfo->highlight_frame == f)
     alpha = f->alpha[0];
   else
@@ -6482,8 +6470,6 @@ x_set_frame_alpha (struct frame *f)
 
   opac = alpha * OPAQUE;
 
-  x_catch_errors (dpy);
-
   /* If there is a parent from the window manager, put the property there
      also, to work around broken window managers that fail to do that.
      Do this unconditionally as this function is called on reparent when
@@ -6492,77 +6478,23 @@ x_set_frame_alpha (struct frame *f)
   if (!FRAME_PARENT_FRAME (f))
     {
       parent = x_find_topmost_parent (f);
+
       if (parent != None)
-	XChangeProperty (dpy, parent, dpyinfo->Xatom_net_wm_window_opacity,
-			 XA_CARDINAL, 32, PropModeReplace,
-			 (unsigned char *) &opac, 1);
+	{
+	  x_ignore_errors_for_next_request (dpyinfo);
+	  XChangeProperty (dpy, parent,
+			   dpyinfo->Xatom_net_wm_window_opacity,
+			   XA_CARDINAL, 32, PropModeReplace,
+			   (unsigned char *) &opac, 1);
+	  x_stop_ignoring_errors (dpyinfo);
+	}
     }
 
-  /* return unless necessary */
-  {
-#ifndef USE_XCB
-    rc = XGetWindowProperty (dpy, win, dpyinfo->Xatom_net_wm_window_opacity,
-			     0, 1, False, XA_CARDINAL,
-			     &actual, &format, &n, &left,
-			     &data);
-
-    if (rc == Success && actual != None
-	&& n && format == XA_CARDINAL && data)
-      {
-        value = *(unsigned long *) data;
-
-	/* Xlib sign-extends values greater than 0x7fffffff on 64-bit
-	   machines.  Get the low bits by ourself.  */
-
-	value &= 0xffffffff;
-
-	if (value == opac)
-	  {
-	    x_uncatch_errors ();
-	    XFree (data);
-	    return;
-	  }
-      }
-
-    if (data)
-      XFree (data);
-#else
-    /* Avoid the confusing Xlib sign-extension mess by using XCB
-       instead.  */
-    opacity_cookie
-      = xcb_get_property (dpyinfo->xcb_connection, 0, (xcb_window_t) win,
-			  (xcb_atom_t) dpyinfo->Xatom_net_wm_window_opacity,
-			  XCB_ATOM_CARDINAL, 0, 1);
-    opacity_reply
-      = xcb_get_property_reply (dpyinfo->xcb_connection,
-				opacity_cookie, &error);
-
-    rc = opacity_reply;
-
-    if (!opacity_reply)
-      free (error);
-    else
-      {
-	rc = (opacity_reply->format == 32
-	      && opacity_reply->type == XCB_ATOM_CARDINAL
-	      && (xcb_get_property_value_length (opacity_reply) >= 4));
-
-	if (rc)
-	  value = *(uint32_t *) xcb_get_property_value (opacity_reply);
-      }
-
-    if (opacity_reply)
-      free (opacity_reply);
-
-    if (rc && value == opac)
-      return;
-#endif
-  }
-
+  x_ignore_errors_for_next_request (dpyinfo);
   XChangeProperty (dpy, win, dpyinfo->Xatom_net_wm_window_opacity,
 		   XA_CARDINAL, 32, PropModeReplace,
 		   (unsigned char *) &opac, 1);
-  x_uncatch_errors ();
+  x_stop_ignoring_errors (dpyinfo);
 }
 
 /***********************************************************************
@@ -11362,6 +11294,57 @@ x_dnd_lose_ownership (Lisp_Object timestamp_and_frame)
 				  XCDR (timestamp_and_frame));
 }
 
+/* Clean up an existing drag-and-drop operation in preparation for its
+   sudden termination.  */
+
+static void
+x_dnd_process_quit (struct frame *f, Time timestamp)
+{
+  xm_drop_start_message dmsg;
+
+  if (x_dnd_in_progress)
+    {
+      if (x_dnd_last_seen_window != None
+	  && x_dnd_last_protocol_version != -1)
+	x_dnd_send_leave (f, x_dnd_last_seen_window);
+      else if (x_dnd_last_seen_window != None
+	       && !XM_DRAG_STYLE_IS_DROP_ONLY (x_dnd_last_motif_style)
+	       && x_dnd_last_motif_style != XM_DRAG_STYLE_NONE
+	       && x_dnd_motif_setup_p)
+	{
+	  dmsg.reason = XM_DRAG_REASON (XM_DRAG_ORIGINATOR_INITIATOR,
+					XM_DRAG_REASON_DROP_START);
+	  dmsg.byte_order = XM_BYTE_ORDER_CUR_FIRST;
+	  dmsg.timestamp = timestamp;
+	  dmsg.side_effects
+	    = XM_DRAG_SIDE_EFFECT (xm_side_effect_from_action (FRAME_DISPLAY_INFO (f),
+							       x_dnd_wanted_action),
+				   XM_DROP_SITE_VALID, x_dnd_motif_operations,
+				   XM_DROP_ACTION_DROP_CANCEL);
+	  dmsg.x = 0;
+	  dmsg.y = 0;
+	  dmsg.index_atom = x_dnd_motif_atom;
+	  dmsg.source_window = FRAME_X_WINDOW (f);
+
+	  x_dnd_send_xm_leave_for_drop (FRAME_DISPLAY_INFO (f), f,
+					x_dnd_last_seen_window,
+					timestamp);
+	  xm_send_drop_message (FRAME_DISPLAY_INFO (f), FRAME_X_WINDOW (f),
+				x_dnd_last_seen_window, &dmsg);
+	}
+
+      x_dnd_end_window = x_dnd_last_seen_window;
+      x_dnd_last_seen_window = None;
+      x_dnd_last_seen_toplevel = None;
+      x_dnd_in_progress = false;
+      x_dnd_frame = NULL;
+    }
+
+  x_dnd_waiting_for_finish = false;
+  x_dnd_return_frame_object = NULL;
+  x_dnd_movement_frame = NULL;
+}
+
 /* This function is defined far away from the rest of the XDND code so
    it can utilize `x_any_window_to_frame'.  */
 
@@ -11398,7 +11381,6 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
   specpdl_ref ref, count, base;
   ptrdiff_t i, end, fill;
   XTextProperty prop;
-  xm_drop_start_message dmsg;
   Lisp_Object frame_object, x, y, frame, local_value;
   bool signals_were_pending, need_sync;
 #ifdef HAVE_XKB
@@ -11750,50 +11732,7 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
 
 	  if (hold_quit.kind != NO_EVENT)
 	    {
-	      if (x_dnd_in_progress)
-		{
-		  if (x_dnd_last_seen_window != None
-		      && x_dnd_last_protocol_version != -1)
-		    x_dnd_send_leave (f, x_dnd_last_seen_window);
-		  else if (x_dnd_last_seen_window != None
-			   && !XM_DRAG_STYLE_IS_DROP_ONLY (x_dnd_last_motif_style)
-			   && x_dnd_last_motif_style != XM_DRAG_STYLE_NONE
-			   && x_dnd_motif_setup_p)
-		    {
-		      dmsg.reason = XM_DRAG_REASON (XM_DRAG_ORIGINATOR_INITIATOR,
-						    XM_DRAG_REASON_DROP_START);
-		      dmsg.byte_order = XM_BYTE_ORDER_CUR_FIRST;
-		      dmsg.timestamp = hold_quit.timestamp;
-		      dmsg.side_effects
-			= XM_DRAG_SIDE_EFFECT (xm_side_effect_from_action (FRAME_DISPLAY_INFO (f),
-									   x_dnd_wanted_action),
-					       XM_DROP_SITE_VALID, x_dnd_motif_operations,
-					       XM_DROP_ACTION_DROP_CANCEL);
-		      dmsg.x = 0;
-		      dmsg.y = 0;
-		      dmsg.index_atom = x_dnd_motif_atom;
-		      dmsg.source_window = FRAME_X_WINDOW (f);
-
-		      x_dnd_send_xm_leave_for_drop (FRAME_DISPLAY_INFO (f), f,
-						    x_dnd_last_seen_window,
-						    hold_quit.timestamp);
-		      xm_send_drop_message (FRAME_DISPLAY_INFO (f), FRAME_X_WINDOW (f),
-					    x_dnd_last_seen_window, &dmsg);
-		    }
-
-		  x_dnd_end_window = x_dnd_last_seen_window;
-		  x_dnd_last_seen_window = None;
-		  x_dnd_last_seen_toplevel = None;
-		  x_dnd_in_progress = false;
-		  x_dnd_frame = NULL;
-		}
-
-	      x_dnd_waiting_for_finish = false;
-	      x_dnd_return_frame_object = NULL;
-	      x_dnd_movement_frame = NULL;
-
-	      /* Don't clear dpyinfo->grabbed if we're quitting.  */
-
+	      x_dnd_process_quit (f, hold_quit.timestamp);
 #ifdef USE_GTK
 	      current_hold_quit = NULL;
 #endif
@@ -11819,6 +11758,19 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
 	      x_handle_pending_selection_requests ();
 	      x_dnd_unwind_flag = false;
 	      unbind_to (ref, Qnil);
+	    }
+
+	  /* Sometimes C-g can be pressed inside a selection
+	     converter, where quitting is inhibited.  We want
+	     to quit after the converter exits.  */
+	  if (!NILP (Vquit_flag) && !NILP (Vinhibit_quit))
+	    {
+	      x_dnd_process_quit (f, FRAME_DISPLAY_INFO (f)->last_user_time);
+#ifdef USE_GTK
+	      current_hold_quit = NULL;
+#endif
+	      x_restore_events_after_dnd (f, &root_window_attrs);
+	      quit ();
 	    }
 
 	  if (x_dnd_run_unsupported_drop_function
@@ -11853,8 +11805,7 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
 					   XFIXNUM (Fnth (make_fixnum (4),
 							  x_dnd_unsupported_drop_data)),
 					   x_dnd_unsupported_drop_time);
-
-	      if (SYMBOLP (val))
+	      else if (SYMBOLP (val))
 		x_dnd_action_symbol = val;
 
 	      x_dnd_unwind_flag = false;
@@ -11869,55 +11820,10 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
 	  if (xg_pending_quit_event.kind != NO_EVENT)
 	    {
 	      xg_pending_quit_event.kind = NO_EVENT;
-
-	      if (x_dnd_in_progress)
-		{
-		  if (x_dnd_last_seen_window != None
-		      && x_dnd_last_protocol_version != -1)
-		    x_dnd_send_leave (f, x_dnd_last_seen_window);
-		  else if (x_dnd_last_seen_window != None
-			   && !XM_DRAG_STYLE_IS_DROP_ONLY (x_dnd_last_motif_style)
-			   && x_dnd_last_motif_style != XM_DRAG_STYLE_NONE
-			   && x_dnd_motif_setup_p)
-		    {
-		      dmsg.reason = XM_DRAG_REASON (XM_DRAG_ORIGINATOR_INITIATOR,
-						    XM_DRAG_REASON_DROP_START);
-		      dmsg.byte_order = XM_BYTE_ORDER_CUR_FIRST;
-		      dmsg.timestamp = xg_pending_quit_event.timestamp;
-		      dmsg.side_effects
-			= XM_DRAG_SIDE_EFFECT (xm_side_effect_from_action (FRAME_DISPLAY_INFO (f),
-									   x_dnd_wanted_action),
-					       XM_DROP_SITE_VALID, x_dnd_motif_operations,
-					       XM_DROP_ACTION_DROP_CANCEL);
-		      dmsg.x = 0;
-		      dmsg.y = 0;
-		      dmsg.index_atom = x_dnd_motif_atom;
-		      dmsg.source_window = FRAME_X_WINDOW (f);
-
-		      x_dnd_send_xm_leave_for_drop (FRAME_DISPLAY_INFO (f), f,
-						    x_dnd_last_seen_window,
-						    xg_pending_quit_event.timestamp);
-		      xm_send_drop_message (FRAME_DISPLAY_INFO (f), FRAME_X_WINDOW (f),
-					    x_dnd_last_seen_window, &dmsg);
-		    }
-
-		  x_dnd_end_window = x_dnd_last_seen_window;
-		  x_dnd_last_seen_window = None;
-		  x_dnd_last_seen_toplevel = None;
-		  x_dnd_in_progress = false;
-		  x_dnd_frame = NULL;
-		}
-
-	      x_dnd_waiting_for_finish = false;
-	      x_dnd_return_frame_object = NULL;
-	      x_dnd_movement_frame = NULL;
-
-	      FRAME_DISPLAY_INFO (f)->grabbed = 0;
 	      current_hold_quit = NULL;
 
-	      /* Restore the old event mask.  */
+	      x_dnd_process_quit (f, FRAME_DISPLAY_INFO (f)->last_user_time);
 	      x_restore_events_after_dnd (f, &root_window_attrs);
-
 	      quit ();
 	    }
 #else
