@@ -6476,7 +6476,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #define EMACS_CONFIG_H
 ])dnl
 
-AH_BOTTOM([#include <conf_post.h>
+AH_BOTTOM([#include "conf_post.h"
 
 #endif /* EMACS_CONFIG_H */
 
