@@ -1856,8 +1856,6 @@ be a list of the form returned by `event-start' and `event-end'."
 ;;;; Obsolescence declarations for variables, and aliases.
 
 (make-obsolete-variable 'redisplay-end-trigger-functions 'jit-lock-register "23.1")
-(make-obsolete-variable 'deferred-action-list 'post-command-hook "24.1")
-(make-obsolete-variable 'deferred-action-function 'post-command-hook "24.1")
 (make-obsolete-variable 'redisplay-dont-pause nil "24.5")
 (make-obsolete 'window-redisplay-end-trigger nil "23.1")
 (make-obsolete 'set-window-redisplay-end-trigger nil "23.1")
@@ -3484,8 +3482,11 @@ like) while `y-or-n-p' is running)."
                                   (format "(y, n or %s) "
 		                          (key-description
                                            (vector help-char)))
-                                  "(y or n) "
-                                  )))))))
+                                "(y or n) "))))))
+        ;; Preserve the actual command that eventually called
+        ;; `y-or-n-p' (otherwise `repeat' will be repeating
+        ;; `exit-minibuffer').
+        (real-this-command real-this-command))
     (cond
      (noninteractive
       (setq prompt (funcall padded prompt))
@@ -4706,9 +4707,6 @@ even if this catches the signal."
                               (list (car handler))))
                    ,@(cdr handler)))
                handlers)))
-
-(define-obsolete-function-alias 'condition-case-no-debug
-  'condition-case-unless-debug "24.1")
 
 (defmacro with-demoted-errors (format &rest body)
   "Run BODY and demote any errors to simple messages.

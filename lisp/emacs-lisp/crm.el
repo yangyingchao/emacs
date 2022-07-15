@@ -77,15 +77,11 @@
 
 ;;; Code:
 
-;; FIXME I don't see that this needs to exist as a separate variable.
-;; crm-separator should suffice.
-(defconst crm-default-separator "[ \t]*,[ \t]*"
-  "Default value of `crm-separator'.")
+(define-obsolete-variable-alias 'crm-default-separator 'crm-separator "29.1")
 
-(defvar crm-separator crm-default-separator
+(defvar crm-separator "[ \t]*,[ \t]*"
   "Separator regexp used for separating strings in `completing-read-multiple'.
-It should be a regexp that does not match the list of completion candidates.
-The default value is `crm-default-separator'.")
+It should be a regexp that does not match the list of completion candidates.")
 
 (defvar-keymap crm-local-completion-map
   :doc "Local keymap for minibuffer multiple input with completion.

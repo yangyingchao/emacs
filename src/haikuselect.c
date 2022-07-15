@@ -54,6 +54,23 @@ haiku_get_clipboard_name (Lisp_Object clipboard)
   signal_error ("Invalid clipboard", clipboard);
 }
 
+DEFUN ("haiku-selection-timestamp", Fhaiku_selection_timestamp,
+       Shaiku_selection_timestamp, 1, 1, 0,
+       doc: /* Retrieve the "timestamp" of the clipboard CLIPBOARD.
+CLIPBOARD can either be the symbol `PRIMARY', `SECONDARY' or
+`CLIPBOARD'.  The timestamp is returned as a number describing the
+number of times programs have put data into CLIPBOARD.  */)
+  (Lisp_Object clipboard)
+{
+  enum haiku_clipboard clipboard_name;
+  int64 timestamp;
+
+  clipboard_name = haiku_get_clipboard_name (clipboard);
+  timestamp = be_get_clipboard_count (clipboard_name);
+
+  return INT_TO_INTEGER (timestamp);
+}
+
 DEFUN ("haiku-selection-data", Fhaiku_selection_data, Shaiku_selection_data,
        2, 2, 0,
        doc: /* Retrieve content typed as NAME from the clipboard
@@ -1024,12 +1041,23 @@ init_haiku_select (void)
 void
 haiku_handle_selection_clear (struct input_event *ie)
 {
+  enum haiku_clipboard id;
+
+  id = haiku_get_clipboard_name (ie->arg);
+
+  if (be_selection_outdated_p (id, ie->timestamp))
+    return;
+
   CALLN (Frun_hook_with_args,
 	 Qhaiku_lost_selection_functions, ie->arg);
+
+  /* This is required for redisplay to happen if something changed the
+     display inside the selection loss functions.  */
+  redisplay_preserve_echo_area (20);
 }
 
 void
-haiku_selection_disowned (enum haiku_clipboard id)
+haiku_selection_disowned (enum haiku_clipboard id, int64 count)
 {
   struct input_event ie;
 
@@ -1051,6 +1079,7 @@ haiku_selection_disowned (enum haiku_clipboard id)
       break;
     }
 
+  ie.timestamp = count;
   kbd_buffer_store_event (&ie);
 }
 
@@ -1110,6 +1139,7 @@ These are only called if a connection to the Haiku display was opened.  */);
   DEFSYM (Qalready_running, "already-running");
 
   defsubr (&Shaiku_selection_data);
+  defsubr (&Shaiku_selection_timestamp);
   defsubr (&Shaiku_selection_put);
   defsubr (&Shaiku_selection_owner_p);
   defsubr (&Shaiku_drag_message);

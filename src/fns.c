@@ -712,7 +712,6 @@ the same empty object instead of its copy.  */)
 struct textprop_rec
 {
   ptrdiff_t argnum;		/* refer to ARGS (arguments of `concat') */
-  ptrdiff_t from;		/* refer to ARGS[argnum] (argument string) */
   ptrdiff_t to;			/* refer to VAL (the target string) */
 };
 
@@ -843,7 +842,6 @@ concat_to_string (ptrdiff_t nargs, Lisp_Object *args)
 	  if (string_intervals (arg))
 	    {
 	      textprops[num_textprops].argnum = i;
-	      textprops[num_textprops].from = 0;
 	      textprops[num_textprops].to = toindex;
 	      num_textprops++;
 	    }
@@ -858,9 +856,8 @@ concat_to_string (ptrdiff_t nargs, Lisp_Object *args)
 	  else
 	    {
 	      /* Copy a single-byte string to a multibyte string.  */
-	      toindex_byte += copy_text (SDATA (arg),
-					 SDATA (result) + toindex_byte,
-					 nchars, 0, 1);
+	      toindex_byte += str_to_multibyte (SDATA (result) + toindex_byte,
+						SDATA (arg), nchars);
 	    }
 	  toindex += nchars;
 	}
@@ -1207,65 +1204,25 @@ string_byte_to_char (Lisp_Object string, ptrdiff_t byte_index)
   return i;
 }
 
-/* Convert STRING to a multibyte string.  */
-
-static Lisp_Object
-string_make_multibyte (Lisp_Object string)
-{
-  unsigned char *buf;
-  ptrdiff_t nbytes;
-  Lisp_Object ret;
-  USE_SAFE_ALLOCA;
-
-  if (STRING_MULTIBYTE (string))
-    return string;
-
-  nbytes = count_size_as_multibyte (SDATA (string),
-				    SCHARS (string));
-  /* If all the chars are ASCII, they won't need any more bytes
-     once converted.  In that case, we can return STRING itself.  */
-  if (nbytes == SBYTES (string))
-    return string;
-
-  buf = SAFE_ALLOCA (nbytes);
-  copy_text (SDATA (string), buf, SBYTES (string),
-	     0, 1);
-
-  ret = make_multibyte_string ((char *) buf, SCHARS (string), nbytes);
-  SAFE_FREE ();
-
-  return ret;
-}
-
-
 /* Convert STRING (if unibyte) to a multibyte string without changing
-   the number of characters.  Characters 0200 through 0237 are
-   converted to eight-bit characters. */
+   the number of characters.  Characters 0x80..0xff are interpreted as
+   raw bytes. */
 
 Lisp_Object
 string_to_multibyte (Lisp_Object string)
 {
-  unsigned char *buf;
-  ptrdiff_t nbytes;
-  Lisp_Object ret;
-  USE_SAFE_ALLOCA;
-
   if (STRING_MULTIBYTE (string))
     return string;
 
-  nbytes = count_size_as_multibyte (SDATA (string), SBYTES (string));
+  ptrdiff_t nchars = SCHARS (string);
+  ptrdiff_t nbytes = count_size_as_multibyte (SDATA (string), nchars);
   /* If all the chars are ASCII, they won't need any more bytes once
      converted.  */
-  if (nbytes == SBYTES (string))
+  if (nbytes == nchars)
     return make_multibyte_string (SSDATA (string), nbytes, nbytes);
 
-  buf = SAFE_ALLOCA (nbytes);
-  memcpy (buf, SDATA (string), SBYTES (string));
-  str_to_multibyte (buf, nbytes, SBYTES (string));
-
-  ret = make_multibyte_string ((char *) buf, SCHARS (string), nbytes);
-  SAFE_FREE ();
-
+  Lisp_Object ret = make_uninit_multibyte_string (nchars, nbytes);
+  str_to_multibyte (SDATA (ret), SDATA (string), nchars);
   return ret;
 }
 
@@ -1310,7 +1267,17 @@ string the same way whether it is unibyte or multibyte.)  */)
 {
   CHECK_STRING (string);
 
-  return string_make_multibyte (string);
+  if (STRING_MULTIBYTE (string))
+    return string;
+
+  ptrdiff_t nchars = SCHARS (string);
+  ptrdiff_t nbytes = count_size_as_multibyte (SDATA (string), nchars);
+  if (nbytes == nchars)
+    return string;
+
+  Lisp_Object ret = make_uninit_multibyte_string (nchars, nbytes);
+  str_to_multibyte (SDATA (ret), SDATA (string), nchars);
+  return ret;
 }
 
 DEFUN ("string-make-unibyte", Fstring_make_unibyte, Sstring_make_unibyte,
@@ -1415,19 +1382,24 @@ an error is signaled.  */)
   (Lisp_Object string)
 {
   CHECK_STRING (string);
+  if (!STRING_MULTIBYTE (string))
+    return string;
 
-  if (STRING_MULTIBYTE (string))
+  ptrdiff_t chars = SCHARS (string);
+  Lisp_Object ret = make_uninit_string (chars);
+  unsigned char *src = SDATA (string);
+  unsigned char *dst = SDATA (ret);
+  for (ptrdiff_t i = 0; i < chars; i++)
     {
-      ptrdiff_t chars = SCHARS (string);
-      unsigned char *str = xmalloc (chars);
-      ptrdiff_t converted = str_to_unibyte (SDATA (string), str, chars);
-
-      if (converted < chars)
-	error ("Can't convert the %"pD"dth character to unibyte", converted);
-      string = make_unibyte_string ((char *) str, chars);
-      xfree (str);
+      unsigned char b = *src++;
+      if (b <= 0x7f)
+	*dst++ = b;					 /* ASCII */
+      else if (CHAR_BYTE8_HEAD_P (b))
+	*dst++ = 0x80 | (b & 1) << 6 | (*src++ & 0x3f);	 /* raw byte */
+      else
+	error ("Cannot convert character at index %"pD"d to unibyte", i);
     }
-  return string;
+  return ret;
 }
 
 
@@ -3003,6 +2975,9 @@ if `last-nonmenu-event' is nil, and `use-dialog-box' is non-nil.  */)
 
   specpdl_ref count = SPECPDL_INDEX ();
   specbind (Qenable_recursive_minibuffers, Qt);
+  /* Preserve the actual command that eventually called `yes-or-no-p'
+     (otherwise `repeat' will be repeating `exit-minibuffer').  */
+  specbind (Qreal_this_command, Vreal_this_command);
 
   while (1)
     {
@@ -6157,4 +6132,6 @@ The same variable also affects the function `read-answer'.  */);
   defsubr (&Sbuffer_hash);
   defsubr (&Slocale_info);
   defsubr (&Sbuffer_line_statistics);
+
+  DEFSYM (Qreal_this_command, "real-this-command");
 }

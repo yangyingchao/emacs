@@ -40,8 +40,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #include <X11/Xproto.h>
 
-static Time pending_dnd_time;
-
 struct prop_location;
 struct selection_data;
 
@@ -265,7 +263,7 @@ x_atom_to_symbol (struct x_display_info *dpyinfo, Atom atom)
    TIMESTAMP should be the timestamp where selection ownership will be
    assumed.
    DND_DATA is the local value that will be used for selection requests
-   with `pending_dnd_time'.
+   with `dpyinfo->pending_dnd_time'.
    Update the Vselection_alist so that we can reply to later requests for
    our selection.  */
 
@@ -439,10 +437,19 @@ static void
 x_decline_selection_request (struct selection_input_event *event)
 {
   XEvent reply_base;
-  XSelectionEvent *reply = &(reply_base.xselection);
+  XSelectionEvent *reply;
+  Display *dpy;
+  struct x_display_info *dpyinfo;
+
+  reply = &(reply_base.xselection);
+  dpy = SELECTION_EVENT_DISPLAY (event);
+  dpyinfo = x_display_info_for_display (dpy);
+
+  if (!dpyinfo)
+    return;
 
   reply->type = SelectionNotify;
-  reply->display = SELECTION_EVENT_DISPLAY (event);
+  reply->display = dpy;
   reply->requestor = SELECTION_EVENT_REQUESTOR (event);
   reply->selection = SELECTION_EVENT_SELECTION (event);
   reply->time = SELECTION_EVENT_TIME (event);
@@ -452,10 +459,12 @@ x_decline_selection_request (struct selection_input_event *event)
   /* The reason for the error may be that the receiver has
      died in the meantime.  Handle that case.  */
   block_input ();
-  x_catch_errors (reply->display);
-  XSendEvent (reply->display, reply->requestor, False, 0, &reply_base);
-  XFlush (reply->display);
-  x_uncatch_errors ();
+  x_ignore_errors_for_next_request (dpyinfo);
+  XSendEvent (dpyinfo->display, reply->requestor,
+	      False, 0, &reply_base);
+  x_stop_ignoring_errors (dpyinfo);
+
+  XFlush (dpyinfo->display);
   unblock_input ();
 }
 
@@ -855,8 +864,11 @@ x_handle_selection_request (struct selection_input_event *event)
 
   /* This is how the XDND protocol recommends dropping text onto a
      target that doesn't support XDND.  */
-  if (SELECTION_EVENT_TIME (event) == pending_dnd_time + 1
-      || SELECTION_EVENT_TIME (event) == pending_dnd_time + 2)
+  if (dpyinfo->pending_dnd_time
+      && ((SELECTION_EVENT_TIME (event)
+	   == dpyinfo->pending_dnd_time + 1)
+	  || (SELECTION_EVENT_TIME (event)
+	      == dpyinfo->pending_dnd_time + 2)))
     use_alternate = true;
 
   block_input ();
@@ -1079,20 +1091,23 @@ x_handle_selection_event (struct selection_input_event *event)
 void
 x_clear_frame_selections (struct frame *f)
 {
-  Lisp_Object frame;
-  Lisp_Object rest;
+  Lisp_Object frame, rest, lost;
   struct x_display_info *dpyinfo = FRAME_DISPLAY_INFO (f);
   struct terminal *t = dpyinfo->terminal;
 
   XSETFRAME (frame, f);
+  lost = Qnil;
 
   /* Delete elements from the beginning of Vselection_alist.  */
   while (CONSP (t->Vselection_alist)
 	 && EQ (frame, XCAR (XCDR (XCDR (XCDR (XCAR (t->Vselection_alist)))))))
     {
-      /* Run the `x-lost-selection-functions' abnormal hook.  */
-      CALLN (Frun_hook_with_args, Qx_lost_selection_functions,
-	     Fcar (Fcar (t->Vselection_alist)));
+      if (!x_auto_preserve_selections)
+	/* Run the `x-lost-selection-functions' abnormal hook.  */
+	CALLN (Frun_hook_with_args, Qx_lost_selection_functions,
+	       Fcar (Fcar (t->Vselection_alist)));
+      else
+	lost = Fcons (Fcar (t->Vselection_alist), lost);
 
       tset_selection_alist (t, XCDR (t->Vselection_alist));
     }
@@ -1102,11 +1117,18 @@ x_clear_frame_selections (struct frame *f)
     if (CONSP (XCDR (rest))
 	&& EQ (frame, XCAR (XCDR (XCDR (XCDR (XCAR (XCDR (rest))))))))
       {
-	CALLN (Frun_hook_with_args, Qx_lost_selection_functions,
-	       XCAR (XCAR (XCDR (rest))));
+	if (!x_auto_preserve_selections)
+	  CALLN (Frun_hook_with_args, Qx_lost_selection_functions,
+		 XCAR (XCAR (XCDR (rest))));
+	else
+	  lost = Fcons (XCAR (XCDR (rest)), lost);
+
 	XSETCDR (rest, XCDR (XCDR (rest)));
 	break;
       }
+
+  if (x_auto_preserve_selections)
+    x_preserve_selections (dpyinfo, lost, frame);
 }
 
 /* True if any properties for DISPLAY and WINDOW
@@ -2882,12 +2904,6 @@ x_timestamp_for_selection (struct x_display_info *dpyinfo,
   value = XCAR (XCDR (XCDR (local_value)));
 
   return value;
-}
-
-void
-x_set_pending_dnd_time (Time time)
-{
-  pending_dnd_time = time;
 }
 
 static void syms_of_xselect_for_pdumper (void);

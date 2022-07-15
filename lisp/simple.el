@@ -1732,8 +1732,6 @@ from Lisp."
 	     words (if (= words 1) "" "s")
 	     chars (if (= chars 1) "" "s"))))
 
-(define-obsolete-function-alias 'count-lines-region 'count-words-region "24.1")
-
 (defun what-line ()
   "Print the current buffer line number and narrowed line number of point."
   (interactive)
@@ -1920,17 +1918,19 @@ in *Help* buffer.  See also the command `describe-char'."
 		   bidi-fixer encoding-msg pos total percent col hscroll))))))
 
 ;; Initialize read-expression-map.  It is defined at C level.
-(defvar read-expression-map
-  (let ((m (make-sparse-keymap)))
-    (define-key m "\M-\t" 'completion-at-point)
-    ;; Might as well bind TAB to completion, since inserting a TAB char is
-    ;; much too rarely useful.
-    (define-key m "\t" 'completion-at-point)
-    (define-key m "\r" 'read--expression-try-read)
-    (define-key m "\n" 'read--expression-try-read)
-    (define-key m "\M-g\M-c" 'read-expression-switch-to-completions)
-    (set-keymap-parent m minibuffer-local-map)
-    m))
+(defvar-keymap read-expression-map
+  :parent minibuffer-local-map
+  "C-M-i" #'completion-at-point
+  ;; Might as well bind TAB to completion, since inserting a TAB char is
+  ;; much too rarely useful.
+  "TAB" #'completion-at-point
+  "M-g M-c" #'read-expression-switch-to-completions)
+
+(defvar-keymap read--expression-map
+  :doc "Keymap used by `read--expression'."
+  :parent read-expression-map
+  "RET" #'read--expression-try-read
+  "C-j" #'read--expression-try-read)
 
 (defun read-minibuffer (prompt &optional initial-contents)
   "Return a Lisp object read using the minibuffer, unevaluated.
@@ -1950,10 +1950,6 @@ is a string to insert in the minibuffer before reading.
 Such arguments are used as in `read-from-minibuffer'.)"
   ;; Used for interactive spec `X'.
   (eval (read--expression prompt initial-contents)))
-
-(defvar minibuffer-completing-symbol nil
-  "Non-nil means completing a Lisp symbol in the minibuffer.")
-(make-obsolete-variable 'minibuffer-completing-symbol nil "24.1" 'get)
 
 (defvar minibuffer-default nil
   "The current default value or list of default values in the minibuffer.
@@ -2015,20 +2011,19 @@ display the result of expression evaluation."
 
 PROMPT and optional argument INITIAL-CONTENTS do the same as in
 function `read-from-minibuffer'."
-  (let ((minibuffer-completing-symbol t))
-    (minibuffer-with-setup-hook
-        (lambda ()
-          ;; FIXME: instead of just applying the syntax table, maybe
-          ;; use a special major mode tailored to reading Lisp
-          ;; expressions from the minibuffer? (`emacs-lisp-mode'
-          ;; doesn't preserve the necessary keybindings.)
-          (set-syntax-table emacs-lisp-mode-syntax-table)
-          (add-hook 'completion-at-point-functions
-                    #'elisp-completion-at-point nil t)
-          (run-hooks 'eval-expression-minibuffer-setup-hook))
-      (read-from-minibuffer prompt initial-contents
-                            read-expression-map t
-                            'read-expression-history))))
+  (minibuffer-with-setup-hook
+      (lambda ()
+        ;; FIXME: instead of just applying the syntax table, maybe
+        ;; use a special major mode tailored to reading Lisp
+        ;; expressions from the minibuffer? (`emacs-lisp-mode'
+        ;; doesn't preserve the necessary keybindings.)
+        (set-syntax-table emacs-lisp-mode-syntax-table)
+        (add-hook 'completion-at-point-functions
+                  #'elisp-completion-at-point nil t)
+        (run-hooks 'eval-expression-minibuffer-setup-hook))
+    (read-from-minibuffer prompt initial-contents
+                          read--expression-map t
+                          'read-expression-history)))
 
 (defun read--expression-try-read ()
   "Try to read an Emacs Lisp expression in the minibuffer.
@@ -5359,17 +5354,6 @@ that `filter-buffer-substring' received.  It should return the
 buffer substring between BEG and END, after filtering.  If DELETE is
 non-nil, it should delete the text between BEG and END from the buffer.")
 
-(defvar buffer-substring-filters nil
-  "List of filter functions for `buffer-substring--filter'.
-Each function must accept a single argument, a string, and return a string.
-The buffer substring is passed to the first function in the list,
-and the return value of each function is passed to the next.
-As a special convention, point is set to the start of the buffer text
-being operated on (i.e., the first argument of `buffer-substring--filter')
-before these functions are called.")
-(make-obsolete-variable 'buffer-substring-filters
-                        'filter-buffer-substring-function "24.1")
-
 (defun filter-buffer-substring (beg end &optional delete)
   "Return the buffer substring between BEG and END, after filtering.
 If DELETE is non-nil, delete the text between BEG and END from the buffer.
@@ -5390,20 +5374,15 @@ that are special to a buffer, and should not be copied into other buffers."
   "Default function to use for `filter-buffer-substring-function'.
 Its arguments and return value are as specified for `filter-buffer-substring'.
 Also respects the obsolete wrapper hook `filter-buffer-substring-functions'
-\(see `with-wrapper-hook' for details about wrapper hooks),
-and the abnormal hook `buffer-substring-filters'.
+(see `with-wrapper-hook' for details about wrapper hooks).
 No filtering is done unless a hook says to."
   (subr--with-wrapper-hook-no-warnings
     filter-buffer-substring-functions (beg end delete)
     (cond
-     ((or delete buffer-substring-filters)
+     (delete
       (save-excursion
         (goto-char beg)
-        (let ((string (if delete (delete-and-extract-region beg end)
-                        (buffer-substring beg end))))
-          (dolist (filter buffer-substring-filters)
-            (setq string (funcall filter string)))
-          string)))
+        (delete-and-extract-region beg end)))
      (t
       (buffer-substring beg end)))))
 
@@ -8949,15 +8928,15 @@ presented."
 (define-minor-mode auto-save-mode
   "Toggle auto-saving in the current buffer (Auto Save mode).
 
-When this mode is enabled, Emacs periodically saves each visited
-file in a separate file called the \"auto-save file\".  This is a
-safety measure to prevent you from losing more than a limited
-amount of work if the system crashes.
+When this mode is enabled, Emacs periodically saves each file-visiting
+buffer in a separate \"auto-save file\".  This is a safety measure to
+prevent you from losing more than a limited amount of work if the
+system crashes.
 
-Auto-saving does not alter the file you actually use: the visited
-file is changed only when you request saving it explicitly (such
-as with \\[save-buffer]).  If you want to save visited files
-automatically, use \\[auto-save-visited-mode]).
+Auto-saving does not alter the file visited by the buffer: the visited
+file is changed only when you request saving it explicitly (such as
+with \\[save-buffer]).  If you want to save the buffer into its
+visited files automatically, use \\[auto-save-visited-mode]).
 
 For more details, see Info node `(emacs) Auto Save'."
   :variable ((and buffer-auto-save-file-name

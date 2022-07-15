@@ -56,16 +56,14 @@
 
 (defvar eudc-form-widget-list nil)
 
-(defvar eudc-mode-map
-  (let ((map (make-sparse-keymap)))
-    (set-keymap-parent map widget-keymap)
-    (define-key map "q" #'kill-current-buffer)
-    (define-key map "x" #'kill-current-buffer)
-    (define-key map "f" #'eudc-query-form)
-    (define-key map "b" #'eudc-try-bbdb-insert)
-    (define-key map "n" #'eudc-move-to-next-record)
-    (define-key map "p" #'eudc-move-to-previous-record)
-    map))
+(defvar-keymap eudc-mode-map
+  :parent widget-keymap
+  "q" #'kill-current-buffer
+  "x" #'kill-current-buffer
+  "f" #'eudc-query-form
+  "b" #'eudc-try-bbdb-insert
+  "n" #'eudc-move-to-next-record
+  "p" #'eudc-move-to-previous-record)
 
 (defvar mode-popup-menu)
 
@@ -928,7 +926,7 @@ non-nil, collect results from all servers."
 `eudc-inline-expansion-format' is expected to return a list.")
           nil))))
 
-   ;; fallback behaviour (nil function, or non-matching type)
+   ;; fallback behavior (nil function, or non-matching type)
    (t
     (let ((fname (cdr (assq (nth 0 query-attrs) res)))
           (lname (cdr (assq (nth 1 query-attrs) res)))

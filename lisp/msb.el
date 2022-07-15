@@ -103,7 +103,7 @@
     ((eq major-mode 'Man-mode)
      4090
      "Manuals (%d)")
-    ((eq major-mode 'w3-mode)
+    ((eq major-mode 'eww-mode)
      4020
      "WWW (%d)")
     ((or (memq major-mode
@@ -154,7 +154,7 @@
     ((eq major-mode 'Man-mode)
      5030
      "Manuals (%d)")
-    ((eq major-mode 'w3-mode)
+    ((eq major-mode 'eww-mode)
      5020
      "WWW (%d)")
     ((or (memq major-mode
@@ -352,9 +352,6 @@ Set this to nil or t if you don't want any sorting (faster)."
 This is instead of the groups in `msb-menu-cond'."
   :type 'boolean
   :set #'msb-custom-set)
-
-(define-obsolete-variable-alias 'msb-after-load-hooks
-  'msb-after-load-hook "24.1")
 
 (defcustom msb-after-load-hook nil
   "Hook run after the msb package has been loaded."

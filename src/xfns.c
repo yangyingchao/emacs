@@ -6963,7 +6963,7 @@ that mouse buttons are being held down, such as immediately after a
     xaction = FRAME_DISPLAY_INFO (f)->Xatom_XdndActionAsk;
   else if (SYMBOLP (action))
     /* This is to accommodate non-standard DND protocols such as XDS
-       that are explictly implemented by Emacs, and is not documented
+       that are explicitly implemented by Emacs, and is not documented
        for that reason.  */
     xaction = symbol_to_x_atom (FRAME_DISPLAY_INFO (f), action);
   else if (CONSP (action))
@@ -8850,9 +8850,8 @@ DEFUN ("x-double-buffered-p", Fx_double_buffered_p, Sx_double_buffered_p,
        doc: /* Return t if FRAME is being double buffered.  */)
      (Lisp_Object frame)
 {
-  struct frame *f = decode_live_frame (frame);
-
 #ifdef HAVE_XDBE
+  struct frame *f = decode_live_frame (frame);
   return FRAME_X_DOUBLE_BUFFERED_P (f) ? Qt : Qnil;
 #else
   return Qnil;

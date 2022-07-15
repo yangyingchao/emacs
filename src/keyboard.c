@@ -1305,9 +1305,6 @@ command_loop_1 (void)
       /* If there are warnings waiting, process them.  */
       if (!NILP (Vdelayed_warnings_list))
         safe_run_hooks (Qdelayed_warnings_hook);
-
-      if (!NILP (Vdeferred_action_list))
-	safe_run_hooks (Qdeferred_action_function);
     }
 
   /* Do this after running Vpost_command_hook, for consistency.  */
@@ -1373,12 +1370,6 @@ command_loop_1 (void)
 	      Vunread_command_events = list1i (quit_char);
 	    }
 	}
-
-      /* If it has changed current-menubar from previous value,
-	 really recompute the menubar from the value.  */
-      if (! NILP (Vlucid_menu_bar_dirty_flag)
-	  && !NILP (Ffboundp (Qrecompute_lucid_menubar)))
-	call0 (Qrecompute_lucid_menubar);
 
       Vthis_command = Qnil;
       Vreal_this_command = Qnil;
@@ -1537,8 +1528,6 @@ command_loop_1 (void)
       if (!NILP (Vdelayed_warnings_list))
         safe_run_hooks (Qdelayed_warnings_hook);
 
-      safe_run_hooks (Qdeferred_action_function);
-
       kset_last_command (current_kboard, Vthis_command);
       kset_real_last_command (current_kboard, Vreal_this_command);
       if (!CONSP (last_command_event))
@@ -1595,9 +1584,12 @@ command_loop_1 (void)
 		{
 		  Lisp_Object txt
 		    = call1 (Vregion_extract_function, Qnil);
+
 		  if (XFIXNUM (Flength (txt)) > 0)
 		    /* Don't set empty selections.  */
 		    call2 (Qgui_set_selection, QPRIMARY, txt);
+
+		  CALLN (Frun_hook_with_args, Qpost_select_region_hook, txt);
 		}
 
 	      if (current_buffer != prev_buffer || MODIFF != prev_modiff)
@@ -11464,7 +11456,7 @@ quit_throw_to_read_char (bool from_signal)
   if (FRAMEP (internal_last_event_frame)
       && !EQ (internal_last_event_frame, selected_frame))
     do_switch_frame (make_lispy_switch_frame (internal_last_event_frame),
-		     0, 0, Qnil);
+		     0, Qnil);
 
   sys_longjmp (getcjmp, 1);
 }
@@ -12085,11 +12077,13 @@ syms_of_keyboard (void)
   DEFSYM (Qpre_command_hook, "pre-command-hook");
   DEFSYM (Qpost_command_hook, "post-command-hook");
 
+  /* Hook run after the region is selected.  */
+  DEFSYM (Qpost_select_region_hook, "post-select-region-hook");
+
   DEFSYM (Qundo_auto__add_boundary, "undo-auto--add-boundary");
   DEFSYM (Qundo_auto__undoably_changed_buffers,
           "undo-auto--undoably-changed-buffers");
 
-  DEFSYM (Qdeferred_action_function, "deferred-action-function");
   DEFSYM (Qdelayed_warnings_hook, "delayed-warnings-hook");
   DEFSYM (Qfunction_key, "function-key");
 
@@ -12184,7 +12178,6 @@ syms_of_keyboard (void)
      apply_modifiers.  */
   DEFSYM (Qmodifier_cache, "modifier-cache");
 
-  DEFSYM (Qrecompute_lucid_menubar, "recompute-lucid-menubar");
   DEFSYM (Qactivate_menubar_hook, "activate-menubar-hook");
 
   DEFSYM (Qpolling_period, "polling-period");
@@ -12665,10 +12658,6 @@ See also `pre-command-hook'.  */);
 
   Fset (Qecho_area_clear_hook, Qnil);
 
-  DEFVAR_LISP ("lucid-menu-bar-dirty-flag", Vlucid_menu_bar_dirty_flag,
-	       doc: /* Non-nil means menu bar, specified Lucid style, needs to be recomputed.  */);
-  Vlucid_menu_bar_dirty_flag = Qnil;
-
 #ifdef USE_LUCID
   DEFVAR_BOOL ("lucid--menu-grab-keyboard",
                lucid__menu_grab_keyboard,
@@ -12806,17 +12795,6 @@ definition will take precedence.  */);
 This keymap works like `input-decode-map', but comes after `function-key-map'.
 Another difference is that it is global rather than terminal-local.  */);
   Vkey_translation_map = Fmake_sparse_keymap (Qnil);
-
-  DEFVAR_LISP ("deferred-action-list", Vdeferred_action_list,
-	       doc: /* List of deferred actions to be performed at a later time.
-The precise format isn't relevant here; we just check whether it is nil.  */);
-  Vdeferred_action_list = Qnil;
-
-  DEFVAR_LISP ("deferred-action-function", Vdeferred_action_function,
-	       doc: /* Function to call to handle deferred actions, after each command.
-This function is called with no arguments after each command
-whenever `deferred-action-list' is non-nil.  */);
-  Vdeferred_action_function = Qnil;
 
   DEFVAR_LISP ("delayed-warnings-list", Vdelayed_warnings_list,
                doc: /* List of warnings to be displayed after this command.
@@ -13004,7 +12982,7 @@ Emacs allows binding both upper and lower case key sequences to
 commands.  However, if there is a lower case key sequence bound to a
 command, and the user enters an upper case key sequence that is not
 bound to a command, Emacs will use the lower case binding.  Setting
-this variable to nil inhibits this behaviour.  */);
+this variable to nil inhibits this behavior.  */);
   translate_upper_case_key_bindings = true;
 
   DEFVAR_BOOL ("input-pending-p-filter-events",
@@ -13045,6 +13023,12 @@ not recorded.  The non-nil value countermands `inhibit--record-char',
 which see.  */);
   record_all_keys = false;
 
+  DEFVAR_LISP ("post-select-region-hook", Vpost_select_region_hook,
+    doc: /* Abnormal hook run after the region is selected.
+This usually happens as a result of `select-active-regions'.  The hook
+is called with one argument, the string that was selected.  */);;
+  Vpost_select_region_hook = Qnil;
+
   pdumper_do_now_and_after_load (syms_of_keyboard_for_pdumper);
 }
 
@@ -13072,7 +13056,6 @@ syms_of_keyboard_for_pdumper (void)
   PDUMPER_RESET (num_input_keys, 0);
   PDUMPER_RESET (num_nonmacro_input_events, 0);
   PDUMPER_RESET_LV (Vlast_event_frame, Qnil);
-  PDUMPER_RESET_LV (Vdeferred_action_list, Qnil);
   PDUMPER_RESET_LV (Vdelayed_warnings_list, Qnil);
 
   /* Create the initial keyboard.  Qt means 'unset'.  */

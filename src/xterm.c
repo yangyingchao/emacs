@@ -805,6 +805,20 @@ static int current_finish;
 static struct input_event *current_hold_quit;
 #endif
 
+#ifdef HAVE_XINPUT2
+#ifndef X_XIGrabDevice
+#define X_XIGrabDevice 51
+#endif
+
+#ifndef X_XIUngrabDevice
+#define X_XIUngrabDevice 52
+#endif
+
+#ifndef X_XIAllowEvents
+#define X_XIAllowEvents 53
+#endif
+#endif
+
 /* Queue selection requests in `pending_selection_requests' if more
    than 0.  */
 static int x_use_pending_selection_requests;
@@ -1121,8 +1135,6 @@ static void x_scroll_bar_end_update (struct x_display_info *, struct scroll_bar 
 #ifdef HAVE_X_I18N
 static int x_filter_event (struct x_display_info *, XEvent *);
 #endif
-static void x_ignore_errors_for_next_request (struct x_display_info *);
-static void x_stop_ignoring_errors (struct x_display_info *);
 static void x_clean_failable_requests (struct x_display_info *);
 
 static struct frame *x_tooltip_window_to_frame (struct x_display_info *,
@@ -1421,7 +1433,7 @@ static bool x_dnd_use_toplevels;
 /* Motif drag-and-drop protocol support.  */
 
 /* Pointer to a variable which stores whether or not an X error
-   occured while trying to create the Motif drag window.  */
+   occurred while trying to create the Motif drag window.  */
 static volatile bool *xm_drag_window_error;
 
 typedef enum xm_byte_order
@@ -2085,7 +2097,7 @@ xm_setup_dnd_targets (struct x_display_info *dpyinfo,
 			   &actual_type, &actual_format, &nitems,
 			   &bytes_remaining, &tmp_data) == Success;
   had_errors = x_had_errors_p (dpyinfo->display);
-  x_uncatch_errors ();
+  x_uncatch_errors_after_check ();
 
   /* The drag window is probably invalid, so remove our record of
      it.  */
@@ -2296,7 +2308,7 @@ xm_get_drag_atom_1 (struct x_display_info *dpyinfo,
 			   &actual_format, &nitems, &bytes_remaining,
 			   &tmp_data);
   atom = None;
-  /* GCC thinks i is used unitialized, but it's always initialized if
+  /* GCC thinks i is used uninitialized, but it's always initialized if
      `atoms' exists at that particular spot.  */
   i = 0;
 
@@ -2798,6 +2810,7 @@ x_dnd_free_toplevels (bool display_alive)
   unsigned long *prev_masks;
   specpdl_ref count;
   Display *dpy;
+  struct x_display_info *dpyinfo;
 
   if (!x_dnd_toplevels)
     /* Probably called inside an IO error handler.  */
@@ -2865,17 +2878,22 @@ x_dnd_free_toplevels (bool display_alive)
 
   if (display_alive)
     {
-      x_catch_errors (dpy);
+      dpyinfo = x_display_info_for_display (dpy);
 
-      for (i = 0; i < n_windows; ++i)
+      if (n_windows)
 	{
-	  XSelectInput (dpy, destroy_windows[i], prev_masks[i]);
-#ifdef HAVE_XSHAPE
-	  XShapeSelectInput (dpy, destroy_windows[i], None);
-#endif
-	}
+	  x_ignore_errors_for_next_request (dpyinfo);
 
-      x_uncatch_errors ();
+	  for (i = 0; i < n_windows; ++i)
+	    {
+	      XSelectInput (dpy, destroy_windows[i], prev_masks[i]);
+#ifdef HAVE_XSHAPE
+	      XShapeSelectInput (dpy, destroy_windows[i], None);
+#endif
+	    }
+
+	  x_stop_ignoring_errors (dpyinfo);
+	}
     }
 
   unbind_to (count, Qnil);
@@ -3389,12 +3407,12 @@ x_dnd_compute_toplevels (struct x_display_info *dpyinfo)
 	    }
 #endif
 
-	  x_catch_errors (dpyinfo->display);
+	  x_ignore_errors_for_next_request (dpyinfo);
 	  XSelectInput (dpyinfo->display, toplevels[i],
 			(attrs.your_event_mask
 			 | StructureNotifyMask
 			 | PropertyChangeMask));
-	  x_uncatch_errors ();
+	  x_stop_ignoring_errors (dpyinfo);
 
 	  x_dnd_toplevels = tem;
 	}
@@ -3873,8 +3891,10 @@ x_dnd_do_unsupported_drop (struct x_display_info *dpyinfo,
 	 && child_return != None)
     child = child_return;
 
+  x_uncatch_errors ();
+
   if (!CONSP (value))
-    goto cancel;
+    return;
 
   current_value = assq_no_quit (QPRIMARY,
 				dpyinfo->terminal->Vselection_alist);
@@ -3891,9 +3911,7 @@ x_dnd_do_unsupported_drop (struct x_display_info *dpyinfo,
      from generating events that will insert something else.  */
 
   if (owner != FRAME_X_WINDOW (f))
-    goto cancel;
-
-  x_uncatch_errors ();
+    return;
 
   event.xbutton.window = child;
   event.xbutton.subwindow = None;
@@ -3903,7 +3921,7 @@ x_dnd_do_unsupported_drop (struct x_display_info *dpyinfo,
   event.xbutton.button = 2;
   event.xbutton.same_screen = True;
 
-  x_set_pending_dnd_time (before);
+  dpyinfo->pending_dnd_time = before;
 
   event.xbutton.type = ButtonPress;
   event.xbutton.time = before + 1;
@@ -3924,9 +3942,6 @@ x_dnd_do_unsupported_drop (struct x_display_info *dpyinfo,
   x_dnd_action_symbol = QXdndActionPrivate;
 
   return;
-
- cancel:
-  x_uncatch_errors ();
 }
 
 static void
@@ -4440,7 +4455,10 @@ x_dnd_send_position (struct frame *f, Window target, int supported,
 
   if (target == x_dnd_mouse_rect_target
       && x_dnd_mouse_rect.width
-      && x_dnd_mouse_rect.height)
+      && x_dnd_mouse_rect.height
+      /* Ignore the mouse rectangle if we're supposed to be sending a
+	 button press instead.  */
+      && (supported < 5 || !button))
     {
       if (root_x >= x_dnd_mouse_rect.x
 	  && root_x < (x_dnd_mouse_rect.x
@@ -7115,6 +7133,24 @@ x_update_frame_user_time_window (struct frame *f)
 
   output = FRAME_X_OUTPUT (f);
   dpyinfo = FRAME_DISPLAY_INFO (f);
+
+  if (!NILP (Vx_no_window_manager)
+      || !x_wm_supports (f, dpyinfo->Xatom_net_wm_user_time))
+    {
+      if (output->user_time_window != None
+	  && output->user_time_window != FRAME_OUTER_WINDOW (f))
+	{
+	  XDestroyWindow (dpyinfo->display, output->user_time_window);
+	  XDeleteProperty (dpyinfo->display, FRAME_OUTER_WINDOW (f),
+			   dpyinfo->Xatom_net_wm_user_time_window);
+	}
+      else
+	XDeleteProperty (dpyinfo->display, FRAME_OUTER_WINDOW (f),
+			 dpyinfo->Xatom_net_wm_user_time);
+
+      output->user_time_window = None;
+      return;
+    }
 
   if (!x_wm_supports (f, dpyinfo->Xatom_net_wm_user_time_window))
     {
@@ -14936,7 +14972,6 @@ x_scroll_bar_expose (struct scroll_bar *bar, const XEvent *event)
   Window w = bar->x_window;
 #else
   Drawable w = bar->x_drawable;
-#endif
   int x, y, width, height;
 
   if (event->type == Expose)
@@ -14953,6 +14988,7 @@ x_scroll_bar_expose (struct scroll_bar *bar, const XEvent *event)
       width = event->xgraphicsexpose.width;
       height = event->xgraphicsexpose.height;
     }
+#endif
 
   struct frame *f = XFRAME (WINDOW_FRAME (XWINDOW (bar->window)));
   GC gc = f->output_data.x->normal_gc;
@@ -16474,16 +16510,16 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		switch (operation)
 		  {
 		  case XM_DRAG_MOVE:
-		    x_dnd_action = dpyinfo->Xatom_XdndActionMove;
+		    x_dnd_action_symbol = QXdndActionMove;
 		    break;
 
 		  case XM_DRAG_COPY:
-		    x_dnd_action = dpyinfo->Xatom_XdndActionCopy;
+		    x_dnd_action_symbol = QXdndActionCopy;
 		    break;
 
 		    /* This means XM_DRAG_OPERATION_IS_LINK (operation).  */
 		  default:
-		    x_dnd_action = dpyinfo->Xatom_XdndActionLink;
+		    x_dnd_action_symbol = QXdndActionLink;
 		    break;
 		  }
 
@@ -16573,11 +16609,14 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 
             if (event->xclient.data.l[0] == dpyinfo->Xatom_wm_delete_window)
               {
-                f = any;
+                f = x_top_window_to_frame (dpyinfo,
+					   event->xclient.window);
+
                 if (!f)
 		  goto OTHER; /* May be a dialog that is to be removed  */
 
 		inev.ie.kind = DELETE_WINDOW_EVENT;
+		inev.ie.timestamp = event->xclient.data.l[1];
 		XSETFRAME (inev.ie.frame_or_window, f);
 		goto done;
               }
@@ -18634,10 +18673,12 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	       configureEvent.xconfigure.height,
 	       f->new_width, f->new_height);
 
+#ifdef HAVE_XDBE
 	  block_input ();
           if (FRAME_X_DOUBLE_BUFFERED_P (f))
             x_drop_xrender_surfaces (f);
           unblock_input ();
+#endif
           xg_frame_resized (f, configureEvent.xconfigure.width,
                             configureEvent.xconfigure.height);
 #ifdef USE_CAIRO
@@ -18934,23 +18975,17 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 			      }
 			  }
 			else
-			  {
-			    x_set_pending_dnd_time (event->xbutton.time);
-			    x_dnd_send_unsupported_drop (dpyinfo, (x_dnd_last_seen_toplevel != None
-								   ? x_dnd_last_seen_toplevel
-								   : x_dnd_last_seen_window),
-							 event->xbutton.x_root, event->xbutton.y_root,
-							 event->xbutton.time);
-			  }
+			  x_dnd_send_unsupported_drop (dpyinfo, (x_dnd_last_seen_toplevel != None
+								 ? x_dnd_last_seen_toplevel
+								 : x_dnd_last_seen_window),
+						       event->xbutton.x_root, event->xbutton.y_root,
+						       event->xbutton.time);
 		      }
 		    else if (x_dnd_last_seen_toplevel != None)
-		      {
-			x_set_pending_dnd_time (event->xbutton.time);
-			x_dnd_send_unsupported_drop (dpyinfo, x_dnd_last_seen_toplevel,
-						     event->xbutton.x_root,
-						     event->xbutton.y_root,
-						     event->xbutton.time);
-		      }
+		      x_dnd_send_unsupported_drop (dpyinfo, x_dnd_last_seen_toplevel,
+						   event->xbutton.x_root,
+						   event->xbutton.y_root,
+						   event->xbutton.time);
 
 
 		    x_dnd_last_protocol_version = -1;
@@ -19215,6 +19250,10 @@ handle_one_xevent (struct x_display_info *dpyinfo,
       goto OTHER;
 
     case DestroyNotify:
+      if (event->xdestroywindow.window
+	  == dpyinfo->net_supported_window)
+	dpyinfo->net_supported_window = None;
+
       xft_settings_event (dpyinfo, event);
       break;
 
@@ -20348,22 +20387,16 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 				    }
 				}
 			      else
-				{
-				  x_set_pending_dnd_time (xev->time);
-				  x_dnd_send_unsupported_drop (dpyinfo, (x_dnd_last_seen_toplevel != None
-									 ? x_dnd_last_seen_toplevel
-									 : x_dnd_last_seen_window),
-							       xev->root_x, xev->root_y, xev->time);
-				}
+				x_dnd_send_unsupported_drop (dpyinfo, (x_dnd_last_seen_toplevel != None
+								       ? x_dnd_last_seen_toplevel
+								       : x_dnd_last_seen_window),
+							     xev->root_x, xev->root_y, xev->time);
 			    }
 			  else if (x_dnd_last_seen_toplevel != None)
-			    {
-			      x_set_pending_dnd_time (xev->time);
-			      x_dnd_send_unsupported_drop (dpyinfo,
-							   x_dnd_last_seen_toplevel,
-							   xev->root_x, xev->root_y,
-							   xev->time);
-			    }
+			    x_dnd_send_unsupported_drop (dpyinfo,
+							 x_dnd_last_seen_toplevel,
+							 xev->root_x, xev->root_y,
+							 xev->time);
 
 			  x_dnd_last_protocol_version = -1;
 			  x_dnd_last_motif_style = XM_DRAG_STYLE_NONE;
@@ -23024,7 +23057,7 @@ x_clean_failable_requests (struct x_display_info *dpyinfo)
 				    + (last - first));
 }
 
-static void
+void
 x_ignore_errors_for_next_request (struct x_display_info *dpyinfo)
 {
   struct x_failable_request *request, *max;
@@ -23077,7 +23110,7 @@ x_ignore_errors_for_next_request (struct x_display_info *dpyinfo)
   dpyinfo->next_failable_request++;
 }
 
-static void
+void
 x_stop_ignoring_errors (struct x_display_info *dpyinfo)
 {
   struct x_failable_request *range;
@@ -23284,10 +23317,26 @@ x_trace_wire (Display *dpy)
 
 static char *error_msg;
 
+/* Try to find a frame in Vframe_list, and make it the selected frame.
+   `delete_frame' sometimes misses the initial frame for an unknown
+   reason when Emacs is running as a background daemon.  */
+
+static void
+x_try_restore_frame (void)
+{
+  Lisp_Object tail, frame;
+
+  FOR_EACH_FRAME (tail, frame)
+    {
+      if (!NILP (do_switch_frame (frame, 1, Qnil)))
+	return;
+    }
+}
+
 /* Handle the loss of connection to display DPY.  ERROR_MESSAGE is
    the text of an error message that lead to the connection loss.  */
 
-static AVOID
+static void
 x_connection_closed (Display *dpy, const char *error_message, bool ioerror)
 {
   struct x_display_info *dpyinfo;
@@ -23299,6 +23348,15 @@ x_connection_closed (Display *dpy, const char *error_message, bool ioerror)
   Lisp_Object minibuf_frame, tmp;
   struct x_failable_request *failable;
   struct x_error_message_stack *stack;
+  static Display *current_display;
+
+  /* Prevent recursive calls of this function for the same display.
+     This is because destroying a frame might still cause an IO error
+     in some cases.  (bug#56528) */
+  if (current_display == dpy)
+    return;
+
+  current_display = dpy;
 
   dpyinfo = x_display_info_for_display (dpy);
   error_msg = alloca (strlen (error_message) + 1);
@@ -23492,9 +23550,18 @@ For details, see etc/PROBLEMS.\n",
       Fdelete_terminal (tmp, Qnoelisp);
     }
 
+  /* The initial "daemon" frame is sometimes not selected by
+     `delete_frame' when Emacs is a background daemon.  */
+  if (NILP (selected_frame))
+    x_try_restore_frame ();
+
   unblock_input ();
 
-  if (terminal_list == 0)
+  /* Sometimes another terminal is still alive, but deleting this
+     terminal caused all frames to vanish.  In that case, simply kill
+     Emacs, since the next redisplay will abort as there is no more
+     selected frame.  (bug#56528) */
+  if (terminal_list == 0 || NILP (selected_frame))
     Fkill_emacs (make_fixnum (70), Qnil);
 
   totally_unblock_input ();
@@ -23505,6 +23572,7 @@ For details, see etc/PROBLEMS.\n",
   /* Here, we absolutely have to use a non-local exit (e.g. signal, throw,
      longjmp), because returning from this function would get us back into
      Xlib's code which will directly call `exit'.  */
+  current_display = NULL;
   error ("%s", error_msg);
 }
 
@@ -23555,15 +23623,13 @@ x_error_handler (Display *display, XErrorEvent *event)
      (that happens a lot in xmenu.c), just ignore the error.  */
 
 #ifdef HAVE_XINPUT2
-  /* 51 is X_XIGrabDevice and 52 is X_XIUngrabDevice.
-
-     53 is X_XIAllowEvents.  We handle errors from that here to avoid
-     a sync in handle_one_xevent.  */
+  /* Handle errors from some specific XI2 requests here to avoid a
+     sync in handle_one_xevent.  */
   if (dpyinfo && dpyinfo->supports_xi2
       && event->request_code == dpyinfo->xi2_opcode
-      && (event->minor_code == 51
-	  || event->minor_code == 52
-	  || event->minor_code == 53))
+      && (event->minor_code == X_XIGrabDevice
+	  || event->minor_code == X_XIUngrabDevice
+	  || event->minor_code == X_XIAllowEvents))
     return 0;
 #endif
 
@@ -23609,7 +23675,7 @@ x_error_quitter (Display *display, XErrorEvent *event)
    It kills all frames on the display that we lost touch with.
    If that was the only one, it prints an error message and kills Emacs.  */
 
-static _Noreturn ATTRIBUTE_COLD int
+static int NO_INLINE
 x_io_error_quitter (Display *display)
 {
   char buf[256];
@@ -23617,6 +23683,8 @@ x_io_error_quitter (Display *display)
   snprintf (buf, sizeof buf, "Connection lost to X server '%s'",
 	    DisplayString (display));
   x_connection_closed (display, buf, true);
+
+  return 0;
 }
 
 
@@ -24067,8 +24135,43 @@ x_set_offset (struct frame *f, int xoff, int yoff, int change_gravity)
 		      && FRAME_X_OUTPUT (f)->move_offset_top == 0))))
 	x_check_expected_move (f, modified_left, modified_top);
     }
+  /* Instead, just wait for the last ConfigureWindow request to
+     complete.  No window manager is involved when moving child
+     frames.  */
+  else
+    XSync (FRAME_X_DISPLAY (f), False);
 
   unblock_input ();
+}
+
+static Window
+x_get_wm_check_window (struct x_display_info *dpyinfo)
+{
+  Window result;
+  unsigned char *tmp_data = NULL;
+  int rc, actual_format;
+  unsigned long actual_size, bytes_remaining;
+  Atom actual_type;
+
+  rc = XGetWindowProperty (dpyinfo->display, dpyinfo->root_window,
+			   dpyinfo->Xatom_net_supporting_wm_check,
+                           0, 1, False, XA_WINDOW, &actual_type,
+			   &actual_format, &actual_size,
+                           &bytes_remaining, &tmp_data);
+
+  if (rc != Success || actual_type != XA_WINDOW
+      || actual_format != 32 || actual_size != 1)
+    {
+      if (tmp_data)
+	XFree (tmp_data);
+
+      return None;
+    }
+
+  result = *(Window *) tmp_data;
+  XFree (tmp_data);
+
+  return result;
 }
 
 /* Return true if _NET_SUPPORTING_WM_CHECK window exists and _NET_SUPPORTED
@@ -24091,33 +24194,40 @@ x_wm_supports_1 (struct x_display_info *dpyinfo, Atom want_atom)
   unsigned char *tmp_data = NULL;
   Atom target_type = XA_WINDOW;
 
+  /* The user says there's no window manager, so take him up on
+     it.  */
+  if (!NILP (Vx_no_window_manager))
+    return false;
+
   block_input ();
 
   x_catch_errors (dpy);
-  rc = XGetWindowProperty (dpy, target_window,
-                           dpyinfo->Xatom_net_supporting_wm_check,
-                           0, max_len, False, target_type,
-                           &actual_type, &actual_format, &actual_size,
-                           &bytes_remaining, &tmp_data);
 
-  if (rc != Success || actual_type != XA_WINDOW || x_had_errors_p (dpy))
+  wmcheck_window = dpyinfo->net_supported_window;
+
+  if (wmcheck_window == None)
+    wmcheck_window = x_get_wm_check_window (dpyinfo);
+
+  if (!x_special_window_exists_p (dpyinfo, wmcheck_window))
     {
-      if (tmp_data) XFree (tmp_data);
-      x_uncatch_errors ();
-      unblock_input ();
-      return false;
-    }
+      if (dpyinfo->net_supported_window != None)
+	{
+	  dpyinfo->net_supported_window = None;
+	  wmcheck_window = x_get_wm_check_window (dpyinfo);
 
-  wmcheck_window = *(Window *) tmp_data;
-  XFree (tmp_data);
-
-  /* Check if window exists. */
-  XSelectInput (dpy, wmcheck_window, StructureNotifyMask);
-  if (x_had_errors_p (dpy))
-    {
-      x_uncatch_errors_after_check ();
-      unblock_input ();
-      return false;
+	  if (!x_special_window_exists_p (dpyinfo, wmcheck_window))
+	    {
+	      x_uncatch_errors ();
+	      unblock_input ();
+	      return false;
+	    }
+	}
+      else
+	{
+	  x_uncatch_errors ();
+	  unblock_input ();
+	  return false;
+	}
     }
 
   if (dpyinfo->net_supported_window != wmcheck_window)
@@ -24768,7 +24878,6 @@ x_sync_with_move (struct frame *f, int left, int top, bool fuzzy)
   else
     wait_reading_process_output (0, 500000000, 0, false, Qnil, NULL, 0);
 }
-
 
 /* Wait for an event on frame F matching EVENTTYPE.  */
 void
@@ -27830,9 +27939,12 @@ void
 mark_xterm (void)
 {
   Lisp_Object val;
-#if defined HAVE_XINPUT2 || defined USE_TOOLKIT_SCROLL_BARS
+#if defined HAVE_XINPUT2 || defined USE_TOOLKIT_SCROLL_BARS \
+  || defined HAVE_XRANDR || defined USE_GTK
   struct x_display_info *dpyinfo;
+#if defined HAVE_XINPUT2 || defined USE_TOOLKIT_SCROLL_BARS
   int i;
+#endif
 #endif
 
   if (x_dnd_return_frame_object)
@@ -27896,6 +28008,140 @@ x_uncatch_errors_for_lisp (struct x_display_info *dpyinfo)
     x_stop_ignoring_errors (dpyinfo);
 }
 
+/* Preserve the selections in LOST in another frame on DPYINFO.  LOST
+   is a list of local selections that were lost, due to their frame
+   being deleted.  */
+
+void
+x_preserve_selections (struct x_display_info *dpyinfo, Lisp_Object lost,
+		       Lisp_Object current_owner)
+{
+  Lisp_Object tail, frame, new_owner, tem;
+  Time timestamp;
+  Window *owners;
+  Atom *names;
+  ptrdiff_t nowners, counter;
+  struct selection_input_event clear;
+#ifdef USE_XCB
+  xcb_get_selection_owner_cookie_t *cookies;
+  xcb_generic_error_t *error;
+  xcb_get_selection_owner_reply_t *reply;
+#endif
+
+  new_owner = Qnil;
+
+  FOR_EACH_FRAME (tail, frame)
+    {
+      if (FRAME_X_P (XFRAME (frame))
+	  && !EQ (frame, current_owner)
+	  && FRAME_DISPLAY_INFO (XFRAME (frame)) == dpyinfo)
+	{
+	  new_owner = frame;
+	  break;
+	}
+    }
+
+  tail = lost;
+  nowners = 0;
+
+  FOR_EACH_TAIL_SAFE (tail)
+    {
+      tem = XCAR (tail);
+      ++nowners;
+
+      /* The selection is really lost (since we cannot find a new
+	 owner), so run the appropriate hooks.  */
+      if (NILP (new_owner))
+	CALLN (Frun_hook_with_args, Qx_lost_selection_functions,
+	       XCAR (tem));
+      else
+	{
+	  CONS_TO_INTEGER (XCAR (XCDR (XCDR (tem))), Time, timestamp);
+
+	  /* This shouldn't be able to signal any errors, despite the
+	     call to `x_check_errors' inside.  */
+	  x_own_selection (XCAR (tem), XCAR (XCDR (tem)),
+			   new_owner, XCAR (XCDR (XCDR (XCDR (XCDR (tem))))),
+			   timestamp);
+	}
+    }
+
+  if (!NILP (new_owner))
+    {
+      owners = alloca (sizeof *owners * nowners);
+      names = alloca (sizeof *names * nowners);
+#ifdef USE_XCB
+      cookies = alloca (sizeof *cookies * nowners);
+#endif
+
+      tail = lost;
+      nowners = 0;
+      counter = 0;
+
+      FOR_EACH_TAIL_SAFE (tail)
+	{
+	  tem = XCAR (tail);
+
+	  /* Now check if we still don't own that selection, which can
+	     happen if another program set itself as the owner.  */
+	  names[counter++] = symbol_to_x_atom (dpyinfo, XCAR (tem));
+
+#ifndef USE_XCB
+	  owners[nowners++] = XGetSelectionOwner (dpyinfo->display,
+						  names[counter - 1]);
+#else
+	  cookies[nowners++]
+	    = xcb_get_selection_owner (dpyinfo->xcb_connection,
+				       names[counter - 1]);
+	}
+
+      nowners = 0;
+
+      FOR_EACH_TAIL_SAFE (tail)
+	{
+	  reply = xcb_get_selection_owner_reply (dpyinfo->xcb_connection,
+						 cookies[nowners++], &error);
+
+	  if (reply)
+	    owners[nowners - 1] = reply->owner;
+	  else
+	    owners[nowners - 1] = None;
+
+	  free (reply ? (void *) reply : (void *) error);
+#endif
+
+	  if (owners[nowners - 1] != FRAME_X_WINDOW (XFRAME (new_owner)))
+	    {
+	      /* Clear the local selection, since we know we don't own
+		 it any longer.  */
+	      CONS_TO_INTEGER (XCAR (XCDR (XCDR (tem))), Time, timestamp);
+
+	      clear.kind = SELECTION_CLEAR_EVENT;
+
+	      SELECTION_EVENT_DPYINFO (&clear) = dpyinfo;
+	      SELECTION_EVENT_SELECTION (&clear) = names[nowners - 1];
+	      SELECTION_EVENT_TIME (&clear) = timestamp;
+
+	      x_handle_selection_event (&clear);
+	    }
+	}
+
+      tail = lost;
+      nowners = 0;
+
+      FOR_EACH_TAIL_SAFE (tail)
+	{
+	  tem = XCAR (tail);
+
+	  /* If the selection isn't owned by us anymore, note that the
+	     selection was lost.  */
+	  if (owners[nowners++] != FRAME_X_WINDOW (XFRAME (new_owner)))
+	    CALLN (Frun_hook_with_args, Qx_lost_selection_functions,
+		   XCAR (tem));
+	}
+    }
+}
+
 void
 syms_of_xterm (void)
 {
@@ -27918,6 +28164,7 @@ syms_of_xterm (void)
   DEFSYM (Qlatin_1, "latin-1");
   DEFSYM (Qnow, "now");
   DEFSYM (Qx_dnd_targets_list, "x-dnd-targets-list");
+  DEFSYM (Qx_auto_preserve_selections, "x-auto-preserve-selections");
 
 #ifdef USE_GTK
   xg_default_icon_file = build_pure_c_string ("icons/hicolor/scalable/apps/emacs.svg");
@@ -27964,7 +28211,7 @@ you, try increasing the value of
   x_mouse_click_focus_ignore_position = false;
 
   DEFVAR_INT ("x-mouse-click-focus-ignore-time", x_mouse_click_focus_ignore_time,
-    doc: /* Number of miliseconds for which to ignore buttons after focus change.
+    doc: /* Number of milliseconds for which to ignore buttons after focus change.
 This variable only takes effect if
 `x-mouse-click-focus-ignore-position' is non-nil, and should be
 adjusted if the default value does not work for whatever reason.  */);
@@ -28210,4 +28457,11 @@ reply from the X server, and signal any errors that occurred while
 executing the protocol request.  Otherwise, errors will be silently
 ignored without waiting, which is generally faster.  */);
   x_fast_protocol_requests = false;
+
+  DEFVAR_BOOL ("x-auto-preserve-selections", x_auto_preserve_selections,
+    doc: /* Whether or not to transfer selection ownership when deleting a frame.
+When non-nil, deleting a frame that is currently the owner of a
+selection will cause its ownership to be transferred to another frame
+on the same display.  */);
+  x_auto_preserve_selections = true;
 }

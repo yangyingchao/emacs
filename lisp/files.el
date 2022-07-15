@@ -475,14 +475,15 @@ Any other value means that it will not."
   :version "29.1")
 
 (define-minor-mode auto-save-visited-mode
-  "Toggle automatic saving to file-visiting buffers on or off.
+  "Toggle automatic saving of file-visiting buffers to their files.
 
-When this mode is enabled, visited files are saved automatically.
-The user option `auto-save-visited-interval' controls how often.
+When this mode is enabled, file-visiting buffers are automatically
+saved to their files.  This is in contrast to `auto-save-mode', which
+auto-saves those buffers to a separate file, leaving the original
+file intact.  See Info node `Saving' for details of the save process.
 
-Unlike `auto-save-mode', this mode will auto-save buffer contents
-to the visited files directly and will also run all save-related
-hooks.  See Info node `Saving' for details of the save process.
+The user option `auto-save-visited-interval' controls how often to
+auto-save a buffer into its visited file.
 
 You can use `auto-save-visited-predicate' to control which
 buffers are saved.
@@ -1273,20 +1274,9 @@ Tip: You can use this expansion of remote identifier components
 ;; It's not clear what the best file for this to be in is, but given
 ;; it uses custom-initialize-delay, it is easier if it is preloaded
 ;; rather than autoloaded.
-(defcustom remote-shell-program
-  ;; This used to try various hard-coded places for remsh, rsh, and
-  ;; rcmd, trying to guess based on location whether "rsh" was
-  ;; "restricted shell" or "remote shell", but I don't see the point
-  ;; in this day and age.  Almost everyone will use ssh, and have
-  ;; whatever command they want to use in PATH.
-  (purecopy
-   (let ((list '("ssh" "remsh" "rcmd" "rsh")))
-     (while (and list
-		 (not (executable-find (car list)))
-		 (setq list (cdr list))))
-     (or (car list) "ssh")))
-  "Program to use to execute commands on a remote host (e.g. ssh or rsh)."
-  :version "24.3"			; ssh rather than rsh, etc
+(defcustom remote-shell-program (or (executable-find "ssh") "ssh")
+  "Program to use to execute commands on a remote host (i.e. ssh)."
+  :version "29.1"
   :initialize 'custom-initialize-delay
   :group 'environment
   :type 'file)
@@ -3161,9 +3151,6 @@ major mode MODE.
 
 See also `auto-mode-alist'.")
 
-(define-obsolete-variable-alias 'inhibit-first-line-modes-regexps
-  'inhibit-file-local-variables-regexps "24.1")
-
 ;; TODO really this should be a list of modes (eg tar-mode), not regexps,
 ;; because we are duplicating info from auto-mode-alist.
 ;; TODO many elements of this list are also in auto-coding-alist.
@@ -3183,9 +3170,6 @@ specifications, but are not really, or they may be containers for
 member files with their own local variable sections, which are
 not appropriate for the containing file.
 The function `inhibit-local-variables-p' uses this.")
-
-(define-obsolete-variable-alias 'inhibit-first-line-modes-suffixes
-  'inhibit-local-variables-suffixes "24.1")
 
 (defvar inhibit-local-variables-suffixes nil
   "List of regexps matching suffixes to remove from file names.
@@ -8016,7 +8000,7 @@ If RESTART, restart Emacs after killing the current Emacs process."
                       ("Close Without Saving" . no-save)
                       ("Save All" . save-all)
                       ("Cancel" . cancel)))
-            ('cancel (user-error "Exit cancelled"))
+            ('cancel (user-error "Exit canceled"))
             ('save-all (save-some-buffers t)))
         (save-some-buffers arg t)))
   (let ((confirm confirm-kill-emacs))

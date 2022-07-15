@@ -720,8 +720,7 @@ REQUIREMENTS is a list of dependencies on other packages.
  where OTHER-VERSION is a string.
 
 EXTRA-PROPERTIES is currently unused."
-  (declare (indent defun))
-  ;; FIXME: Placeholder!  Should we keep it?
+  (declare (obsolete nil "29.1") (indent defun))
   (error "Don't call me!"))
 
 
@@ -3519,9 +3518,6 @@ The full list of keys can be viewed with \\[describe-mode]."
   (package--ensure-package-menu-mode)
   (message (mapconcat #'package--prettify-quick-help-key
                       package--quick-help-keys "\n")))
-
-(define-obsolete-function-alias
-  'package-menu-view-commentary 'package-menu-describe-package "24.1")
 
 (defun package-menu-get-status ()
   "Return status text of package at point in Package Menu."
