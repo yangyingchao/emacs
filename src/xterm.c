@@ -1285,6 +1285,15 @@ static Window x_dnd_waiting_for_status_window;
    upon receiving an XdndStatus event from said window.  */
 static XEvent x_dnd_pending_send_position;
 
+/* Whether or not that event corresponds to a button press.  */
+static bool x_dnd_pending_send_position_button;
+
+/* The root-window position of that event.  */
+static int x_dnd_pending_send_position_root_x;
+
+/* Likewise.  */
+static int x_dnd_pending_send_position_root_y;
+
 /* If true, send a drop from `x_dnd_finish_frame' to the pending
    status window after receiving all pending XdndStatus events.  */
 static bool x_dnd_need_send_drop;
@@ -4453,22 +4462,6 @@ x_dnd_send_position (struct frame *f, Window target, int supported,
   struct x_display_info *dpyinfo = FRAME_DISPLAY_INFO (f);
   XEvent msg;
 
-  if (target == x_dnd_mouse_rect_target
-      && x_dnd_mouse_rect.width
-      && x_dnd_mouse_rect.height
-      /* Ignore the mouse rectangle if we're supposed to be sending a
-	 button press instead.  */
-      && (supported < 5 || !button))
-    {
-      if (root_x >= x_dnd_mouse_rect.x
-	  && root_x < (x_dnd_mouse_rect.x
-		       + x_dnd_mouse_rect.width)
-	  && root_y >= x_dnd_mouse_rect.y
-	  && root_y < (x_dnd_mouse_rect.y
-		       + x_dnd_mouse_rect.height))
-	return;
-    }
-
   msg.xclient.type = ClientMessage;
   msg.xclient.message_type = dpyinfo->Xatom_XdndPosition;
   msg.xclient.format = 32;
@@ -4476,20 +4469,21 @@ x_dnd_send_position (struct frame *f, Window target, int supported,
   msg.xclient.data.l[0] = FRAME_X_WINDOW (f);
   msg.xclient.data.l[1] = 0;
 
-  if (supported >= 5)
+  /* This is problematic because it's not specified in the
+     freedesktop.org copy of the protocol specification, but the copy
+     maintained by the original author of the protocol specifies it
+     for all versions.  Since at least one program supports these
+     flags, but uses protocol v4 (and not v5), set them for all
+     protocool versions.  */
+  if (button >= 4 && button <= 7)
     {
-      if (button >= 4 && button <= 7)
-	{
-	  msg.xclient.data.l[1] |= (1 << 9);
-	  msg.xclient.data.l[1] |= (button - 4) << 7;
-	}
-      else if (button)
-	return;
-
-      msg.xclient.data.l[1] |= state & 0x3f;
+      msg.xclient.data.l[1] |= (1 << 10);
+      msg.xclient.data.l[1] |= (button - 4) << 8;
     }
   else if (button)
     return;
+
+  msg.xclient.data.l[1] |= state & 0xff;
 
   msg.xclient.data.l[2] = (root_x << 16) | root_y;
   msg.xclient.data.l[3] = 0;
@@ -4502,9 +4496,30 @@ x_dnd_send_position (struct frame *f, Window target, int supported,
     msg.xclient.data.l[4] = action;
 
   if (x_dnd_waiting_for_status_window == target)
-    x_dnd_pending_send_position = msg;
+    {
+      x_dnd_pending_send_position = msg;
+      x_dnd_pending_send_position_button = button;
+      x_dnd_pending_send_position_root_x = root_x;
+      x_dnd_pending_send_position_root_y = root_y;
+    }
   else
     {
+      if (target == x_dnd_mouse_rect_target
+	  && x_dnd_mouse_rect.width
+	  && x_dnd_mouse_rect.height
+	  /* Ignore the mouse rectangle if we're supposed to be sending a
+	     button press instead.  */
+	  && !button)
+	{
+	  if (root_x >= x_dnd_mouse_rect.x
+	      && root_x < (x_dnd_mouse_rect.x
+			   + x_dnd_mouse_rect.width)
+	      && root_y >= x_dnd_mouse_rect.y
+	      && root_y < (x_dnd_mouse_rect.y
+			   + x_dnd_mouse_rect.height))
+	    return;
+	}
+
       x_ignore_errors_for_next_request (dpyinfo);
       XSendEvent (FRAME_X_DISPLAY (f), target, False, NoEventMask, &msg);
       x_stop_ignoring_errors (dpyinfo);
@@ -4530,6 +4545,7 @@ x_dnd_send_leave (struct frame *f, Window target)
   msg.xclient.data.l[4] = 0;
 
   x_dnd_waiting_for_status_window = None;
+  x_dnd_pending_send_position.type = 0;
 
   x_ignore_errors_for_next_request (dpyinfo);
   XSendEvent (FRAME_X_DISPLAY (f), target, False, NoEventMask, &msg);
@@ -11763,6 +11779,11 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
 			 Fposn_at_x_y (x, y, frame_object, Qnil));
 		  x_dnd_unwind_flag = false;
 		  unbind_to (ref, Qnil);
+
+		  /* Redisplay this way to preserve the echo area.
+		     Otherwise, the contents will abruptly disappear
+		     when the mouse moves over a frame.  */
+		  redisplay_preserve_echo_area (33);
 		}
 	    }
 
@@ -16372,6 +16393,8 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	  {
 	    Window target;
 	    unsigned long r1, r2;
+	    int root_x, root_y;
+	    bool button;
 
 	    target = event->xclient.data.l[0];
 
@@ -16417,17 +16440,43 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	      {
 		if (x_dnd_pending_send_position.type != 0)
 		  {
-		    x_ignore_errors_for_next_request (dpyinfo);
-		    XSendEvent (dpyinfo->display, target,
-				False, NoEventMask,
-				&x_dnd_pending_send_position);
-		    x_stop_ignoring_errors (dpyinfo);
-		    x_dnd_pending_send_position.type = 0;
+		    /* If the last XdndStatus specified a mouse
+		       rectangle and this event falls inside, don't
+		       send the event, but clear
+		       x_dnd_waiting_for_status_window instead.  */
 
-		    /* Since we sent another XdndPosition message, we
-		       have to wait for another one in reply, so don't
-		       reset `x_dnd_waiting_for_status_window'
-		       here.  */
+		    root_x = x_dnd_pending_send_position_root_x;
+		    root_y = x_dnd_pending_send_position_root_y;
+		    button = x_dnd_pending_send_position_button;
+
+		    if (target == x_dnd_mouse_rect_target
+			&& x_dnd_mouse_rect.width
+			&& x_dnd_mouse_rect.height
+			/* Ignore the mouse rectangle if we're
+			   supposed to be sending a button press
+			   instead.  */
+			&& !button
+			&& (root_x >= x_dnd_mouse_rect.x
+			    && root_x < (x_dnd_mouse_rect.x
+					 + x_dnd_mouse_rect.width)
+			    && root_y >= x_dnd_mouse_rect.y
+			    && root_y < (x_dnd_mouse_rect.y
+					 + x_dnd_mouse_rect.height)))
+		      x_dnd_waiting_for_status_window = None;
+		    else
+		      {
+			x_ignore_errors_for_next_request (dpyinfo);
+			XSendEvent (dpyinfo->display, target,
+				    False, NoEventMask,
+				    &x_dnd_pending_send_position);
+			x_stop_ignoring_errors (dpyinfo);
+			x_dnd_pending_send_position.type = 0;
+
+			/* Since we sent another XdndPosition message, we
+			   have to wait for another one in reply, so don't
+			   reset `x_dnd_waiting_for_status_window'
+			   here.  */
+		      }
 		  }
 		else
 		  x_dnd_waiting_for_status_window = None;
@@ -28096,6 +28145,7 @@ x_preserve_selections (struct x_display_info *dpyinfo, Lisp_Object lost,
 	}
 
       nowners = 0;
+      tail = lost;
 
       FOR_EACH_TAIL_SAFE (tail)
 	{
@@ -28140,6 +28190,27 @@ x_preserve_selections (struct x_display_info *dpyinfo, Lisp_Object lost,
 		   XCAR (tem));
 	}
     }
+}
+
+/* Return a list of the keyboard modifier masks in DPYINFO.
+
+   Value is a list of (HYPER SUPER ALT SHIFT-LOCK META), each element
+   being the appropriate modifier mask.  */
+
+Lisp_Object
+x_get_keyboard_modifiers (struct x_display_info *dpyinfo)
+{
+  /* This sometimes happens when the function is called during display
+     initialization, which can happen while obtaining vendor specific
+     keysyms.  */
+  if (!dpyinfo->xkb_desc && !dpyinfo->modmap)
+    x_find_modifier_meanings (dpyinfo);
+
+  return list5 (make_uint (dpyinfo->hyper_mod_mask),
+		make_uint (dpyinfo->super_mod_mask),
+		make_uint (dpyinfo->alt_mod_mask),
+		make_uint (dpyinfo->shift_lock_mask),
+		make_uint (dpyinfo->meta_mod_mask));
 }
 
 void
@@ -28458,10 +28529,13 @@ executing the protocol request.  Otherwise, errors will be silently
 ignored without waiting, which is generally faster.  */);
   x_fast_protocol_requests = false;
 
-  DEFVAR_BOOL ("x-auto-preserve-selections", x_auto_preserve_selections,
+  DEFVAR_LISP ("x-auto-preserve-selections", Vx_auto_preserve_selections,
     doc: /* Whether or not to transfer selection ownership when deleting a frame.
 When non-nil, deleting a frame that is currently the owner of a
 selection will cause its ownership to be transferred to another frame
-on the same display.  */);
-  x_auto_preserve_selections = true;
+on the same display.
+
+In addition, when this variable is a list, only preserve the
+selections whose names are contained within.  */);
+  Vx_auto_preserve_selections = list2 (QCLIPBOARD, QPRIMARY);
 }

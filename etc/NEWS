@@ -166,6 +166,11 @@ of 'user-emacs-directory'.
 
 * Incompatible changes in Emacs 29.1
 
+---
+** 'w' ('dired-copy-filename-as-kill') has changed behaviour.
+If there are several files marked, file names containing space and
+quote characters will be quoted "like this".
+
 +++
 ** Warning about "eager macro-expansion failure" is changed into an error.
 
@@ -543,6 +548,11 @@ and pop-up menus.
 ** New X resource: "inputStyle".
 This controls the style of the pre-edit and status areas of X input
 methods.
+
++++
+** New X resources: "highlightForeground" and "highlightBackground"
+Only in the Lucid build, this controls colors used for highlighted
+menu item widgets.
 
 +++
 ** On X11, Emacs now tries to synchronize window resize with the window manager.
@@ -2312,8 +2322,9 @@ This change is now applied in 'dired-insert-directory'.
 'font-lock-maximum-size', 'gnus-carpal',
 'gnus-debug-exclude-variables', 'gnus-debug-files',
 'gnus-local-domain', 'gnus-outgoing-message-group',
-'gnus-registry-user-format-function-M', 'image-extension-data',
-'image-library-alist', 'inhibit-first-line-modes-regexps',
+'gnus-secondary-servers', 'gnus-registry-user-format-function-M',
+'image-extension-data', 'image-library-alist',
+'inhibit-first-line-modes-regexps',
 'inhibit-first-line-modes-suffixes', 'intdos',
 'mail-complete-function', 'mail-completion-at-point-function',
 'mail-mailer-swallows-blank-line', 'mail-sent-via', 'make-register',
@@ -3185,6 +3196,11 @@ to preserve the old behavior, apply
 
     (let ((default-directory temporary-file-directory))
       (process-attributes pid))
+
++++
+** New functions 'take' and 'ntake'.
+'(take N LIST)' returns the first N elements of LIST; 'ntake' does
+the same but works by modifying LIST destructively.
 
 
 
