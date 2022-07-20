@@ -1105,9 +1105,9 @@ in Dired mode by default.  The user options 'dired-bind-man' and
 To get the old behavior back and unbind these keys in Dired mode, add
 the following to your Init file:
 
-(with-eval-after-load 'dired
-  (keymap-set dired-mode-map "N" nil)
-  (keymap-set dired-mode-map "I" nil))
+    (with-eval-after-load 'dired
+      (keymap-set dired-mode-map "N" nil)
+      (keymap-set dired-mode-map "I" nil))
 
 ---
 *** New command 'dired-do-eww'.
@@ -1506,6 +1506,12 @@ phrase part will be automatically quoted if necessary.
 EUDC can now contribute email addresses to 'completion-at-point' by
 adding the new function 'eudc-capf-complete' to
 'completion-at-point-functions' in 'message-mode'.
+
++++
+*** Additional attributes of query and results in eudcb-macos-contacts.el.
+The EUDC back-end for the macOS Contacts app now provides a wider set
+of attributes to use for queries, and delivers more attributes in
+query results.
 
 ** EWW/SHR
 

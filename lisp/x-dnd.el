@@ -825,8 +825,8 @@ MESSAGE is the type of the ClientMessage that was sent."
            (when (windowp (posn-window (event-start event)))
              (let ((flags (aref data 1))
                    (version (aref state 6)))
-               (when (not (zerop (logand (lsh flags -10) 1)))
-                 (let* ((button (+ 4 (logand (lsh flags -8) #x3)))
+               (when (not (zerop (logand (ash flags -10) 1)))
+                 (let* ((button (+ 4 (logand (ash flags -8) #x3)))
                         (count (or (and (>= version 1)
                                         (x-dnd-note-click button
                                                           (aref data 3)))
@@ -1086,7 +1086,7 @@ Return a vector of atoms containing the selection targets."
 (defun x-dnd-handle-motif (event frame window _message-atom _format data)
   (let* ((message-type (cdr (assoc (logand (aref data 0) #x3f)
                                    x-dnd-motif-message-types)))
-         (initiator-p (eq (lsh (aref data 0) -7) 0))
+         (initiator-p (eq (ash (aref data 0) -7) 0))
 	 (source-byteorder (aref data 1))
 	 (my-byteorder (byteorder))
 	 (source-flags (x-dnd-get-motif-value data 2 2 source-byteorder))
@@ -1647,6 +1647,24 @@ VERSION is the version of the XDND protocol understood by SOURCE."
                                              (< version 5))
                                          0
                                        "XdndDirectSave0")))))))
+
+;; Internal wheel movement.
+
+(defvar x-dnd-wheel-function)
+
+(defun x-dnd-note-wheel-movement (position button state time)
+  "Note wheel movement at POSITION.
+POSITION is a mouse position list describing the position of the
+wheel movement.
+BUTTON is the wheel button that was pressed.
+STATE is the X modifier state at the time of the wheel movement.
+TIME is the X server time at which the wheel moved."
+  (when (posn-window position)
+    (with-selected-window (posn-window position)
+      (let ((count (x-dnd-note-click button time)))
+        (x-dnd-mwheel-scroll button count state)))))
+
+(setq x-dnd-wheel-function #'x-dnd-note-wheel-movement)
 
 (provide 'x-dnd)
 
