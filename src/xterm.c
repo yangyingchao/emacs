@@ -7157,7 +7157,11 @@ x_display_set_last_user_time (struct x_display_info *dpyinfo, Time time,
 			      bool send_event)
 {
 #ifndef USE_GTK
-  struct frame *focus_frame = dpyinfo->x_focus_frame;
+  struct frame *focus_frame;
+  Time old_time;
+
+  focus_frame = dpyinfo->x_focus_frame;
+  old_time = dpyinfo->last_user_time;
 #endif
 
 #ifdef ENABLE_CHECKING
@@ -7168,8 +7172,11 @@ x_display_set_last_user_time (struct x_display_info *dpyinfo, Time time,
     dpyinfo->last_user_time = time;
 
 #ifndef USE_GTK
-  if (focus_frame)
+  /* Don't waste bandwidth if the time hasn't actually changed.  */
+  if (focus_frame && old_time != dpyinfo->last_user_time)
     {
+      time = dpyinfo->last_user_time;
+
       while (FRAME_PARENT_FRAME (focus_frame))
 	focus_frame = FRAME_PARENT_FRAME (focus_frame);
 
@@ -13047,14 +13054,25 @@ static void x_send_scroll_bar_event (Lisp_Object, enum scroll_bar_part,
 
 static Lisp_Object window_being_scrolled;
 
-/* Whether this is an Xaw with arrow-scrollbars.  This should imply
-   that movements of 1/20 of the screen size are mapped to up/down.  */
+static Time
+x_get_last_toolkit_time (struct x_display_info *dpyinfo)
+{
+#ifdef USE_X_TOOLKIT
+  return XtLastTimestampProcessed (dpyinfo->display);
+#else
+  return dpyinfo->last_user_time;
+#endif
+}
 
 #ifndef USE_GTK
-/* Id of action hook installed for scroll bars.  */
+/* Id of action hook installed for scroll bars and horizontal scroll
+   bars.  */
 
 static XtActionHookId action_hook_id;
 static XtActionHookId horizontal_action_hook_id;
+
+/* Whether this is an Xaw with arrow-scrollbars.  This should imply
+   that movements of 1/20 of the screen size are mapped to up/down.  */
 
 static Boolean xaw3d_arrow_scroll;
 
@@ -13266,12 +13284,8 @@ x_scroll_bar_to_input_event (const XEvent *event,
   ievent->kind = SCROLL_BAR_CLICK_EVENT;
   ievent->frame_or_window = window;
   ievent->arg = Qnil;
-#ifdef USE_GTK
-  ievent->timestamp = CurrentTime;
-#else
-  ievent->timestamp =
-    XtLastTimestampProcessed (FRAME_X_DISPLAY (XFRAME (w->frame)));
-#endif
+  ievent->timestamp
+    = x_get_last_toolkit_time (FRAME_DISPLAY_INFO (XFRAME (w->frame)));
   ievent->code = 0;
   ievent->part = ev->data.l[2];
   ievent->x = make_fixnum (ev->data.l[3]);
@@ -13301,12 +13315,8 @@ x_horizontal_scroll_bar_to_input_event (const XEvent *event,
   ievent->kind = HORIZONTAL_SCROLL_BAR_CLICK_EVENT;
   ievent->frame_or_window = window;
   ievent->arg = Qnil;
-#ifdef USE_GTK
-  ievent->timestamp = CurrentTime;
-#else
-  ievent->timestamp =
-    XtLastTimestampProcessed (FRAME_X_DISPLAY (XFRAME (w->frame)));
-#endif
+  ievent->timestamp
+    = x_get_last_toolkit_time (FRAME_DISPLAY_INFO (XFRAME (w->frame)));
   ievent->code = 0;
   ievent->part = ev->data.l[2];
   ievent->x = make_fixnum (ev->data.l[3]);
@@ -13410,18 +13420,30 @@ xm_scroll_callback (Widget widget, XtPointer client_data, XtPointer call_data)
    bar widget.  DATA is a pointer to the scroll_bar structure. */
 
 static gboolean
-xg_scroll_callback (GtkRange     *range,
-                    GtkScrollType scroll,
-                    gdouble       value,
-                    gpointer      user_data)
+xg_scroll_callback (GtkRange *range, GtkScrollType scroll,
+                    gdouble value, gpointer user_data)
 {
-  int whole = 0, portion = 0;
-  struct scroll_bar *bar = user_data;
-  enum scroll_bar_part part = scroll_bar_nowhere;
-  GtkAdjustment *adj = GTK_ADJUSTMENT (gtk_range_get_adjustment (range));
-  struct frame *f = g_object_get_data (G_OBJECT (range), XG_FRAME_DATA);
+  int whole, portion;
+  struct scroll_bar *bar;
+  enum scroll_bar_part part;
+  GtkAdjustment *adj;
+  struct frame *f;
+  guint32 time;
+  struct x_display_info *dpyinfo;
 
   if (xg_ignore_gtk_scrollbar) return false;
+
+  whole = 0;
+  portion = 0;
+  bar = user_data;
+  part = scroll_bar_nowhere;
+  adj = GTK_ADJUSTMENT (gtk_range_get_adjustment (range));
+  f = g_object_get_data (G_OBJECT (range), XG_FRAME_DATA);
+  time = gtk_get_current_event_time ();
+  dpyinfo = FRAME_DISPLAY_INFO (f);
+
+  if (time != GDK_CURRENT_TIME)
+    x_display_set_last_user_time (dpyinfo, time, true);
 
   switch (scroll)
     {
@@ -13489,8 +13511,11 @@ xg_end_scroll_callback (GtkWidget *widget,
                         GdkEventButton *event,
                         gpointer user_data)
 {
-  struct scroll_bar *bar = user_data;
+  struct scroll_bar *bar;
+
+  bar = user_data;
   bar->dragging = -1;
+
   if (WINDOWP (window_being_scrolled))
     {
       x_send_scroll_bar_event (window_being_scrolled,
@@ -18670,6 +18695,10 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		 MOVE_FRAME_EVENT later.  */
 	      kbd_buffer_store_event (&inev.ie);
 	      inev.ie.kind = NO_EVENT;
+
+	      /* Also update the position of the drag-and-drop
+		 tooltip.  */
+	      x_dnd_update_tooltip_now ();
 	    }
 #endif
 
@@ -20418,11 +20447,22 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		      dnd_state = xi_convert_event_state (xev);
 
 		      if (x_dnd_last_window_is_frame)
-			x_dnd_note_self_wheel (dpyinfo,
-					       x_dnd_last_seen_window,
-					       xev->root_x, xev->root_y,
-					       xev->detail, dnd_state,
-					       xev->time);
+			{
+#ifdef XI_PointerEmulated
+			  /* Set the last user time here even if this
+			     is an emulated button event, since
+			     something happened in response.  */
+
+			  if (xev->flags & XIPointerEmulated)
+			    x_display_set_last_user_time (dpyinfo, xev->time,
+							  xev->send_event);
+#endif
+			  x_dnd_note_self_wheel (dpyinfo,
+						 x_dnd_last_seen_window,
+						 xev->root_x, xev->root_y,
+						 xev->detail, dnd_state,
+						 xev->time);
+			}
 		      else
 			x_dnd_send_position (x_dnd_frame,
 					     x_dnd_last_seen_window,
@@ -20431,7 +20471,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 					     xev->time, x_dnd_wanted_action,
 					     xev->detail, dnd_state);
 
-		      goto XI_OTHER;
+		      goto OTHER;
 		    }
 
 		  if (xev->evtype == XI_ButtonRelease)

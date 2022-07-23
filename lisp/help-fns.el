@@ -1030,7 +1030,7 @@ Returns a list of the form (REAL-FUNCTION DEF ALIASED REAL-DEF)."
 		 (aliased
 		  (format-message "an alias for `%s'" real-def))
                  ((subr-native-elisp-p def)
-                  (concat beg "native compiled Lisp function"))
+                  (concat beg "native-compiled Lisp function"))
 		 ((subrp def)
 		  (concat beg (if (eq 'unevalled (cdr (subr-arity def)))
 		                  "special form"
@@ -1049,7 +1049,7 @@ Returns a list of the form (REAL-FUNCTION DEF ALIASED REAL-DEF)."
 		      (macrop function))
 		  (concat beg "Lisp macro"))
 		 ((byte-code-function-p def)
-		  (concat beg "compiled Lisp function"))
+		  (concat beg "byte-compiled Lisp function"))
                  ((module-function-p def)
                   (concat beg "module function"))
 		 ((eq (car-safe def) 'lambda)
@@ -2195,6 +2195,8 @@ documentation for the major and minor modes of that buffer."
        (when (and (commandp sym)
                   ;; Ignore aliases.
                   (not (symbolp (symbol-function sym)))
+                  ;; Ignore obsolete commands.
+                  (not (get sym 'byte-obsolete-info))
                   ;; Ignore everything bound.
                   (not (where-is-internal sym nil t))
                   (apply #'derived-mode-p (command-modes sym)))
