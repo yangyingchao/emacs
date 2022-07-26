@@ -194,7 +194,8 @@ any protocol specific data.")
 
 (defun x-dnd-init-frame (&optional frame)
   "Setup drag and drop for FRAME (i.e. create appropriate properties)."
-  (when (eq 'x (window-system frame))
+  (when (and (eq 'x (window-system frame))
+             (not (frame-parameter frame 'tooltip)))
     (let ((x-fast-protocol-requests (not x-dnd-debug-errors)))
       (x-register-dnd-atom "DndProtocol" frame)
       (x-register-dnd-atom "_MOTIF_DRAG_AND_DROP_MESSAGE" frame)
@@ -707,7 +708,6 @@ MODS is a single symbol, or a list of symbols such as `shift' or
     (unless (consp mods)
       (setq mods (list mods)))
     (dolist (modifier mods)
-      ;; TODO: handle virtual modifiers such as Meta and Hyper.
       (cond ((eq modifier 'shift)
              (setq mask (logior mask 1))) ; ShiftMask
             ((eq modifier 'control)
@@ -778,7 +778,11 @@ has been pressed."
                   (* 1 count))))
     (unless (and (not mouse-wheel-tilt-scroll)
                  (or (eq button 6) (eq button 7)))
-      (let ((function (cond ((eq button 4)
+      (let ((function (cond ((eq type 'text-scale)
+                             #'text-scale-adjust)
+                            ((eq type 'global-text-scale)
+                             #'global-text-scale-adjust)
+                            ((eq button 4)
                              (if hscroll
                                  mwheel-scroll-right-function
                                mwheel-scroll-down-function))
@@ -794,9 +798,17 @@ has been pressed."
                              (if mouse-wheel-flip-direction
                                  mwheel-scroll-left-function
                                mwheel-scroll-right-function)))))
+        ;; Button5 should decrease the text scale, not increase it.
+        (when (and (memq type '(text-scale global-text-scale))
+                   (eq button 5))
+          (setq amt (- amt)))
         (when function
           (condition-case nil
-              (funcall function amt)
+              ;; Don't overwrite any echo-area message that might
+              ;; already be shown, since this can be called from
+              ;; `x-begin-drag'.
+              (let ((inhibit-message t))
+                (funcall function amt))
             ;; Do not error at buffer limits.  Show a message instead.
             ;; This is especially important here because signalling an
             ;; error will mess up the drag-and-drop operation.
@@ -1429,6 +1441,11 @@ ACTION is the action given to `x-begin-drag'."
 (defvar x-dnd-disable-motif-protocol)
 (defvar x-dnd-use-unsupported-drop)
 
+(defvar x-dnd-xds-testing nil
+  "Whether or not XDS is being tested from ERT.
+When non-nil, throw errors from the `XdndDirectSave0' converters
+instead of returning \"E\".")
+
 (defun x-dnd-handle-direct-save (_selection _type _value)
   "Handle a selection request for `XdndDirectSave'."
   (setq x-dnd-xds-performed t)
@@ -1443,15 +1460,24 @@ ACTION is the action given to `x-begin-drag'."
                           (dnd-get-local-file-name local-file-uri))))
     (if (not local-name)
         '(STRING . "F")
-      (condition-case nil
-          (progn
+      ;; We want errors to be signalled immediately during ERT
+      ;; testing, instead of being silently handled.  (bug#56712)
+      (if x-dnd-xds-testing
+          (prog1 '(STRING . "S")
             (copy-file x-dnd-xds-current-file
                        local-name t)
             (when (equal x-dnd-xds-current-file
                          dnd-last-dragged-remote-file)
               (dnd-remove-last-dragged-remote-file)))
-        (:success '(STRING . "S"))
-        (error '(STRING . "E"))))))
+        (condition-case nil
+            (progn
+              (copy-file x-dnd-xds-current-file
+                         local-name t)
+              (when (equal x-dnd-xds-current-file
+                           dnd-last-dragged-remote-file)
+                (dnd-remove-last-dragged-remote-file)))
+          (:success '(STRING . "S"))
+          (error '(STRING . "E")))))))
 
 (defun x-dnd-handle-octet-stream (_selection _type _value)
   "Handle a selecton request for `application/octet-stream'.

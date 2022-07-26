@@ -166,6 +166,13 @@ of 'user-emacs-directory'.
 
 * Incompatible changes in Emacs 29.1
 
+---
+*** The Gtk selection face is no longer used for the region.
+The combination of a Gtk-controlled background and a foreground color
+controlled by the internal Emacs machinery led to low-contrast faces
+in common default setups.  Emacs now uses the same 'region' face on
+Gtk and non-Gtk setups.
+
 ** Dired
 
 ---
@@ -996,6 +1003,12 @@ The user option 'comint-terminfo-terminal' and the variable
 'system-uses-terminfo' can now be set as connection-local variables to
 change the terminal used on a remote host.
 
+---
+*** New user option 'comint-delete-old-input'.
+When nil, this prevents comint from deleting the current input when
+inserting previous input using '<mouse-2>'.  The default is t, to
+preserve past behavior.
+
 ** Mwheel
 
 ---
@@ -1176,6 +1189,13 @@ the run/continue command.
 *** New command 'custom-toggle-hide-all-widgets'.
 This is bound to 'H' and toggles whether to hide or show the widget
 contents.
+
+** Diff mode
+
+---
+*** New user option 'diff-whitespace-style'.
+This option determines buffer-local 'whitespace-style' value.
+
 
 ** Ispell
 
@@ -2318,6 +2338,14 @@ This change is now applied in 'dired-insert-directory'.
 ---
 ** 'compilation-last-buffer' is (finally) declared obsolete.
 It's been obsolete since Emacs-22.1, actually.
+
+---
+** Calling 'lsh' now elicits a byte-compiler warning.
+'lsh' behaves in somewhat surprising and platform-dependent ways for
+negative arguments, and is generally slower than 'ash', which should be
+used instead.  This warning can be suppressed by surrounding calls to
+'lsh' with the construct '(with-suppressed-warnings ((suspicious lsh)) ...)',
+but switching to `ash` is generally much preferable.
 
 ---
 ** Some functions and variables obsolete since Emacs 24 have been removed:
