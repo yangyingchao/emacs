@@ -1558,7 +1558,7 @@ of `process-file', `start-file-process', or `shell-command'."
 This is METHOD, if non-nil.  Otherwise, do a lookup in
 `tramp-default-method-alist' and `tramp-default-method'."
   (when (and method
-	     (or (string-equal method "")
+	     (or (string-empty-p method)
 		 (string-equal method tramp-default-method-marker)))
     (setq method nil))
   (let ((result
@@ -4937,11 +4937,7 @@ support symbolic links."
 	      ;; Run the process.
 	      (setq p (start-file-process-shell-command
 		       (buffer-name output-buffer) buffer command))
-	    ;; Insert error messages if they were separated.
-	    (when error-file
-	      (with-current-buffer error-buffer
-		(insert-file-contents-literally error-file)))
-	    (if (process-live-p p)
+	    (when (process-live-p p)
 	      ;; Display output.
 	      (with-current-buffer output-buffer
 		(setq mode-line-process '(":%s"))
@@ -4957,11 +4953,15 @@ support symbolic links."
 		       (insert-file-contents-literally
 			error-file nil nil nil 'replace))
 		     (delete-file error-file))))
-		(display-buffer output-buffer '(nil (allow-no-window . t))))
+		(display-buffer output-buffer '(nil (allow-no-window . t)))))
 
-	      (when error-file
-		(delete-file error-file)))))
+	    ;; Insert error messages if they were separated.
+	    (when (and error-file (not (process-live-p p)))
+	      (with-current-buffer error-buffer
+		(insert-file-contents-literally error-file))
+	      (delete-file error-file))))
 
+      ;; Synchronous case.
       (prog1
 	  ;; Run the process.
 	  (process-file-shell-command command nil buffer)

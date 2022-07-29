@@ -373,7 +373,11 @@
   (should (string-equal-ignore-case "abc" "abC"))
   (should-not (string-equal-ignore-case "abc" "abCD"))
   (should (string-equal-ignore-case "S" "s"))
+  (should (string-equal-ignore-case "ẞ" "ß"))
+  (should (string-equal-ignore-case "ǲ" "Ǳ"))
+  (should (string-equal-ignore-case "Όσος" "ΌΣΟΣ"))
   ;; not yet: (should (string-equal-ignore-case "SS" "ß"))
+  ;; not yet: (should (string-equal-ignore-case "SS" "ẞ"))
 
   (should (string-lessp "abc" "acb"))
   (should (string-lessp "aBc" "abc"))
@@ -1037,7 +1041,6 @@ final or penultimate step during initialization."))
   (should-not (readablep (make-marker))))
 
 (ert-deftest test-print-unreadable-function ()
-  :expected-result :failed
   ;; Check that problem with unwinding properly is fixed (bug#56773).
   (with-temp-buffer
     (let ((buf (current-buffer)))
@@ -1122,6 +1125,16 @@ final or penultimate step during initialization."))
     (dolist (n (cons nil (number-sequence -2 6)))
       (should (equal (butlast l n)
                      (subr-tests--butlast-ref l n))))))
+
+(ert-deftest test-print-unreadable-function-buffer ()
+  (with-temp-buffer
+    (let ((current (current-buffer))
+          callback-buffer)
+      (let ((print-unreadable-function
+             (lambda (_object _escape)
+               (setq callback-buffer (current-buffer)))))
+        (prin1-to-string (make-marker)))
+      (should (eq current callback-buffer)))))
 
 (provide 'subr-tests)
 ;;; subr-tests.el ends here
