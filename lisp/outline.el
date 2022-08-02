@@ -283,19 +283,19 @@ This option is only in effect when `outline-minor-mode-cycle' is non-nil."
 
 (defcustom outline-minor-mode-use-buttons '(derived-mode . special-mode)
   "Whether to display clickable buttons on the headings.
-The value should be a `buffer-match-p' condition, or nil to
-disable in all buffers and t to enable in all buffers.
+The value should be a `buffer-match-p' condition.
 
 These buttons can be used to hide and show the body under the heading.
 Note that this feature is not meant to be used in editing
 buffers (yet) -- that will be amended in a future version."
-  :type 'boolean
+  ;; FIXME -- is there a `buffer-match-p' defcustom type somewhere?
+  :type 'sexp
   :safe #'booleanp
   :version "29.1")
 
 (define-icon outline-open button
   '((emoji "▶️")
-    (symbol " ▶ ")
+    (symbol " ⯈ ")
     (text " open "))
   "Icon used for buttons for opening a section in outline buffers."
   :version "29.1"
@@ -303,7 +303,7 @@ buffers (yet) -- that will be amended in a future version."
 
 (define-icon outline-close button
   '((emoji "🔽")
-    (symbol " ▼ ")
+    (symbol " ⯆ ")
     (text " close "))
   "Icon used for buttons for closing a section in outline buffers."
   :version "29.1"
@@ -327,6 +327,7 @@ data reflects the `outline-regexp'.")
 
 (defvar outline-view-change-hook nil
   "Normal hook to be run after outline visibility changes.")
+(make-obsolete-variable 'outline-view-change-hook nil "29.1")
 
 (defvar outline-mode-hook nil
   "This hook is run when outline mode starts.")
@@ -434,10 +435,7 @@ outline font-lock faces to those of major mode."
                          (goto-char (match-beginning 0))
                          (not (get-text-property (point) 'face))))
             (overlay-put overlay 'face (outline-font-lock-face)))
-          (when (and outline-minor-mode-use-buttons
-                     (or (eq outline-minor-mode-use-buttons t)
-                         (buffer-match-p outline-minor-mode-use-buttons
-                                         (current-buffer))))
+          (when (outline--use-buttons-p)
             (outline--insert-open-button)))
         (goto-char (match-end 0))))))
 
@@ -477,6 +475,10 @@ See the command `outline-mode' for more information on this mode."
     (remove-from-invisibility-spec '(outline . t))
     ;; When turning off outline mode, get rid of any outline hiding.
     (outline-show-all)))
+
+(defun outline--use-buttons-p ()
+  (and outline-minor-mode
+       (buffer-match-p outline-minor-mode-use-buttons (current-buffer))))
 
 (defvar-local outline-heading-alist ()
   "Alist associating a heading for every possible level.
@@ -860,7 +862,6 @@ If FLAG is nil then text is shown, while if FLAG is t the text is hidden."
 		   (or outline-isearch-open-invisible-function
 		       #'outline-isearch-open-invisible))))
   (outline--fix-up-all-buttons from to)
-  ;; Seems only used by lazy-lock.  I.e. obsolete.
   (run-hooks 'outline-view-change-hook))
 
 (defun outline-reveal-toggle-invisible (o hidep)
@@ -982,7 +983,7 @@ If non-nil, EVENT should be a mouse event."
   (interactive (list last-nonmenu-event))
   (when (mouse-event-p event)
     (mouse-set-point event))
-  (when (and outline-minor-mode-use-buttons outline-minor-mode)
+  (when (outline--use-buttons-p)
     (outline--insert-close-button))
   (outline-flag-subtree t))
 
@@ -1042,7 +1043,7 @@ If non-nil, EVENT should be a mouse event."
     (save-excursion
       (goto-char from)
       (setq from (line-beginning-position))))
-  (when outline-minor-mode-use-buttons
+  (when (outline--use-buttons-p)
     (outline-map-region
      (lambda ()
        ;; `outline--cycle-state' will fail if we're in a totally
@@ -1073,7 +1074,7 @@ If non-nil, EVENT should be a mouse event."
   (interactive (list last-nonmenu-event))
   (when (mouse-event-p event)
     (mouse-set-point event))
-  (when (and outline-minor-mode-use-buttons outline-minor-mode)
+  (when (outline--use-buttons-p)
     (outline--insert-open-button))
   (outline-flag-subtree nil))
 

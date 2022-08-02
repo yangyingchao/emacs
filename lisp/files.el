@@ -577,8 +577,6 @@ location of point in the current buffer."
 
 ;;;It is not useful to make this a local variable.
 ;;;(put 'find-file-not-found-functions 'permanent-local t)
-(define-obsolete-variable-alias 'find-file-not-found-hooks
-    'find-file-not-found-functions "22.1")
 (defvar find-file-not-found-functions nil
   "List of functions to be called for `find-file' on nonexistent file.
 These functions are called as soon as the error is detected.
@@ -4448,7 +4446,8 @@ This function returns either:
                   ;; The entry MTIME should match the most recent
                   ;; MTIME among matching files.
                   (and cached-files
-		       (equal (nth 2 dir-elt)
+		       (time-equal-p
+			      (nth 2 dir-elt)
 			      (let ((latest 0))
 				(dolist (f cached-files latest)
 				  (let ((f-time
@@ -8236,6 +8235,7 @@ arguments as the running Emacs)."
         (_
          (apply operation arguments))))))
 
+;;;###autoload
 (defsubst file-name-quoted-p (name &optional top)
   "Whether NAME is quoted with prefix \"/:\".
 If NAME is a remote file name and TOP is nil, check the local part of NAME."

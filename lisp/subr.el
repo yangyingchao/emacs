@@ -1860,10 +1860,7 @@ be a list of the form returned by `event-start' and `event-end'."
 
 ;;;; Obsolescence declarations for variables, and aliases.
 
-(make-obsolete-variable 'redisplay-end-trigger-functions 'jit-lock-register "23.1")
 (make-obsolete-variable 'redisplay-dont-pause nil "24.5")
-(make-obsolete 'window-redisplay-end-trigger nil "23.1")
-(make-obsolete 'set-window-redisplay-end-trigger nil "23.1")
 (make-obsolete-variable 'operating-system-release nil "28.1")
 (make-obsolete-variable 'inhibit-changing-match-data 'save-match-data "29.1")
 
@@ -6823,7 +6820,7 @@ This means that OBJECT can be printed out and then read back
 again by the Lisp reader.  This function returns nil if OBJECT is
 unreadable, and the printed representation (from `prin1') of
 OBJECT if it is readable."
-  (declare (side-effect-free t))
+  (declare (side-effect-free error-free))
   (catch 'unreadable
     (let ((print-unreadable-function
            (lambda (_object _escape)
@@ -6899,6 +6896,8 @@ lines."
 (defun buffer-match-p (condition buffer-or-name &optional arg)
   "Return non-nil if BUFFER-OR-NAME matches CONDITION.
 CONDITION is either:
+- the symbol t, to always match,
+- the symbol nil, which never matches,
 - a regular expression, to match a buffer name,
 - a predicate function that takes a buffer object and ARG as
   arguments, and returns non-nil if the buffer matches,
@@ -6921,6 +6920,7 @@ CONDITION is either:
           (catch 'match
             (dolist (condition conditions)
               (when (cond
+                     ((eq condition t))
                      ((stringp condition)
                       (string-match-p condition (buffer-name buffer)))
                      ((functionp condition)

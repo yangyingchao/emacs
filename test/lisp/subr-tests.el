@@ -1042,10 +1042,14 @@ final or penultimate step during initialization."))
 
 (ert-deftest test-print-unreadable-function ()
   ;; Check that problem with unwinding properly is fixed (bug#56773).
-  (with-temp-buffer
-    (let ((buf (current-buffer)))
-      (readablep (make-marker))
-      (should (eq buf (current-buffer))))))
+  (let* ((before nil)
+         (after nil)
+         (r (with-temp-buffer
+              (setq before (current-buffer))
+              (prog1 (readablep (make-marker))
+                (setq after (current-buffer))))))
+    (should (equal after before))
+    (should (equal r nil))))
 
 (ert-deftest test-string-lines ()
   (should (equal (string-lines "") '("")))
@@ -1125,16 +1129,6 @@ final or penultimate step during initialization."))
     (dolist (n (cons nil (number-sequence -2 6)))
       (should (equal (butlast l n)
                      (subr-tests--butlast-ref l n))))))
-
-(ert-deftest test-print-unreadable-function-buffer ()
-  (with-temp-buffer
-    (let ((current (current-buffer))
-          callback-buffer)
-      (let ((print-unreadable-function
-             (lambda (_object _escape)
-               (setq callback-buffer (current-buffer)))))
-        (prin1-to-string (make-marker)))
-      (should (eq current callback-buffer)))))
 
 (provide 'subr-tests)
 ;;; subr-tests.el ends here

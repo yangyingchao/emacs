@@ -2658,14 +2658,85 @@ DEFUN ("delete-and-extract-region", Fdelete_and_extract_region,
 
 DEFUN ("widen", Fwiden, Swiden, 0, 0, "",
        doc: /* Remove restrictions (narrowing) from current buffer.
-This allows the buffer's full text to be seen and edited.  */)
+This allows the buffer's full text to be seen and edited.
+
+Note that, when the current buffer contains one or more lines whose
+length is above `long-line-threshold', Emacs may decide to leave, for
+performance reasons, the accessible portion of the buffer unchanged
+after this function is called.  */)
   (void)
 {
+  if (! NILP (Vrestrictions_locked))
+    return Qnil;
   if (BEG != BEGV || Z != ZV)
     current_buffer->clip_changed = 1;
   BEGV = BEG;
   BEGV_BYTE = BEG_BYTE;
   SET_BUF_ZV_BOTH (current_buffer, Z, Z_BYTE);
+  /* Changing the buffer bounds invalidates any recorded current column.  */
+  invalidate_current_column ();
+  return Qnil;
+}
+
+static void
+unwind_locked_begv (Lisp_Object point_min)
+{
+  SET_BUF_BEGV (current_buffer, XFIXNUM (point_min));
+}
+
+static void
+unwind_locked_zv (Lisp_Object point_max)
+{
+  SET_BUF_ZV (current_buffer, XFIXNUM (point_max));
+}
+
+/* Internal function for Fnarrow_to_region, meant to be used with a
+   third argument 'true', in which case it should be followed by "specbind
+   (Qrestrictions_locked, Qt)".  */
+Lisp_Object
+narrow_to_region_internal (Lisp_Object start, Lisp_Object end, bool lock)
+{
+  EMACS_INT s = fix_position (start), e = fix_position (end);
+
+  if (e < s)
+    {
+      EMACS_INT tem = s; s = e; e = tem;
+    }
+
+  if (lock)
+    {
+      if (!(BEGV <= s && s <= e && e <= ZV))
+	args_out_of_range (start, end);
+
+      if (BEGV != s || ZV != e)
+	current_buffer->clip_changed = 1;
+
+      record_unwind_protect (restore_point_unwind, Fpoint_marker ());
+      record_unwind_protect (unwind_locked_begv, Fpoint_min ());
+      record_unwind_protect (unwind_locked_zv, Fpoint_max ());
+
+      SET_BUF_BEGV (current_buffer, s);
+      SET_BUF_ZV (current_buffer, e);
+    }
+  else
+    {
+      if (! NILP (Vrestrictions_locked))
+	return Qnil;
+
+      if (!(BEG <= s && s <= e && e <= Z))
+	args_out_of_range (start, end);
+
+      if (BEGV != s || ZV != e)
+	current_buffer->clip_changed = 1;
+
+      SET_BUF_BEGV (current_buffer, s);
+      SET_BUF_ZV (current_buffer, e);
+    }
+
+  if (PT < s)
+    SET_PT (s);
+  if (e < PT)
+    SET_PT (e);
   /* Changing the buffer bounds invalidates any recorded current column.  */
   invalidate_current_column ();
   return Qnil;
@@ -2680,31 +2751,15 @@ See also `save-restriction'.
 
 When calling from Lisp, pass two arguments START and END:
 positions (integers or markers) bounding the text that should
-remain visible.  */)
+remain visible.
+
+Note that, when the current buffer contains one or more lines whose
+length is above `long-line-threshold', Emacs may decide to leave, for
+performance reasons, the accessible portion of the buffer unchanged
+after this function is called.  */)
   (Lisp_Object start, Lisp_Object end)
 {
-  EMACS_INT s = fix_position (start), e = fix_position (end);
-
-  if (e < s)
-    {
-      EMACS_INT tem = s; s = e; e = tem;
-    }
-
-  if (!(BEG <= s && s <= e && e <= Z))
-    args_out_of_range (start, end);
-
-  if (BEGV != s || ZV != e)
-    current_buffer->clip_changed = 1;
-
-  SET_BUF_BEGV (current_buffer, s);
-  SET_BUF_ZV (current_buffer, e);
-  if (PT < s)
-    SET_PT (s);
-  if (e < PT)
-    SET_PT (e);
-  /* Changing the buffer bounds invalidates any recorded current column.  */
-  invalidate_current_column ();
-  return Qnil;
+  return narrow_to_region_internal (start, end, false);
 }
 
 Lisp_Object
@@ -4516,6 +4571,15 @@ variable is nil.
 This variable is experimental; email 32252@debbugs.gnu.org if you need
 it to be non-nil.  */);
   binary_as_unsigned = false;
+
+  DEFSYM (Qrestrictions_locked, "restrictions-locked");
+  DEFVAR_LISP ("restrictions-locked", Vrestrictions_locked,
+	       doc: /* If non-nil, restrictions are currently locked.
+
+This happens when `narrow-to-region', which see, is called from Lisp
+with an optional argument LOCK non-nil.  */);
+  Vrestrictions_locked = Qnil;
+  Funintern (Qrestrictions_locked, Qnil);
 
   defsubr (&Spropertize);
   defsubr (&Schar_equal);
