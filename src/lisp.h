@@ -4830,6 +4830,7 @@ extern bool detect_input_pending (void);
 extern bool detect_input_pending_ignore_squeezables (void);
 extern bool detect_input_pending_run_timers (bool);
 extern void safe_run_hooks (Lisp_Object);
+extern void safe_run_hooks_maybe_narrowed (Lisp_Object, struct window *);
 extern void cmd_error_internal (Lisp_Object, const char *);
 extern Lisp_Object command_loop_2 (Lisp_Object);
 extern Lisp_Object read_menu_command (void);
@@ -4942,7 +4943,8 @@ extern void setup_process_coding_systems (Lisp_Object);
 #endif
 
 extern int emacs_spawn (pid_t *, int, int, int, char **, char **,
-                        const char *, const char *, const sigset_t *);
+                        const char *, const char *, bool, bool,
+                        const sigset_t *);
 extern char **make_environment_block (Lisp_Object) ATTRIBUTE_RETURNS_NONNULL;
 extern void init_callproc_1 (void);
 extern void init_callproc (void);
