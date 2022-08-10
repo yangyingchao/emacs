@@ -84,7 +84,7 @@ the completions."
 (define-obsolete-function-alias 'mh-line-end-position
   #'line-end-position "29.1")
 
-(require 'mailabbrev nil t)
+(require 'mailabbrev)
 (define-obsolete-function-alias 'mh-mail-abbrev-make-syntax-table
   #'mail-abbrev-make-syntax-table "29.1")
 
@@ -130,7 +130,6 @@ This is taken from RFC 2396.")
 (provide 'mh-compat)
 
 ;; Local Variables:
-;; indent-tabs-mode: nil
 ;; sentence-end-double-space: nil
 ;; End:
 
