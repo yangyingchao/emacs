@@ -307,9 +307,6 @@ Match group 1 is the name of the macro.")
 (defconst js--font-lock-keywords-2
   (append js--font-lock-keywords-1
           (list (list js--keyword-re 1 font-lock-keyword-face)
-                (list "\\_<for\\_>"
-                      "\\s-+\\(each\\)\\_>" nil nil
-                      (list 1 'font-lock-keyword-face))
                 (cons js--basic-type-re font-lock-type-face)
                 (cons js--constant-re font-lock-constant-face)))
   "Level two font lock keywords for `js-mode'.")
@@ -3493,9 +3490,10 @@ This function is intended for use in `after-change-functions'."
 
 ;;;###autoload
 (define-derived-mode js-json-mode js-mode "JSON"
-  ;; JSON files can be big.  Speed up syntax-ppss.
-  (setq-local syntax-propertize-function nil)
-  (setq-local js-enabled-frameworks nil))
+  (setq-local js-enabled-frameworks nil)
+  ;; Speed up `syntax-ppss': JSON files can be big but can't hold
+  ;; regexp matchers nor #! thingies (and `js-enabled-frameworks' is nil).
+  (setq-local syntax-propertize-function #'ignore))
 
 ;; Since we made JSX support available and automatically-enabled in
 ;; the base `js-mode' (for ease of use), now `js-jsx-mode' simply

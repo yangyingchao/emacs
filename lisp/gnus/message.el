@@ -2086,6 +2086,7 @@ You must have the \"hashcash\" binary installed, see `hashcash-path'."
 
 (defun message-mark-active-p ()
   "Non-nil means the mark and region are currently active in this buffer."
+  (declare (obsolete mark-active "29.1"))
   mark-active)
 
 (defun message-unquote-tokens (elems)
@@ -2731,20 +2732,17 @@ Point is left at the beginning of the narrowed-to region."
   (interactive nil message-mode)
   (save-excursion
     (save-restriction
-      (let ((max (1+ (length message-header-format-alist)))
-	    rank)
+      (let ((max (1+ (length message-header-format-alist))))
 	(message-narrow-to-headers)
 	(while (re-search-forward "^[^ \n]+:" nil t)
 	  (put-text-property
 	   (match-beginning 0) (1+ (match-beginning 0))
 	   'message-rank
-	   (if (setq rank (length (memq (assq (intern (buffer-substring
-						       (match-beginning 0)
-						       (1- (match-end 0))))
-					      message-header-format-alist)
-					message-header-format-alist)))
-	       (- max rank)
-	     (1+ max)))))
+           (- max (length
+                   (memq (assq (intern (buffer-substring
+					(match-beginning 0) (1- (match-end 0))))
+			       message-header-format-alist)
+			 message-header-format-alist))))))
       (message-sort-headers-1))))
 
 (defun message-kill-address ()
@@ -2953,12 +2951,12 @@ Consider adding this function to `message-header-setup-hook'"
     ["Fill Yanked Message" message-fill-yanked-message t]
     ["Insert Signature" message-insert-signature t]
     ["Caesar (rot13) Message" message-caesar-buffer-body t]
-    ["Caesar (rot13) Region" message-caesar-region (message-mark-active-p)]
+    ["Caesar (rot13) Region" message-caesar-region mark-active]
     ["Elide Region" message-elide-region
-     :active (message-mark-active-p)
+     :active mark-active
      :help "Replace text in region with an ellipsis"]
     ["Delete Outside Region" message-delete-not-region
-     :active (message-mark-active-p)
+     :active mark-active
      :help "Delete all quoted text outside region"]
     ["Kill To Signature" message-kill-to-signature t]
     ["Newline and Reformat" message-newline-and-reformat t]
@@ -2966,7 +2964,7 @@ Consider adding this function to `message-header-setup-hook'"
     ["Spellcheck" ispell-message :help "Spellcheck this message"]
     "----"
     ["Insert Region Marked" message-mark-inserted-region
-     :active (message-mark-active-p) :help "Mark region with enclosing tags"]
+     :active mark-active :help "Mark region with enclosing tags"]
     ["Insert File Marked..." message-mark-insert-file
      :help "Insert file at point marked with enclosing tags"]
     ["Attach File..." mml-attach-file t]
