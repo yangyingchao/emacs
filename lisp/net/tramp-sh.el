@@ -410,11 +410,12 @@ The string is used in `tramp-methods'.")
                 (tramp-copy-keep-date       t)))
 
  (add-to-list 'tramp-default-method-alist
-	      `(,tramp-local-host-regexp "\\`root\\'" "su"))
+	      `(,tramp-local-host-regexp
+		,(format "\\`%s\\'" tramp-root-id-string) "su"))
 
  (add-to-list 'tramp-default-user-alist
 	      `(,(concat "\\`" (regexp-opt '("su" "sudo" "doas" "ksu")) "\\'")
-	        nil "root"))
+	        nil ,tramp-root-id-string))
  ;; Do not add "ssh" based methods, otherwise ~/.ssh/config would be ignored.
  ;; Do not add "plink" based methods, they ask interactively for the user.
  (add-to-list 'tramp-default-user-alist
@@ -1187,7 +1188,7 @@ component is used as the target of the symlink."
 			     (tramp-shell-quote-argument localname)))
 		  (with-current-buffer (tramp-get-connection-buffer v)
 		    (goto-char (point-min))
-		    (buffer-substring (point-min) (point-at-eol))))
+                    (buffer-substring (point-min) (line-end-position))))
 
 		 ;; Use Perl implementation.
 		 ((and (tramp-get-remote-perl v)
@@ -1314,8 +1315,12 @@ component is used as the target of the symlink."
           ;; ... uid and gid
           (setq res-uid-string (read (current-buffer)))
           (setq res-gid-string (read (current-buffer)))
+	  (when (natnump res-uid-string)
+	    (setq res-uid-string (number-to-string res-uid-string)))
           (unless (stringp res-uid-string)
 	    (setq res-uid-string (symbol-name res-uid-string)))
+	  (when (natnump res-gid-string)
+	    (setq res-gid-string (number-to-string res-gid-string)))
           (unless (stringp res-gid-string)
 	    (setq res-gid-string (symbol-name res-gid-string)))
           ;; ... size
@@ -1329,7 +1334,7 @@ component is used as the target of the symlink."
             (setq res-symlink-target
                   (if (looking-at-p "\"")
                       (read (current-buffer))
-                    (buffer-substring (point) (point-at-eol)))))
+                    (buffer-substring (point) (line-end-position)))))
 	  (forward-line)
           ;; ... file mode flags
 	  (read (current-buffer))
@@ -1411,7 +1416,7 @@ component is used as the target of the symlink."
 	       (format "%s -ild %s"
 		       (tramp-get-ls-command v)
 		       (tramp-shell-quote-argument localname)))
-	      (setq attr (buffer-substring (point) (point-at-eol))))
+              (setq attr (buffer-substring (point) (line-end-position))))
 	    (tramp-set-file-property
 	     v localname "visited-file-modtime-ild" attr))
 	  (setq last-coding-system-used coding-system-used)
@@ -1455,7 +1460,7 @@ of."
 		       (tramp-get-ls-command v)
 		       (tramp-shell-quote-argument localname)))
 	      (with-current-buffer (tramp-get-buffer v)
-		(setq attr (buffer-substring (point) (point-at-eol))))
+                (setq attr (buffer-substring (point) (line-end-position))))
 	      (equal
 	       attr
 	       (tramp-get-file-property
@@ -1512,7 +1517,7 @@ VEC or USER, or if there is no home directory, return nil."
 	       (concat "~" (or user (tramp-file-name-user vec))))))
     (with-current-buffer (tramp-get-buffer vec)
       (goto-char (point-min))
-      (buffer-substring (point) (point-at-eol)))))
+      (buffer-substring (point) (line-end-position)))))
 
 (defun tramp-sh-handle-get-remote-uid (vec id-format)
   "The uid of the remote connection VEC, in ID-FORMAT.
@@ -1577,7 +1582,7 @@ ID-FORMAT valid values are `string' and `integer'."
 		       (tramp-shell-quote-argument localname))))
 	  (with-current-buffer (tramp-get-connection-buffer v)
 	    (goto-char (point-min))
-	    (when (re-search-forward regexp (point-at-eol) t)
+            (when (re-search-forward regexp (line-end-position) t)
 	      (setq context (list (match-string 1) (match-string 2)
 				  (match-string 3) (match-string 4))))))
 	;; Return the context.
@@ -1812,7 +1817,7 @@ ID-FORMAT valid values are `string' and `integer'."
 		   (tramp-error
 		    v 'file-error
 		    "tramp-sh-handle-file-name-all-completions: %s"
-		    (buffer-substring (point) (point-at-eol))))
+                    (buffer-substring (point) (line-end-position))))
 	       ;; For peace of mind, if buffer doesn't end in `fail'
 	       ;; then it should end in `ok'.  If neither are in the
 	       ;; buffer something went seriously wrong on the remote
@@ -1825,7 +1830,7 @@ ID-FORMAT valid values are `string' and `integer'."
 		  (tramp-shell-quote-argument localname) (buffer-string))))
 
 	     (while (zerop (forward-line -1))
-	       (push (buffer-substring (point) (point-at-eol)) result)))
+               (push (buffer-substring (point) (line-end-position)) result)))
 	   result))))))
 
 ;; cp, mv and ln
@@ -3096,7 +3101,7 @@ implementation will be used."
 	 (cond
 	  ;; Some predefined values, which aren't reported sometimes,
 	  ;; or would raise problems (all Stopped signals).
-	  ((= i 0) 0)
+	  ((zerop i) 0)
 	  ((string-equal (nth i signals) "HUP") "Hangup")
 	  ((string-equal (nth i signals) "INT") "Interrupt")
 	  ((string-equal (nth i signals) "QUIT") "Quit")
@@ -3119,7 +3124,8 @@ implementation will be used."
 		       (tramp-shell-quote-argument (format "kill -%d $$" i))))
 		     (with-current-buffer (tramp-get-connection-buffer vec)
 		       (goto-char (point-min))
-		       (buffer-substring (point-at-bol) (point-at-eol)))))
+                       (buffer-substring (line-beginning-position)
+                                         (line-end-position)))))
 	     (if (string-empty-p res)
 		 (format "Signal %d" i)
 	       res)))
@@ -3264,81 +3270,84 @@ implementation will be used."
 (defun tramp-sh-handle-file-local-copy (filename)
   "Like `file-local-copy' for Tramp files."
   (tramp-skeleton-file-local-copy filename
-    (if-let ((size (file-attribute-size (file-attributes filename)))
-	     (rem-enc (tramp-get-inline-coding v "remote-encoding" size))
-	     (loc-dec (tramp-get-inline-coding v "local-decoding" size)))
+    (if-let ((size (file-attribute-size (file-attributes filename))))
+	(let (rem-enc loc-dec)
 
-      (condition-case err
-	  (cond
-	   ;; Empty file.
-	   ((zerop size))
+	  (condition-case err
+	      (cond
+	       ;; Empty file.  Nothing to copy.
+	       ((zerop size))
 
-	   ;; `copy-file' handles direct copy and out-of-band methods.
-	   ((or (tramp-local-host-p v)
-		(tramp-method-out-of-band-p v size))
-	    (copy-file filename tmpfile 'ok-if-already-exists 'keep-time))
+	       ;; `copy-file' handles direct copy and out-of-band methods.
+	       ((or (tramp-local-host-p v)
+		    (tramp-method-out-of-band-p v size))
+		(copy-file filename tmpfile 'ok-if-already-exists 'keep-time))
 
-	   ;; Use inline encoding for file transfer.
-	   (rem-enc
-	    (with-tramp-progress-reporter
-		v 3
-		(format-message
-		 "Encoding remote file `%s' with `%s'" filename rem-enc)
-	      (tramp-barf-unless-okay
-	       v (format rem-enc (tramp-shell-quote-argument localname))
-	       "Encoding remote file failed"))
+	       ;; Use inline encoding for file transfer.
+	       ((and (setq rem-enc
+			   (tramp-get-inline-coding v "remote-encoding" size))
+		     (setq loc-dec
+			   (tramp-get-inline-coding v "local-decoding" size)))
+		(with-tramp-progress-reporter
+		    v 3
+		    (format-message
+		     "Encoding remote file `%s' with `%s'" filename rem-enc)
+		  (tramp-barf-unless-okay
+		   v (format rem-enc (tramp-shell-quote-argument localname))
+		   "Encoding remote file failed"))
 
-	    ;; Check error.  `rem-enc' could be a pipe, which doesn't
-	    ;; flag the error in the first command.
-	    (when (zerop (buffer-size (tramp-get-buffer v)))
-	      (tramp-error v 'file-error' "Encoding remote file failed"))
+		;; Check error.  `rem-enc' could be a pipe, which
+		;; doesn't flag the error in the first command.
+		(when (zerop (buffer-size (tramp-get-buffer v)))
+		  (tramp-error v 'file-error' "Encoding remote file failed"))
 
-	    (with-tramp-progress-reporter
-		v 3 (format-message
-		     "Decoding local file `%s' with `%s'" tmpfile loc-dec)
-	      (if (functionp loc-dec)
-		  ;; If local decoding is a function, we call it.  We
-		  ;; must disable multibyte, because
-		  ;; `uudecode-decode-region' doesn't handle it
-		  ;; correctly.  Unset `file-name-handler-alist'.
-		  ;; Otherwise, epa-file gets confused.
-		  (let (file-name-handler-alist
-			(coding-system-for-write 'binary)
-			(default-directory
-			 tramp-compat-temporary-file-directory))
-		    (with-temp-file tmpfile
-		      (set-buffer-multibyte nil)
-		      (insert-buffer-substring (tramp-get-buffer v))
-		      (funcall loc-dec (point-min) (point-max))))
+		(with-tramp-progress-reporter
+		    v 3 (format-message
+			 "Decoding local file `%s' with `%s'" tmpfile loc-dec)
+		  (if (functionp loc-dec)
+		      ;; If local decoding is a function, we call it.
+		      ;; We must disable multibyte, because
+		      ;; `uudecode-decode-region' doesn't handle it
+		      ;; correctly.  Unset `file-name-handler-alist'.
+		      ;; Otherwise, epa-file gets confused.
+		      (let (file-name-handler-alist
+			    (coding-system-for-write 'binary)
+			    (default-directory
+			     tramp-compat-temporary-file-directory))
+			(with-temp-file tmpfile
+			  (set-buffer-multibyte nil)
+			  (insert-buffer-substring (tramp-get-buffer v))
+			  (funcall loc-dec (point-min) (point-max))))
 
-		;; If tramp-decoding-function is not defined for this
-		;; method, we invoke tramp-decoding-command instead.
-		(let ((tmpfile2 (tramp-compat-make-temp-file filename)))
-		  ;; Unset `file-name-handler-alist'.  Otherwise,
-		  ;; epa-file gets confused.
-		  (let (file-name-handler-alist
-			(coding-system-for-write 'binary))
-		    (with-current-buffer (tramp-get-buffer v)
-		      (write-region
-		       (point-min) (point-max) tmpfile2 nil 'no-message)))
-		  (unwind-protect
-		      (tramp-call-local-coding-command
-		       loc-dec tmpfile2 tmpfile)
-		    (delete-file tmpfile2)))))
+		    ;; If tramp-decoding-function is not defined for
+		    ;; this method, we invoke tramp-decoding-command
+		    ;; instead.
+		    (let ((tmpfile2 (tramp-compat-make-temp-file filename)))
+		      ;; Unset `file-name-handler-alist'.  Otherwise,
+		      ;; epa-file gets confused.
+		      (let (file-name-handler-alist
+			    (coding-system-for-write 'binary))
+			(with-current-buffer (tramp-get-buffer v)
+			  (write-region
+			   (point-min) (point-max) tmpfile2 nil 'no-message)))
+		      (unwind-protect
+			  (tramp-call-local-coding-command
+			   loc-dec tmpfile2 tmpfile)
+			(delete-file tmpfile2)))))
 
-	    ;; Set proper permissions.
-	    (set-file-modes tmpfile (tramp-default-file-modes filename))
-	    ;; Set local user ownership.
-	    (tramp-set-file-uid-gid tmpfile))
+		;; Set proper permissions.
+		(set-file-modes tmpfile (tramp-default-file-modes filename))
+		;; Set local user ownership.
+		(tramp-set-file-uid-gid tmpfile))
 
-	   ;; Oops, I don't know what to do.
-	   (t (tramp-error
-	       v 'file-error "Wrong method specification for `%s'" method)))
+	       ;; Oops, I don't know what to do.
+	       (t (tramp-error
+		   v 'file-error "Wrong method specification for `%s'" method)))
 
-	;; Error handling.
-	((error quit)
-	 (delete-file tmpfile)
-	 (signal (car err) (cdr err))))
+	    ;; Error handling.
+	    ((error quit)
+	     (delete-file tmpfile)
+	     (signal (car err) (cdr err)))))
 
       ;; Impossible to copy.  Trigger `file-missing' error.
       (setq tmpfile nil))))
@@ -4079,8 +4088,8 @@ This function expects to be in the right *tramp* buffer."
 	(when (search-backward "tramp_executable " nil t)
 	  (skip-chars-forward "^ ")
 	  (skip-chars-forward " ")
-	  (setq result (buffer-substring (point) (point-at-eol)))))
-    result)))
+          (setq result (buffer-substring (point) (line-end-position)))))
+      result)))
 
 ;; On hydra.nixos.org, the $PATH environment variable is too long to
 ;; send it.  This is likely not due to PATH_MAX, but PIPE_BUF.  We
@@ -4272,8 +4281,10 @@ file exists and nonzero exit status otherwise."
 	      (with-tramp-connection-property vec "remote-shell"
 		;; CCC: "root" does not exist always, see my QNAP
 		;; TS-459.  Which check could we apply instead?
-		(tramp-send-command vec "echo ~root" t)
-		(if (or (string-match-p "^~root$" (buffer-string))
+		(tramp-send-command
+		 vec (format "echo ~%s" tramp-root-id-string) t)
+		(if (or (string-match-p
+			 (format "^~%s$" tramp-root-id-string) (buffer-string))
 			;; The default shell (ksh93) of OpenSolaris
 			;; and Solaris is buggy.  We've got reports
 			;; for "SunOS 5.10" and "SunOS 5.11" so far.
@@ -5266,7 +5277,7 @@ function waits for output unless NOOUTPUT is set."
 	    ;; A simple-minded busybox has sent " ^H" sequences.
 	    ;; Delete them.
 	    (goto-char (point-min))
-	    (when (re-search-forward "^\\(.\b\\)+$" (point-at-eol) t)
+            (when (re-search-forward "^\\(.\b\\)+$" (line-end-position) t)
 	      (forward-line 1)
 	      (delete-region (point-min) (point)))
 	    ;; Delete the prompt.
@@ -5358,7 +5369,7 @@ raises an error."
 		     (unless noerror signal-hook-function)))
 		(read (current-buffer)))
 	    ;; Error handling.
-	    (when (re-search-forward "\\S-" (point-at-eol) t)
+            (when (re-search-forward "\\S-" (line-end-position) t)
 	      (error nil)))
 	(error (unless noerror
 		 (tramp-error

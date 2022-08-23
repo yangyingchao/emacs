@@ -12186,6 +12186,11 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
       if (device)
 	x_dnd_keyboard_device = device->attachment;
     }
+  else
+    {
+      x_dnd_pointer_device = -1;
+      x_dnd_keyboard_device = -1;
+    }
 
 #endif
 
@@ -13401,18 +13406,17 @@ get_keysym_name (int keysym)
   return value;
 }
 
-/* Like XQueryPointer, but always use the right client pointer
-   device.  */
-
-Bool
-x_query_pointer (Display *dpy, Window w, Window *root_return,
-		 Window *child_return, int *root_x_return,
-		 int *root_y_return, int *win_x_return,
-		 int *win_y_return, unsigned int *mask_return)
+static Bool
+x_query_pointer_1 (struct x_display_info *dpyinfo,
+		   int client_pointer_device, Window w,
+		   Window *root_return, Window *child_return,
+		   int *root_x_return, int *root_y_return,
+		   int *win_x_return, int *win_y_return,
+		   unsigned int *mask_return)
 {
   Bool rc;
+  Display *dpy;
 #ifdef HAVE_XINPUT2
-  struct x_display_info *dpyinfo;
   bool had_errors;
   XIModifierState modifiers;
   XIButtonState buttons;
@@ -13421,9 +13425,10 @@ x_query_pointer (Display *dpy, Window w, Window *root_return,
   unsigned int state;
 #endif
 
+  dpy = dpyinfo->display;
+
 #ifdef HAVE_XINPUT2
-  dpyinfo = x_display_info_for_display (dpy);
-  if (dpyinfo && dpyinfo->client_pointer_device != -1)
+  if (client_pointer_device != -1)
     {
       /* Catch errors caused by the device going away.  This is not
 	 very expensive, since XIQueryPointer will sync anyway.  */
@@ -13437,10 +13442,20 @@ x_query_pointer (Display *dpy, Window w, Window *root_return,
       x_uncatch_errors_after_check ();
 
       if (had_errors)
-	rc = XQueryPointer (dpyinfo->display, w, root_return,
-			    child_return, root_x_return,
-			    root_y_return, win_x_return,
-			    win_y_return, mask_return);
+	{
+	  /* If the specified client pointer is the display's client
+	     pointer, clear it now.  A new client pointer might not be
+	     found before the next call to x_query_pointer_1 and
+	     waiting for the error leads to excessive syncing.  */
+
+	  if (client_pointer_device == dpyinfo->client_pointer_device)
+	    dpyinfo->client_pointer_device = -1;
+
+	  rc = XQueryPointer (dpyinfo->display, w, root_return,
+			      child_return, root_x_return,
+			      root_y_return, win_x_return,
+			      win_y_return, mask_return);
+	}
       else
 	{
 	  state = 0;
@@ -13461,6 +13476,31 @@ x_query_pointer (Display *dpy, Window w, Window *root_return,
 			win_y_return, mask_return);
 
   return rc;
+}
+
+Bool
+x_query_pointer (Display *dpy, Window w, Window *root_return,
+		 Window *child_return, int *root_x_return,
+		 int *root_y_return, int *win_x_return,
+		 int *win_y_return, unsigned int *mask_return)
+{
+  struct x_display_info *dpyinfo;
+
+  dpyinfo = x_display_info_for_display (dpy);
+
+  if (!dpyinfo)
+    emacs_abort ();
+
+#ifdef HAVE_XINPUT2
+  return x_query_pointer_1 (dpyinfo, dpyinfo->client_pointer_device,
+			    w, root_return, child_return, root_x_return,
+			    root_y_return, win_x_return, win_y_return,
+			    mask_return);
+#else
+  return x_query_pointer_1 (dpyinfo, -1, w, root_return, child_return,
+			    root_x_return, root_y_return, win_x_return,
+			    win_y_return, mask_return);
+#endif
 }
 
 /* Mouse clicks and mouse movement.  Rah.
@@ -16902,11 +16942,19 @@ x_dnd_update_tooltip_now (void)
 
   dpyinfo = FRAME_DISPLAY_INFO (x_dnd_frame);
 
+#ifndef HAVE_XINPUT2
   rc = XQueryPointer (dpyinfo->display,
 		      dpyinfo->root_window,
 		      &root, &child, &root_x,
 		      &root_y, &win_x, &win_y,
 		      &mask);
+#else
+  rc = x_query_pointer_1 (dpyinfo, x_dnd_pointer_device,
+			  dpyinfo->root_window,
+			  &root, &child, &root_x,
+			  &root_y, &win_x, &win_y,
+			  &mask);
+#endif
 
   if (rc)
     x_dnd_update_tooltip_position (root_x, root_y);
@@ -16926,12 +16974,17 @@ x_dnd_update_state (struct x_display_info *dpyinfo, Time timestamp)
   xm_drop_start_message dsmsg;
   bool was_frame;
 
-  if (XQueryPointer (dpyinfo->display,
-		     dpyinfo->root_window,
-		     &dummy, &dummy_child,
-		     &root_x, &root_y,
-		     &dummy_x, &dummy_y,
-		     &dummy_mask))
+  if (x_query_pointer_1 (dpyinfo,
+#ifdef HAVE_XINPUT2
+			 x_dnd_pointer_device,
+#else
+			 -1,
+#endif
+			 dpyinfo->root_window,
+			 &dummy, &dummy_child,
+			 &root_x, &root_y,
+			 &dummy_x, &dummy_y,
+			 &dummy_mask))
     {
       target = x_dnd_get_target_window (dpyinfo, root_x,
 					root_y, &target_proto,
@@ -20217,7 +20270,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	      {
 		block_input ();
 		XSetInputFocus (FRAME_X_DISPLAY (f), FRAME_OUTER_WINDOW (f),
-				RevertToParent, CurrentTime);
+				RevertToParent, event->xbutton.time);
 		if (FRAME_PARENT_FRAME (f))
 		  XRaiseWindow (FRAME_X_DISPLAY (f), FRAME_OUTER_WINDOW (f));
 		unblock_input ();
@@ -21481,7 +21534,8 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		      else
 			{
 			  dpyinfo->grabbed &= ~(1 << xev->detail);
-			  device->grab &= ~(1 << xev->detail);
+			  if (device)
+			    device->grab &= ~(1 << xev->detail);
 			}
 #ifdef XIPointerEmulated
 		    }
@@ -21798,8 +21852,26 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		  if (FRAME_PARENT_FRAME (f) || (hf && frame_ancestor_p (f, hf)))
 		    {
 		      block_input ();
+#if defined HAVE_GTK3 || (!defined USE_GTK && !defined USE_X_TOOLKIT)
+		      if (device)
+			{
+			  /* This can generate XI_BadDevice if the
+			     device's attachment was destroyed
+			     server-side.  */
+			  x_ignore_errors_for_next_request (dpyinfo);
+			  XISetFocus (dpyinfo->display, device->attachment,
+				      /* Note that the input extension
+					 only supports RevertToParent-type
+					 behavior.  */
+				      FRAME_OUTER_WINDOW (f), xev->time);
+			  x_stop_ignoring_errors (dpyinfo);
+			}
+#else
+		      /* Non-no toolkit builds without GTK 3 use core
+			 events to handle focus.  */
 		      XSetInputFocus (FRAME_X_DISPLAY (f), FRAME_OUTER_WINDOW (f),
-				      RevertToParent, CurrentTime);
+				      RevertToParent, xev->time);
+#endif
 		      if (FRAME_PARENT_FRAME (f))
 			XRaiseWindow (FRAME_X_DISPLAY (f), FRAME_OUTER_WINDOW (f));
 		      unblock_input ();
@@ -22653,13 +22725,16 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 
 		      if (info)
 			{
-			  if (device && info->enabled)
+			  if (device)
 			    {
 			      device->use = info->use;
 			      device->attachment = info->attachment;
 			    }
-			  else if (device)
-			    disabled[n_disabled++] = hev->info[i].deviceid;
+
+			  /* device could have been disabled by now.
+			     But instead of removing it immediately,
+			     wait for XIDeviceDisabled, or internal
+			     state could be left inconsistent.  */
 
 			  XIFreeDeviceInfo (info);
 			}
@@ -22981,6 +23056,8 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	  if (xkbevent->any.xkb_type == XkbNewKeyboardNotify
 	      || xkbevent->any.xkb_type == XkbMapNotify)
 	    {
+	      XkbRefreshKeyboardMapping (&xkbevent->map);
+
 	      if (dpyinfo->xkb_desc)
 		{
 		  if (XkbGetUpdatedMap (dpyinfo->display,
@@ -22989,11 +23066,9 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 					 | XkbModifierMapMask
 					 | XkbVirtualModsMask),
 					dpyinfo->xkb_desc) == Success)
-		    {
-		      XkbGetNames (dpyinfo->display,
-				   XkbGroupNamesMask | XkbVirtualModNamesMask,
-				   dpyinfo->xkb_desc);
-		    }
+		    XkbGetNames (dpyinfo->display,
+				 XkbGroupNamesMask | XkbVirtualModNamesMask,
+				 dpyinfo->xkb_desc);
 		  else
 		    {
 		      XkbFreeKeyboard (dpyinfo->xkb_desc, XkbAllComponentsMask, True);
@@ -23015,7 +23090,6 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 				 dpyinfo->xkb_desc);
 		}
 
-	      XkbRefreshKeyboardMapping (&xkbevent->map);
 	      x_find_modifier_meanings (dpyinfo);
 	    }
 	  else if (x_dnd_in_progress
@@ -27634,6 +27708,71 @@ my_log_handler (const gchar *log_domain, GLogLevelFlags log_level,
    connection established.  */
 static unsigned x_display_id;
 
+#if defined HAVE_XINPUT2 && !defined HAVE_GTK3
+
+/* Select for device change events on the root window of DPYINFO.
+   These include device change and hierarchy change notifications.  */
+
+static void
+xi_select_hierarchy_events (struct x_display_info *dpyinfo)
+{
+  XIEventMask mask;
+  ptrdiff_t l;
+  unsigned char *m;
+
+  l = XIMaskLen (XI_LASTEVENT);
+  mask.mask = m = alloca (l);
+  memset (m, 0, l);
+  mask.mask_len = l;
+
+  mask.deviceid = XIAllDevices;
+
+  XISetMask (m, XI_PropertyEvent);
+  XISetMask (m, XI_HierarchyChanged);
+  XISetMask (m, XI_DeviceChanged);
+
+  XISelectEvents (dpyinfo->display, dpyinfo->root_window,
+		  &mask, 1);
+}
+
+#endif
+
+#if defined HAVE_XINPUT2 && defined HAVE_GTK3
+
+/* Look up whether or not GTK already initialized the X input
+   extension.
+
+   Value is 0 if GTK was not built with the input extension, or if it
+   was explictly disabled, 1 if GTK enabled the input extension and
+   the version was successfully determined, and 2 if that information
+   could not be determined.  */
+
+static int
+xi_check_toolkit (Display *display)
+{
+  GdkDisplay *gdpy;
+  GdkDeviceManager *manager;
+
+  gdpy = gdk_x11_lookup_xdisplay (display);
+  eassume (gdpy);
+  manager = gdk_display_get_device_manager (gdpy);
+
+  if (!strcmp (G_OBJECT_TYPE_NAME (manager),
+	       "GdkX11DeviceManagerXI2"))
+    return 1;
+
+  if (!strcmp (G_OBJECT_TYPE_NAME (manager),
+	       "GdkX11DeviceManagerCore"))
+    return 0;
+
+  /* Something changed in GDK so this information is no longer
+     available.  */
+
+  return 2;
+}
+
+#endif
+
 /* Open a connection to X display DISPLAY_NAME, and return
    the structure that describes the open display.
    If we cannot contact the display, return null.  */
@@ -28178,6 +28317,17 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
 
   dpyinfo->client_pointer_device = -1;
 
+#ifdef HAVE_GTK3
+  /* GTK gets a chance to request use of the input extension first.
+     If we later try to enable it if GDK did not, then GTK will not
+     get the resulting extension events.  */
+
+  rc = xi_check_toolkit (dpyinfo->display);
+
+  if (!rc)
+    goto skip_xi_setup;
+#endif
+
   if (XQueryExtension (dpyinfo->display, "XInputExtension",
 		       &dpyinfo->xi2_opcode, &xi_first_event,
 		       &xi_first_error))
@@ -28263,14 +28413,18 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
       if (rc == Success)
 	{
 	  dpyinfo->supports_xi2 = true;
+#ifndef HAVE_GTK3
+	  /* Select for hierarchy events on the root window.  GTK 3.x
+	     does this itself.  */
+	  xi_select_hierarchy_events (dpyinfo);
+#endif
+
 	  x_cache_xi_devices (dpyinfo);
 	}
     }
 
   dpyinfo->xi2_version = minor;
-#ifndef HAVE_GTK3
  skip_xi_setup:
-#endif
   ;
 #endif
 

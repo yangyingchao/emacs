@@ -48,7 +48,7 @@
 	 (let ((stuff (calc-top-list n (- num n -1))))
 	   (calc-cursor-stack-index num)
            (unless calc-kill-line-numbering
-             (re-search-forward "\\=[0-9]+:\\s-+" (point-at-eol) t))
+             (re-search-forward "\\=[0-9]+:\\s-+" (line-end-position) t))
 	   (let ((first (point)))
 	     (calc-cursor-stack-index (- num n))
 	     (if (null nn)
@@ -150,7 +150,6 @@
 
 ;; This function uses calc-last-kill if possible to get an exact result,
 ;; otherwise it just parses the yanked string.
-;; Modified to use Emacs 19 extended concept of kill-ring. -- daveg 12/15/96
 ;;;###autoload
 (defun calc-yank-internal (radix thing-raw)
   "Internal common implementation for yank functions.
@@ -411,8 +410,8 @@ Interactively, reads the register using `register-read-with-preview'."
 	    (setq single t)
 	  (setq arg (prefix-numeric-value arg))
 	  (if (= arg 0)
-	      (setq top (point-at-bol)
-		    bot (point-at-eol))
+              (setq top (line-beginning-position)
+                    bot (line-end-position))
 	    (save-excursion
 	      (setq top (point))
 	      (forward-line arg)

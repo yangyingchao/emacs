@@ -2081,6 +2081,7 @@ You must have the \"hashcash\" binary installed, see `hashcash-path'."
 
 (defsubst message-delete-line (&optional n)
   "Delete the current line (and the next N lines)."
+  (declare (obsolete delete-line "29.1"))
   (delete-region (progn (beginning-of-line) (point))
 		 (progn (forward-line (or n 1)) (point))))
 
@@ -2184,7 +2185,7 @@ see `message-narrow-to-headers-or-head'."
    (progn
      (forward-line 1)
      (if (re-search-forward "^[^ \n\t]" nil t)
-	 (point-at-bol)
+         (line-beginning-position)
        (point-max))))
   (goto-char (point-min)))
 
@@ -2385,7 +2386,7 @@ Leading \"Re: \" is not stripped by this function.  Use the function
 		    (setq old-subject
 			  (message-strip-subject-re old-subject))
 		    (message-goto-subject)
-		    (message-delete-line)
+		    (delete-line)
 		    (insert (concat "Subject: "
 				    new-subject
 				    " (was: "
@@ -2500,12 +2501,12 @@ been made to before the user asked for a Crosspost."
     (while (re-search-backward
 	    (concat "^" (regexp-quote message-cross-post-note) ".*")
 	    head t)
-      (message-delete-line))
+      (delete-line))
     (message-goto-signature)
     (while (re-search-backward
 	    (concat "^" (regexp-quote message-followup-to-note) ".*")
 	    head t)
-      (message-delete-line))
+      (delete-line))
     ;; insert new note
     (if (message-goto-signature)
 	(re-search-backward message-signature-separator))
@@ -2577,7 +2578,7 @@ With prefix-argument just set Follow-Up, don't cross-post."
    (cond (cc-content
 	  (save-excursion
 	    (message-goto-to)
-	    (message-delete-line)
+	    (delete-line)
 	    (insert (concat "To: " cc-content "\n"))
 	    (save-restriction
 	      (message-narrow-to-headers)
@@ -3663,7 +3664,7 @@ Message buffers and is not meant to be called directly."
   (save-excursion
     (save-restriction
       (widen)
-      (let ((bound (+ (point-at-eol) 1)) case-fold-search)
+      (let ((bound (+ (line-end-position) 1)) case-fold-search)
         (goto-char (point-min))
         (not (search-forward (concat "\n" mail-header-separator "\n")
                              bound t))))))
@@ -3928,17 +3929,16 @@ However, if `message-yank-prefix' is non-nil, insert that prefix on each line."
 	    (goto-char start)
 	  (forward-line 1))))
     ;; Delete blank lines at the start of the buffer.
-    (while (and (point-min)
-		(eolp)
-		(not (eobp)))
-      (message-delete-line))
+    (goto-char (point-min))
+    (while (and (eolp) (not (eobp)))
+      (delete-line))
     ;; Delete blank lines at the end of the buffer.
     (goto-char (point-max))
     (unless (eq (preceding-char) ?\n)
       (insert "\n"))
     (while (and (zerop (forward-line -1))
 		(looking-at "$"))
-      (message-delete-line)))
+      (delete-line)))
   ;; Do the indentation.
   (if (null message-yank-prefix)
       (indent-rigidly start (or end (mark t)) message-indentation-spaces)
@@ -5142,9 +5142,9 @@ to find out how to use this."
       (let ((headers message-mh-deletable-headers))
 	(while headers
 	  (goto-char (point-min))
-	  (and (re-search-forward
-		(concat "^" (symbol-name (car headers)) ": *") nil t)
-	       (message-delete-line))
+	  (when (re-search-forward
+		 (concat "^" (symbol-name (car headers)) ": *") nil t)
+	    (delete-line))
 	  (pop headers))))
     (run-hooks 'message-send-mail-hook)
     ;; Pass it on to mh.
@@ -5671,11 +5671,11 @@ Otherwise, generate and save a value for `canlock-password' first."
        (goto-char (point-max))
        (if (not (re-search-backward message-signature-separator nil t))
 	   t
-	 (setq sig-start (1+ (point-at-eol)))
+         (setq sig-start (1+ (line-end-position)))
 	 (setq sig-end
 	       (if (re-search-forward
 		    "<#/?\\(multipart\\|part\\|external\\|mml\\)" nil t)
-		   (- (point-at-bol) 1)
+                   (- (line-beginning-position) 1)
 		 (point-max)))
 	 (if (>= (count-lines sig-start sig-end) 5)
 	     (if (message-gnksa-enable-p 'signature)
@@ -6276,7 +6276,7 @@ Headers already prepared in the buffer are not modified."
 	  (and (re-search-forward
 		(concat "^" (symbol-name (car headers)) ": *") nil t)
 	       (get-text-property (1+ (match-beginning 0)) 'message-deletable)
-	       (message-delete-line))
+	       (delete-line))
 	  (pop headers)))
       ;; Go through all the required headers and see if they are in the
       ;; articles already.  If they are not, or are empty, they are
@@ -6361,7 +6361,7 @@ Headers already prepared in the buffer are not modified."
 		      (forward-line -1)))
 		;; The value of this header was empty, so we clear
 		;; totally and insert the new value.
-		(delete-region (point) (point-at-eol))
+                (delete-region (point) (line-end-position))
 		;; If the header is optional, and the header was
 		;; empty, we can't insert it anyway.
 		(unless optionalp
@@ -6495,7 +6495,7 @@ If the current line has `message-yank-prefix', insert it on the new line."
     ;; Tapdance around looong Message-IDs.
     (forward-line -1)
     (when (looking-at "[ \t]*$")
-      (message-delete-line))
+      (delete-line))
     (goto-char begin)
     (search-forward ":" nil t)
     (when (looking-at "\n[ \t]+")
@@ -6616,10 +6616,10 @@ beginning of a folded header)."
                 (or (eq (char-after) ?\s) (eq (char-after) ?\t)))
       (beginning-of-line 0)))
   (when (or (eq (char-after) ?\s) (eq (char-after) ?\t)
-            (search-forward ":" (point-at-eol) t))
+            (search-forward ":" (line-end-position) t))
     ;; We are a bit more lacks than the RFC and allow any positive number of WSP
     ;; characters.
-    (skip-chars-forward " \t" (point-at-eol))
+    (skip-chars-forward " \t" (line-end-position))
     (point)))
 
 (defun message-beginning-of-line (&optional n)
@@ -8642,7 +8642,7 @@ From headers in the original article."
 (autoload 'ecomplete-display-matches "ecomplete")
 
 (defun message--in-tocc-p ()
-  (and (memq (char-after (point-at-bol)) '(?C ?T ?\t ? ))
+  (and (memq (char-after (line-beginning-position)) '(?C ?T ?\t ? ))
        (message-point-in-header-p)
        (save-excursion
 	 (beginning-of-line)

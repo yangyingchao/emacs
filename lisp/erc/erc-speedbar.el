@@ -31,8 +31,7 @@
 ;; * Write intelligent update function:
 ;;   update-channel, update-nick, remove-nick-from-channel, ...
 ;; * Use indicator-strings for op/voice
-;; * Extract/convert face notes field from bbdb if available and show
-;;   it using sb-image.el
+;; * Extract/convert face notes field from bbdb if available
 ;;
 ;;; Code:
 
@@ -344,7 +343,7 @@ The INDENT level is ignored."
   "Return the text for the item on the current line."
   (beginning-of-line)
   (when (re-search-forward "[]>] " nil t)
-    (buffer-substring-no-properties (point) (point-at-eol))))
+    (buffer-substring-no-properties (point) (line-end-position))))
 
 (defun erc-speedbar-item-info ()
   "Display information about the current buffer on the current line."
