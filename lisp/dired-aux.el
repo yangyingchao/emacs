@@ -987,7 +987,7 @@ Also see the `dired-confirm-shell-command' variable."
                ;; Add 'wait' to force those POSIX shells to wait until
                ;; all commands finish.
                (or (and parallel-in-background (not w32-shell)
-                        "&wait")
+                        " &wait")
                    "")))
       (t
        (let ((files (mapconcat #'shell-quote-argument
@@ -999,7 +999,7 @@ Also see the `dired-confirm-shell-command' variable."
           ;; Be consistent in how we treat inputs to commands -- do
           ;; the same here as in the `on-each' case.
           (if (and in-background (not w32-shell))
-              "&wait"
+              " &wait"
             "")))))
      (or (and in-background "&")
          ""))))
@@ -3544,7 +3544,8 @@ Intended to be added to `isearch-mode-hook'."
 The returned function narrows the search to match the search string
 only as part of a file name enclosed by the text property `dired-filename'.
 It's intended to override the default search function."
-  (isearch-search-fun-in-text-property (funcall orig-fun) 'dired-filename))
+  (isearch-search-fun-in-text-property
+   (funcall orig-fun) '(dired-filename dired-symlink-filename)))
 
 ;;;###autoload
 (defun dired-isearch-filenames ()
