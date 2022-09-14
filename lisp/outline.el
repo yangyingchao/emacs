@@ -288,8 +288,7 @@ The value should be a `buffer-match-p' condition.
 These buttons can be used to hide and show the body under the heading.
 Note that this feature is not meant to be used in editing
 buffers (yet) -- that will be amended in a future version."
-  ;; FIXME -- is there a `buffer-match-p' defcustom type somewhere?
-  :type 'sexp
+  :type 'buffer-predicate
   :safe #'booleanp
   :version "29.1")
 
@@ -444,10 +443,10 @@ outline font-lock faces to those of major mode."
 
 See the command `outline-mode' for more information on this mode."
   :lighter " Outl"
-  :keymap (easy-mmode-define-keymap
-           `(([menu-bar] . ,outline-minor-mode-menu-bar-map)
-             (,outline-minor-mode-prefix . ,outline-mode-prefix-map))
-           :inherit outline-minor-mode-cycle-map)
+  :keymap (define-keymap
+            :parent outline-minor-mode-cycle-map
+            "<menu-bar>" outline-minor-mode-menu-bar-map
+            (key-description outline-minor-mode-prefix) outline-mode-prefix-map)
   (if outline-minor-mode
       (progn
         (when outline-minor-mode-highlight
@@ -1006,7 +1005,8 @@ If non-nil, EVENT should be a mouse event."
         (put-text-property (point) (1+ (point)) 'face (plist-get icon 'face)))
       (when-let ((image (plist-get icon 'image)))
         (overlay-put o 'display image))
-      (overlay-put o 'display (plist-get icon 'string))
+      (overlay-put o 'display (concat (plist-get icon 'string)
+                                      (string (char-after (point)))))
       (overlay-put o 'face (plist-get icon 'face)))
     o))
 
@@ -1582,7 +1582,7 @@ and body between `hide all', `headings only' and `show all'.
 (defvar-local outline--cycle-buffer-state 'show-all
   "Internal variable used for tracking buffer cycle state.")
 
-(defun outline-cycle-buffer ()
+(defun outline-cycle-buffer (&optional level)
   "Cycle visibility state of the body lines of the whole buffer.
 
 This cycles the visibility of all the subheadings and bodies of all
@@ -1591,20 +1591,28 @@ the heading lines in the buffer.  It cycles them between `hide all',
 
 `Hide all' means hide all the buffer's subheadings and their bodies.
 `Headings only' means show all the subheadings, but not their bodies.
-`Show all' means show all the buffer's subheadings and their bodies."
-  (interactive)
-  (let (has-top-level)
+`Show all' means show all the buffer's subheadings and their bodies.
+
+With a prefix argument, show headings up to that LEVEL."
+  (interactive (list (when current-prefix-arg
+                       (prefix-numeric-value current-prefix-arg))))
+  (let (top-level)
     (save-excursion
       (goto-char (point-min))
-      (while (not (or has-top-level (eobp)))
-        (when (outline-on-heading-p t)
-          (when (= (funcall outline-level) 1)
-            (setq has-top-level t)))
+      (while (not (or (eq top-level 1) (eobp)))
+        (when-let ((level (and (outline-on-heading-p t)
+                               (funcall outline-level))))
+          (when (< level (or top-level most-positive-fixnum))
+            (setq top-level (max level 1))))
         (outline-next-heading)))
     (cond
+     (level
+      (outline-hide-sublevels level)
+      (setq outline--cycle-buffer-state 'all-heading)
+      (message "All headings up to level %s" level))
      ((and (eq outline--cycle-buffer-state 'show-all)
-           has-top-level)
-      (outline-hide-sublevels 1)
+           top-level)
+      (outline-hide-sublevels top-level)
       (setq outline--cycle-buffer-state 'top-level)
       (message "Top level headings"))
      ((or (eq outline--cycle-buffer-state 'show-all)
@@ -1619,19 +1627,18 @@ the heading lines in the buffer.  It cycles them between `hide all',
       (message "Show all")))
     (outline--fix-up-all-buttons)))
 
-(defvar outline-navigation-repeat-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-b") #'outline-backward-same-level)
-    (define-key map (kbd "b") #'outline-backward-same-level)
-    (define-key map (kbd "C-f") #'outline-forward-same-level)
-    (define-key map (kbd "f") #'outline-forward-same-level)
-    (define-key map (kbd "C-n") #'outline-next-visible-heading)
-    (define-key map (kbd "n") #'outline-next-visible-heading)
-    (define-key map (kbd "C-p") #'outline-previous-visible-heading)
-    (define-key map (kbd "p") #'outline-previous-visible-heading)
-    (define-key map (kbd "C-u") #'outline-up-heading)
-    (define-key map (kbd "u") #'outline-up-heading)
-    map))
+
+(defvar-keymap outline-navigation-repeat-map
+  "C-b" #'outline-backward-same-level
+  "b"   #'outline-backward-same-level
+  "C-f" #'outline-forward-same-level
+  "f"   #'outline-forward-same-level
+  "C-n" #'outline-next-visible-heading
+  "n"   #'outline-next-visible-heading
+  "C-p" #'outline-previous-visible-heading
+  "p"   #'outline-previous-visible-heading
+  "C-u" #'outline-up-heading
+  "u"   #'outline-up-heading)
 
 (dolist (command '(outline-backward-same-level
                    outline-forward-same-level
@@ -1640,17 +1647,15 @@ the heading lines in the buffer.  It cycles them between `hide all',
                    outline-up-heading))
   (put command 'repeat-map 'outline-navigation-repeat-map))
 
-(defvar outline-editing-repeat-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-v") #'outline-move-subtree-down)
-    (define-key map (kbd "v") #'outline-move-subtree-down)
-    (define-key map (kbd "C-^") #'outline-move-subtree-up)
-    (define-key map (kbd "^") #'outline-move-subtree-up)
-    (define-key map (kbd "C->") #'outline-demote)
-    (define-key map (kbd ">") #'outline-demote)
-    (define-key map (kbd "C-<") #'outline-promote)
-    (define-key map (kbd "<") #'outline-promote)
-    map))
+(defvar-keymap outline-editing-repeat-map
+  "C-v" #'outline-move-subtree-down
+  "v"   #'outline-move-subtree-down
+  "C-^" #'outline-move-subtree-up
+  "^"   #'outline-move-subtree-up
+  "C->" #'outline-demote
+  ">"   #'outline-demote
+  "C-<" #'outline-promote
+  "<"   #'outline-promote)
 
 (dolist (command '(outline-move-subtree-down
                    outline-move-subtree-up
@@ -1658,6 +1663,7 @@ the heading lines in the buffer.  It cycles them between `hide all',
                    outline-promote))
   (put command 'repeat-map 'outline-editing-repeat-map))
 
+
 (provide 'outline)
 (provide 'noutline)
 

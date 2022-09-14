@@ -4004,6 +4004,16 @@ FROM is for internal use.  It specifies an index in the STRING
 from which to start.
 
 (fn STRING &optional LAX FROM)")
+(autoload 'describe-char-fold-equivalences "char-fold" "\
+Display characters equivalent to CHAR under character-folding.
+Prompt for CHAR (using `read-char-by-name', which see for how to
+specify the character).  With no input, i.e. when CHAR is nil,
+describe all available character equivalences of `char-fold-to-regexp'.
+Optional argument LAX (interactively, the prefix argument), if
+non-nil, means also include partially matching ligatures and
+non-canonical equivalences.
+
+(fn CHAR &optional LAX)" t)
 (register-definition-prefixes "char-fold" '("char-fold-"))
 
 
@@ -4466,8 +4476,6 @@ instead.
 ;;; Generated autoloads from emacs-lisp/cl-lib.el
 
 (push (purecopy '(cl-lib 1 0)) package--builtin-versions)
-(define-obsolete-variable-alias 'custom-print-functions 'cl-custom-print-functions "\
-24.3")
 (defvar cl-custom-print-functions nil "\
 This is a list of functions that format user objects for printing.
 Each function is called in turn with three arguments: the object, the
@@ -7242,6 +7250,14 @@ The mode's hook is called both when the mode is enabled and when
 it is disabled.
 
 (fn &optional ARG)" t)
+(defvar diff-add-log-use-relative-names nil "\
+Use relative file names when generating ChangeLog skeletons.
+The files will be relative to the root directory of the VC
+repository.  This option affects the behavior of
+`diff-add-log-current-defuns'.")
+(custom-autoload 'diff-add-log-use-relative-names "diff-mode" t)
+(put 'diff-add-log-use-relative-names 'safe-local-variable #'booleanp)
+(autoload 'diff-vc-deduce-fileset "diff-mode")
 (register-definition-prefixes "diff-mode" '("diff-"))
 
 
@@ -7570,6 +7586,34 @@ This provides increased compatibility for users who call this function
 in `.emacs'.
 
 (fn ARG)")
+(autoload 'standard-display-by-replacement-char "disp-table" "\
+Produce code to display characters between FROM and TO using REPL.
+This function produces a buffer with code to set up `standard-display-table'
+such that characters that cannot be displayed by the terminal, and
+don't already have their display set up in `standard-display-table', will
+be represented by a replacement character.  You can evaluate the produced
+code to use the setup for the current Emacs session, or copy the code
+into your init file, to make Emacs use it for subsequent sessions.
+
+Interactively, the produced code arranges for any character in
+the range [#x100..#x10FFFF] that the terminal cannot display to
+be represented by the #xFFFD Unicode replacement character.
+
+When called from Lisp, FROM and TO define the range of characters for
+which to produce the setup code for `standard-display-table'.  If they
+are omitted, they default to #x100 and #x10FFFF respectively, covering
+the entire non-ASCII range of Unicode characters.
+REPL is the replacement character to use.  If it's omitted, it defaults
+to #xFFFD, the Unicode replacement character, usually displayed as a
+black diamond with a question mark inside.
+The produced code sets up `standard-display-table' to show REPL with
+the `homoglyph' face, making the replacements stand out on display.
+
+This command is most useful with text-mode terminals, such as the
+Linux console, for which Emacs has a reliable way of determining
+which characters can be displayed and which cannot.
+
+(fn &optional REPL FROM TO)" t)
 (register-definition-prefixes "disp-table" '("display-table-print-array"))
 
 
@@ -8064,6 +8108,7 @@ Valid keywords and arguments are:
              `nodigits' to suppress digits as prefix arguments.
 
 (fn BS &optional NAME M ARGS)")
+(make-obsolete 'easy-mmode-define-keymap 'define-keymap "29.1")
 (autoload 'easy-mmode-defmap "easy-mmode" "\
 Define a constant M whose value is the result of `easy-mmode-define-keymap'.
 The M, BS, and ARGS arguments are as per that function.  DOC is
@@ -8074,6 +8119,7 @@ This macro is deprecated; use `defvar-keymap' instead.
 (fn M BS DOC &rest ARGS)" nil t)
 (function-put 'easy-mmode-defmap 'doc-string-elt 3)
 (function-put 'easy-mmode-defmap 'lisp-indent-function 1)
+(make-obsolete 'easy-mmode-defmap 'defvar-keymap "29.1")
 (autoload 'easy-mmode-defsyntax "easy-mmode" "\
 Define variable ST as a syntax-table.
 CSS contains a list of syntax specifications of the form (CHAR . SYNTAX).
@@ -9172,8 +9218,7 @@ the mode if ARG is nil, omitted, or is a positive number.
 Disable the mode if ARG is a negative number.
 
 To check whether the minor mode is enabled in the current buffer,
-evaluate `(buffer-local-value \\='electric-pair-mode
-(current-buffer))'.
+evaluate `electric-pair-mode'.
 
 The mode's hook is called both when the mode is enabled and when
 it is disabled.
@@ -12106,11 +12151,16 @@ Define some key bindings for the `find-function' family of functions.")
 ;;; Generated autoloads from find-lisp.el
 
 (autoload 'find-lisp-find-dired "find-lisp" "\
-Find files in DIR, matching REGEXP.
+Find the files within DIR whose names match REGEXP.
+A Dired buffer with the results will be opened.
 
 (fn DIR REGEXP)" t)
 (autoload 'find-lisp-find-dired-subdirectories "find-lisp" "\
 Find all subdirectories of DIR.
+
+(fn DIR)" t)
+(autoload 'find-lisp-find-dired-subdirs-other-window "find-lisp" "\
+Same as `find-lisp-find-dired-subdirectories', but use another window.
 
 (fn DIR)" t)
 (autoload 'find-lisp-find-dired-filter "find-lisp" "\
@@ -14186,7 +14236,9 @@ include it when specifying `grep-command'.
 
 In interactive usage, the actual value of this variable is set up
 by `grep-compute-defaults'; to change the default value, use
-\\[customize] or call the function `grep-apply-setting'.")
+\\[customize] or call the function `grep-apply-setting'.
+
+Also see `grep-command-position'.")
 (custom-autoload 'grep-command "grep" nil)
 (defvar grep-find-command nil "\
 The default find command for \\[grep-find].
@@ -15394,7 +15446,9 @@ it is disabled.
 (defvar hs-special-modes-alist (mapcar 'purecopy '((c-mode "{" "}" "/[*/]" nil nil) (c++-mode "{" "}" "/[*/]" nil nil) (bibtex-mode ("@\\S(*\\(\\s(\\)" 1)) (java-mode "{" "}" "/[*/]" nil nil) (js-mode "{" "}" "/[*/]" nil) (mhtml-mode "{\\|<[^/>]*?" "}\\|</[^/>]*[^/]>" "<!--" mhtml-forward nil))) "\
 Alist for initializing the hideshow variables for different modes.
 Each element has the form
-  (MODE START END COMMENT-START FORWARD-SEXP-FUNC ADJUST-BEG-FUNC).
+  (MODE START END COMMENT-START FORWARD-SEXP-FUNC ADJUST-BEG-FUNC
+   FIND-BLOCK-BEGINNING-FUNC FIND-NEXT-BLOCK-FUNC
+   LOOKING-AT-BLOCK-START-P-FUNC).
 
 If non-nil, hideshow will use these values as regexps to define blocks
 and comments, respectively for major mode MODE.
@@ -15414,6 +15468,15 @@ cases, FORWARD-SEXP-FUNC specifies another function to use instead.
 
 See the documentation for `hs-adjust-block-beginning' to see what is the
 use of ADJUST-BEG-FUNC.
+
+See the documentation for `hs-find-block-beginning-func' to see
+what is the use of FIND-BLOCK-BEGINNING-FUNC.
+
+See the documentation for `hs-find-next-block-func' to see what
+is the use of FIND-NEXT-BLOCK-FUNC.
+
+See the documentation for `hs-looking-at-block-start-p-func' to
+see what is the use of LOOKING-AT-BLOCK-START-P-FUNC.
 
 If any of the elements is left nil or omitted, hideshow tries to guess
 appropriate values.  The regexps should not contain leading or trailing
@@ -16878,17 +16941,32 @@ should output the image in the current buffer, converted to
 (register-definition-prefixes "image-converter" '("image-convert"))
 
 
-;;; Generated autoloads from image-dired.el
+;;; Generated autoloads from image/image-crop.el
+
+(autoload 'image-elide "image-crop" "\
+Elide a square from the image under point.
+If SQUARE (interactively, the prefix), elide a square instead of a
+rectangle from the image.
+
+(fn &optional SQUARE)" t)
+(autoload 'image-crop "image-crop" "\
+Crop the image under point.
+If SQUARE (interactively, the prefix), crop a square instead of a
+rectangle from the image.
+
+If ELIDE, remove a rectangle from the image instead of cropping
+the image.
+
+After cropping an image, it can be saved by `M-x image-save' or
+\\<image-map>\\[image-save] when point is over the image.
+
+(fn &optional SQUARE ELIDE)" t)
+(register-definition-prefixes "image-crop" '("image-crop-"))
+
+
+;;; Generated autoloads from image/image-dired.el
 
 (push (purecopy '(image-dired 0 4 11)) package--builtin-versions)
-(autoload 'image-dired-dired-toggle-marked-thumbs "image-dired" "\
-Toggle thumbnails in front of file names in the Dired buffer.
-If no marked file could be found, insert or hide thumbnails on the
-current line.  ARG, if non-nil, specifies the files to use instead
-of the marked files.  If ARG is an integer, use the next ARG (or
-previous -ARG, if ARG<0) files.
-
-(fn &optional ARG)" t)
 (autoload 'image-dired-dired-with-window-configuration "image-dired" "\
 Open directory DIR and create a default window configuration.
 
@@ -16929,7 +17007,7 @@ used or not.  If non-nil, use `display-buffer' instead of
 `image-dired-previous-line-and-display' where we do not want the
 thumbnail buffer to be selected.
 
-(fn &optional ARG APPEND DO-NOT-POP)" t)
+(fn &optional ARG APPEND DO-NOT-POP)" '(nil dired-mode))
 (autoload 'image-dired-show-all-from-dir "image-dired" "\
 Make a thumbnail buffer for all images in DIR and display it.
 Any file matching `image-file-name-regexp' is considered an image
@@ -16942,18 +17020,28 @@ never ask for confirmation.
 
 (fn DIR)" t)
 (defalias 'image-dired 'image-dired-show-all-from-dir)
-(autoload 'image-dired-tag-files "image-dired" "\
-Tag marked file(s) in Dired.  With prefix ARG, tag file at point.
+(autoload 'image-dired-bookmark-jump "image-dired" "\
+Default bookmark handler for Image-Dired buffers.
 
-(fn ARG)" t)
-(autoload 'image-dired-delete-tag "image-dired" "\
-Remove tag for selected file(s).
-With prefix argument ARG, remove tag from file at point.
+(fn BOOKMARK)")
+(define-obsolete-function-alias 'tumme #'image-dired "24.4")
+(define-obsolete-function-alias 'image-dired-setup-dired-keybindings #'image-dired-minor-mode "26.1")
+(register-definition-prefixes "image-dired" '("image-dired-"))
 
-(fn ARG)" t)
-(autoload 'image-dired-jump-thumbnail-buffer "image-dired" "\
-Jump to thumbnail buffer." t)
-(autoload 'image-dired-minor-mode "image-dired" "\
+
+;;; Generated autoloads from image/image-dired-dired.el
+
+(autoload 'image-dired-dired-toggle-marked-thumbs "image-dired-dired" "\
+Toggle thumbnails in front of file names in the Dired buffer.
+If no marked file could be found, insert or hide thumbnails on the
+current line.  ARG, if non-nil, specifies the files to use instead
+of the marked files.  If ARG is an integer, use the next ARG (or
+previous -ARG, if ARG<0) files.
+
+(fn &optional ARG)" '(dired-mode))
+(autoload 'image-dired-jump-thumbnail-buffer "image-dired-dired" "\
+Jump to thumbnail buffer." '(dired-mode))
+(autoload 'image-dired-minor-mode "image-dired-dired" "\
 Setup easy-to-use keybindings for the commands to be used in Dired mode.
 
 Note that n, p and <down> and <up> will be hijacked and bound to
@@ -16975,21 +17063,19 @@ The mode's hook is called both when the mode is enabled and when
 it is disabled.
 
 (fn &optional ARG)" t)
-(autoload 'image-dired-display-thumbs-append "image-dired" "\
-Append thumbnails to `image-dired-thumbnail-buffer'." t)
-(autoload 'image-dired-display-thumb "image-dired" "\
-Shorthand for `image-dired-display-thumbs' with prefix argument." t)
-(autoload 'image-dired-dired-display-external "image-dired" "\
-Display file at point using an external viewer." t)
-(autoload 'image-dired-dired-display-image "image-dired" "\
+(autoload 'image-dired-display-thumbs-append "image-dired-dired" "\
+Append thumbnails to `image-dired-thumbnail-buffer'." '(dired-mode))
+(autoload 'image-dired-display-thumb "image-dired-dired" "\
+Shorthand for `image-dired-display-thumbs' with prefix argument." '(dired-mode))
+(autoload 'image-dired-dired-display-external "image-dired-dired" "\
+Display file at point using an external viewer." '(dired-mode))
+(autoload 'image-dired-dired-display-image "image-dired-dired" "\
 Display current image file.
 See documentation for `image-dired-display-image' for more information.
-With prefix argument ARG, display image in its original size.
 
-(fn &optional ARG)" t)
-(autoload 'image-dired-dired-comment-files "image-dired" "\
-Add comment to current or marked files in Dired." t)
-(autoload 'image-dired-mark-tagged-files "image-dired" "\
+(fn &optional _)" '(dired-mode))
+(set-advertised-calling-convention 'image-dired-dired-display-image 'nil '"29.1")
+(autoload 'image-dired-mark-tagged-files "image-dired-dired" "\
 Use REGEXP to mark files with matching tag.
 A `tag' is a keyword, a piece of meta data, associated with an
 image file and stored in image-dired's database file.  This command
@@ -16997,18 +17083,38 @@ lets you input a regexp and this will be matched against all tags
 on all image files in the database file.  The files that have a
 matching tag will be marked in the Dired buffer.
 
-(fn REGEXP)" t)
-(autoload 'image-dired-dired-edit-comment-and-tags "image-dired" "\
+(fn REGEXP)" '(dired-mode))
+(register-definition-prefixes "image-dired-dired" '("image-dired-"))
+
+
+;;; Generated autoloads from image/image-dired-external.el
+
+(register-definition-prefixes "image-dired-external" '("image-dired-"))
+
+
+;;; Generated autoloads from image/image-dired-tags.el
+
+(autoload 'image-dired-tag-files "image-dired-tags" "\
+Tag marked file(s) in Dired.  With prefix ARG, tag file at point.
+
+(fn ARG)" '(dired-mode))
+(autoload 'image-dired-delete-tag "image-dired-tags" "\
+Remove tag for selected file(s).
+With prefix argument ARG, remove tag from file at point.
+
+(fn ARG)" '(dired-mode))
+(autoload 'image-dired-dired-comment-files "image-dired-tags" "\
+Add comment to current or marked files in Dired." '(dired-mode))
+(autoload 'image-dired-dired-edit-comment-and-tags "image-dired-tags" "\
 Edit comment and tags of current or marked image files.
 Edit comment and tags for all marked image files in an
-easy-to-use form." t)
-(autoload 'image-dired-bookmark-jump "image-dired" "\
-Default bookmark handler for Image-Dired buffers.
+easy-to-use form." '(dired-mode))
+(register-definition-prefixes "image-dired-tags" '("image-dired-"))
 
-(fn BOOKMARK)")
-(define-obsolete-function-alias 'tumme #'image-dired "24.4")
-(define-obsolete-function-alias 'image-dired-setup-dired-keybindings #'image-dired-minor-mode "26.1")
-(register-definition-prefixes "image-dired" '("image-dired-"))
+
+;;; Generated autoloads from image/image-dired-util.el
+
+(register-definition-prefixes "image-dired-util" '("image-dired-"))
 
 
 ;;; Generated autoloads from image-file.el
@@ -18450,7 +18556,7 @@ This option also treats some characters in the `mule-unicode-...'
 charsets if you don't have a Unicode font with which to display them.
 
 Setting this variable directly does not take effect;
-use either \\[customize] or the function `latin1-display'.")
+use either \\[customize] or the command `latin1-display'.")
 (custom-autoload 'latin1-display "latin1-disp" nil)
 (autoload 'latin1-display "latin1-disp" "\
 Set up Latin-1/ASCII display for the arguments character SETS.
@@ -18466,8 +18572,17 @@ This uses the transliterations of the Lynx browser.  The display isn't
 changed if the display can render Unicode characters.
 
 Setting this variable directly does not take effect;
-use either \\[customize] or the function `latin1-display'.")
+use either \\[customize] or the command `latin1-display-ucs-per-lynx'.")
 (custom-autoload 'latin1-display-ucs-per-lynx "latin1-disp" nil)
+(autoload 'latin1-display-ucs-per-lynx "latin1-disp" "\
+Set up Latin-1/ASCII display for Unicode characters.
+This uses the transliterations of the Lynx browser.
+
+With argument ARG, turn such display on if ARG is positive, otherwise
+turn it off and display Unicode characters literally.  The display
+isn't changed if the display can render Unicode characters.
+
+(fn ARG)" t)
 (register-definition-prefixes "latin1-disp" '("latin1-display-"))
 
 
@@ -21861,7 +21976,7 @@ Coloring:
 
 ;;; Generated autoloads from org/org.el
 
-(push (purecopy '(org 9 5 4)) package--builtin-versions)
+(push (purecopy '(org 9 5 5)) package--builtin-versions)
 (autoload 'org-babel-do-load-languages "org" "\
 Load the languages defined in `org-babel-load-languages'.
 
@@ -24780,8 +24895,8 @@ Run an inferior Python process.
 Argument CMD defaults to `python-shell-calculate-command' return
 value.  When called interactively with `prefix-arg', it allows
 the user to edit such value and choose whether the interpreter
-should be DEDICATED for the current buffer.  When numeric prefix
-arg is other than 0 or 4 do not SHOW.
+should be DEDICATED to the current buffer or project.  When
+numeric prefix arg is other than 0 or 4 do not SHOW.
 
 For a given buffer and same values of DEDICATED, if a process is
 already running for it, it will do nothing.  This means that if
@@ -24793,6 +24908,37 @@ Runs the hook `inferior-python-mode-hook' after
 process buffer for a list of commands.)
 
 (fn &optional CMD DEDICATED SHOW)" t)
+(autoload 'python-add-import "python" "\
+Add an import statement to the current buffer.
+
+Interactively, ask for an import statement using all imports
+found in the current project as suggestions.  With a prefix
+argument, restrict the suggestions to imports defining the symbol
+at point.  If there is only one such suggestion, act without
+asking.
+
+When calling from Lisp, use a non-nil NAME to restrict the
+suggestions to imports defining NAME.
+
+(fn NAME)" t)
+(autoload 'python-import-symbol-at-point "python" "\
+Add an import statement for the symbol at point to the current buffer.
+This works like `python-add-import', but with the opposite
+behavior regarding the prefix argument." t)
+(autoload 'python-remove-import "python" "\
+Remove an import statement from the current buffer.
+
+Interactively, ask for an import statement to remove, displaying
+the imports of the current buffer as suggestions.  With a prefix
+argument, restrict the suggestions to imports defining the symbol
+at point.  If there is only one such suggestion, act without
+asking.
+
+(fn NAME)" t)
+(autoload 'python-sort-imports "python" "\
+Sort Python imports in the current buffer." t)
+(autoload 'python-fix-imports "python" "\
+Add missing imports and remove unused ones from the current buffer." t)
 (autoload 'python-mode "python" "\
 Major mode for editing Python files.
 
@@ -31653,7 +31799,7 @@ the output buffer or changing the window configuration.
 Whether Tramp is enabled.
 If it is set to nil, all remote file names are used literally.")
 (custom-autoload 'tramp-mode "tramp" t)
-(defconst tramp-initial-file-name-regexp "\\`/[^/:]+:[^/:]*:" "\
+(defconst tramp-initial-file-name-regexp (rx bos "/" (+ (not (any "/:"))) ":" (* (not (any "/:"))) ":") "\
 Value for `tramp-file-name-regexp' for autoload.
 It must match the initial `tramp-syntax' settings.")
 (defvar tramp-file-name-regexp tramp-initial-file-name-regexp "\
@@ -31664,7 +31810,7 @@ initial value is overwritten by the car of `tramp-file-name-structure'.")
 (defvar tramp-ignored-file-name-regexp nil "\
 Regular expression matching file names that are not under Tramp's control.")
 (custom-autoload 'tramp-ignored-file-name-regexp "tramp" t)
-(defconst tramp-autoload-file-name-regexp (concat "\\`/" (if (memq system-type '(cygwin windows-nt)) "\\(-\\|[^/|:]\\{2,\\}\\)" "[^/|:]+") ":") "\
+(defconst tramp-autoload-file-name-regexp (rx bos "/" (| "-" (>= 2 (not (any "/:|")))) ":") "\
 Regular expression matching file names handled by Tramp autoload.
 It must match the initial `tramp-syntax' settings.  It should not
 match file names at root of the underlying local file system,
@@ -31706,7 +31852,7 @@ It must be supported by libarchive(3).")
 List of suffixes which indicate a compressed file.
 It must be supported by libarchive(3).")
 (defmacro tramp-archive-autoload-file-name-regexp nil "\
-Regular expression matching archive file names." '(concat "\\`" "\\(" ".+" "\\." (regexp-opt tramp-archive-suffixes) "\\(?:" "\\." (regexp-opt tramp-archive-compression-suffixes) "\\)*" "\\)" "\\(" "/" ".*" "\\)" "\\'"))
+Regular expression matching archive file names." `(rx bos (group (+ nonl) "." ,(cons '| tramp-archive-suffixes) (32 "." ,(cons '| tramp-archive-compression-suffixes))) (group "/" (* nonl)) eos))
 (autoload 'tramp-archive-file-name-handler "tramp-archive")
 (defun tramp-archive-autoload-file-name-handler (operation &rest args) "\
 Load Tramp archive file name handler, and perform OPERATION." (defvar tramp-archive-autoload) (let ((default-directory temporary-file-directory) (tramp-archive-autoload tramp-archive-enabled)) (apply #'tramp-autoload-file-name-handler operation args)))
@@ -31729,6 +31875,7 @@ Add archive file name handler to `file-name-handler-alist'." (when (and tramp-ar
 
 ;;; Generated autoloads from net/tramp-compat.el
 
+ (defalias 'tramp-compat-rx #'rx)
 (register-definition-prefixes "tramp-compat" '("tramp-"))
 
 
@@ -32544,14 +32691,14 @@ Fetch a GNU Info URL.
 
 
 (fn URL)")
-(defalias 'url-rlogin 'url-generic-emulator-loader)
+(define-obsolete-function-alias 'url-rlogin #'url-generic-emulator-loader "29.1")
 (defalias 'url-telnet 'url-generic-emulator-loader)
 (defalias 'url-tn3270 'url-generic-emulator-loader)
 (autoload 'url-data "url-misc" "\
 Fetch a data URL (RFC 2397).
 
 (fn URL)")
-(register-definition-prefixes "url-misc" '("url-do-terminal-emulator"))
+(register-definition-prefixes "url-misc" '("url-"))
 
 
 ;;; Generated autoloads from url/url-news.el
@@ -33030,9 +33177,10 @@ working revisions.  With a prefix argument HISTORIC, it reads two revision
 designators specifying which revisions to compare.
 
 The optional argument NOT-URGENT non-nil means it is ok to say no to
-saving the buffer.
+saving the buffer.  The optional argument FILESET can override the
+deduced fileset.
 
-(fn &optional HISTORIC NOT-URGENT)" t)
+(fn &optional HISTORIC NOT-URGENT FILESET)" t)
 (autoload 'vc-diff-mergebase "vc" "\
 Report diffs between the merge base of REV1 and REV2 revisions.
 The merge base is a common ancestor between REV1 and REV2 revisions.
@@ -33111,6 +33259,12 @@ given, the tag is made as a new branch and the files are
 checked out in that new branch.
 
 (fn DIR NAME BRANCHP)" t)
+(autoload 'vc-create-branch "vc" "\
+Descending recursively from DIR, make a branch called NAME.
+After a new branch is made, the files are checked out in that new branch.
+Uses `vc-create-tag' with the non-nil arg `branchp'.
+
+(fn DIR NAME)" t)
 (autoload 'vc-retrieve-tag "vc" "\
 For each file in or below DIR, retrieve their tagged version NAME.
 NAME can name a branch, in which case this command will switch to the
@@ -33121,7 +33275,15 @@ If NAME is empty, it refers to the latest revisions of the current branch.
 If locking is used for the files in DIR, then there must not be any
 locked files at or below DIR (but if NAME is empty, locked files are
 allowed and simply skipped).
+If the prefix argument BRANCHP is given, switch the branch
+and check out the files in that branch.
 This function runs the hook `vc-retrieve-tag-hook' when finished.
+
+(fn DIR NAME &optional BRANCHP)" t)
+(autoload 'vc-switch-branch "vc" "\
+Switch to the branch NAME in the directory DIR.
+If NAME is empty, it refers to the latest revisions of the current branch.
+Uses `vc-retrieve-tag' with the non-nil arg `branchp'.
 
 (fn DIR NAME)" t)
 (autoload 'vc-print-log "vc" "\
@@ -33396,6 +33558,13 @@ case, and the process object in the asynchronous case.
 
 ;;; Generated autoloads from vc/vc-git.el
 
+(autoload 'vc-git-annotate-switches-safe-p "vc-git" "\
+Check if local value of `vc-git-annotate-switches' is safe.
+Currently only \"-w\" (ignore whitespace) is considered safe, but
+this list might be extended in the future.
+
+(fn SWITCHES)")
+(put 'vc-git-annotate-switches 'safe-local-variable #'vc-git-annotate-switches-safe-p)
  (defun vc-git-registered (file)
   "Return non-nil if FILE is registered with git."
   (if (vc-find-root file ".git")       ; Short cut.
@@ -35586,7 +35755,7 @@ If LIMIT is non-nil, then do not consider characters beyond LIMIT.
 
 ;;; Generated autoloads from progmodes/xref.el
 
-(push (purecopy '(xref 1 5 0)) package--builtin-versions)
+(push (purecopy '(xref 1 5 1)) package--builtin-versions)
 (autoload 'xref-find-backend "xref")
 (define-obsolete-function-alias 'xref-pop-marker-stack #'xref-go-back "29.1")
 (autoload 'xref-go-back "xref" "\
@@ -35805,6 +35974,7 @@ Zone out, completely." t)
 ;; no-byte-compile: t
 ;; version-control: never
 ;; no-update-autoloads: t
+;; no-native-compile: t
 ;; coding: utf-8-emacs-unix
 ;; End:
 

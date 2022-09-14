@@ -2423,14 +2423,33 @@ x_set_use_frame_synchronization (struct frame *f, Lisp_Object arg,
 {
 #if defined HAVE_XSYNC && !defined USE_GTK && defined HAVE_CLOCK_GETTIME
   struct x_display_info *dpyinfo;
+  unsigned long bypass_compositor;
 
   dpyinfo = FRAME_DISPLAY_INFO (f);
 
   if (!NILP (arg) && FRAME_X_EXTENDED_COUNTER (f))
-    FRAME_X_OUTPUT (f)->use_vsync_p
-      = x_wm_supports (f, dpyinfo->Xatom_net_wm_frame_drawn);
+    {
+      FRAME_X_OUTPUT (f)->use_vsync_p
+	= x_wm_supports (f, dpyinfo->Xatom_net_wm_frame_drawn);
+
+      /* At the same time, write the bypass compositor property to the
+	 outer window.  2 means to never bypass the compositor, as we
+	 need its cooperation for frame synchronization.  */
+      bypass_compositor = 2;
+      XChangeProperty (dpyinfo->display, FRAME_OUTER_WINDOW (f),
+		       dpyinfo->Xatom_net_wm_bypass_compositor,
+		       XA_CARDINAL, 32, PropModeReplace,
+		       (unsigned char *) &bypass_compositor, 1);
+    }
   else
-    FRAME_X_OUTPUT (f)->use_vsync_p = false;
+    {
+      FRAME_X_OUTPUT (f)->use_vsync_p = false;
+
+      /* Remove the compositor bypass property from the outer
+	 window.  */
+      XDeleteProperty (dpyinfo->display, FRAME_OUTER_WINDOW (f),
+		       dpyinfo->Xatom_net_wm_bypass_compositor);
+    }
 
   store_frame_param (f, Quse_frame_synchronization,
 		     FRAME_X_OUTPUT (f)->use_vsync_p ? Qt : Qnil);
@@ -3955,10 +3974,6 @@ x_window (struct frame *f, long window_prompting)
   XtManageChild (pane_widget);
   XtRealizeWidget (shell_widget);
 
-  if (FRAME_X_EMBEDDED_P (f))
-    XReparentWindow (FRAME_X_DISPLAY (f), XtWindow (shell_widget),
-		     f->output_data.x->parent_desc, 0, 0);
-
   FRAME_X_WINDOW (f) = XtWindow (frame_widget);
   initial_set_up_x_back_buffer (f);
   validate_x_resource_name ();
@@ -4132,7 +4147,7 @@ x_window (struct frame *f)
   block_input ();
   FRAME_X_WINDOW (f)
     = XCreateWindow (FRAME_X_DISPLAY (f),
-		     f->output_data.x->parent_desc,
+		     FRAME_DISPLAY_INFO (f)->root_window,
 		     f->left_pos,
 		     f->top_pos,
 		     FRAME_PIXEL_WIDTH (f), FRAME_PIXEL_HEIGHT (f),
@@ -4956,6 +4971,12 @@ This function is an internal primitive--use `make-frame' instead.  */)
   x_window (f, window_prompting);
 #else
   x_window (f);
+#endif
+
+#ifndef USE_GTK
+  if (FRAME_X_EMBEDDED_P (f)
+      && !x_embed_frame (dpyinfo, f))
+    error ("The frame could not be embedded; does the embedder exist?");
 #endif
 
   x_icon (f, parms);
@@ -7229,8 +7250,6 @@ x_display_info_for_name (Lisp_Object name)
   if (dpyinfo == 0)
     error ("Cannot connect to X server %s", SDATA (name));
 
-  XSETFASTINT (Vwindow_system_version, 11);
-
   return dpyinfo;
 }
 
@@ -7274,7 +7293,6 @@ An insecure way to solve the problem may be to use `xhost'.\n",
 	error ("Cannot connect to X server %s", SDATA (display));
     }
 
-  XSETFASTINT (Vwindow_system_version, 11);
   return Qnil;
 }
 

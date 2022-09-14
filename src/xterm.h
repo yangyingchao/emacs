@@ -656,7 +656,8 @@ struct x_display_info
     Xatom_net_wm_sync_request, Xatom_net_wm_sync_request_counter,
     Xatom_net_wm_sync_fences, Xatom_net_wm_frame_drawn, Xatom_net_wm_frame_timings,
     Xatom_net_wm_user_time, Xatom_net_wm_user_time_window,
-    Xatom_net_client_list_stacking, Xatom_net_wm_pid;
+    Xatom_net_client_list_stacking, Xatom_net_wm_pid,
+    Xatom_net_wm_bypass_compositor;
 
   /* XSettings atoms and windows.  */
   Atom Xatom_xsettings_sel, Xatom_xsettings_prop, Xatom_xsettings_mgr;
@@ -1209,7 +1210,6 @@ enum
   FOCUS_EXPLICIT = 2
 };
 
-
 /* Return the X output data for frame F.  */
 #define FRAME_X_OUTPUT(f) ((f)->output_data.x)
 #define FRAME_OUTPUT_DATA(f) FRAME_X_OUTPUT (f)
@@ -1588,6 +1588,7 @@ extern void x_wm_set_size_hint (struct frame *, long, bool);
   && defined HAVE_CLOCK_GETTIME
 extern void x_sync_init_fences (struct frame *);
 #endif
+extern bool x_embed_frame (struct x_display_info *, struct frame *);
 
 extern void x_delete_terminal (struct terminal *);
 extern Cursor x_create_font_cursor (struct x_display_info *, int);
@@ -1827,7 +1828,7 @@ extern void mark_xterm (void);
 
 /* Is the frame embedded into another application? */
 
-#define FRAME_X_EMBEDDED_P(f) (FRAME_X_OUTPUT(f)->explicit_parent != 0)
+#define FRAME_X_EMBEDDED_P(f) (FRAME_X_OUTPUT (f)->explicit_parent != 0)
 
 #define STORE_NATIVE_RECT(nr,rx,ry,rwidth,rheight)	\
   ((nr).x = (rx),					\

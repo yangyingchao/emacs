@@ -1389,9 +1389,6 @@ Maximum length of the history list is determined by the value
 of `history-length', which see.")
 (put 'input-method-history 'permanent-local t)
 
-(define-obsolete-variable-alias
-  'inactivate-current-input-method-function
-  'deactivate-current-input-method-function "24.3")
 (defvar-local deactivate-current-input-method-function nil
   "Function to call for deactivating the current input method.
 Every input method should set this to an appropriate value when activated.
@@ -1523,10 +1520,6 @@ If INPUT-METHOD is nil, deactivate any current input method."
 	  (run-hooks 'input-method-deactivate-hook)
 	(setq current-input-method nil)
 	(force-mode-line-update)))))
-
-(define-obsolete-function-alias
-  'inactivate-input-method
-  'deactivate-input-method "24.3")
 
 (defun set-input-method (input-method &optional interactive)
   "Select and activate input method INPUT-METHOD for the current buffer.
@@ -1740,10 +1733,6 @@ The variable `current-input-method' keeps the input method name
 just activated."
   :type 'hook
   :group 'mule)
-
-(define-obsolete-variable-alias
-  'input-method-inactivate-hook
-  'input-method-deactivate-hook "24.3")
 
 (defcustom input-method-deactivate-hook nil
   "Normal hook run just after an input method is deactivated.
@@ -3195,7 +3184,7 @@ Defines the sorting order either by character names or their codepoints."
   :group 'mule
   :version "28.1")
 
-(defun read-char-by-name (prompt)
+(defun read-char-by-name (prompt &optional allow-single)
   "Read a character by its Unicode name or hex number string.
 Display PROMPT and read a string that represents a character by its
 Unicode property `name' or `old-name'.
@@ -3216,7 +3205,10 @@ Accept a name like \"CIRCULATION FUNCTION\", a hexadecimal
 number like \"2A10\", or a number in hash notation (e.g.,
 \"#x2a10\" for hex, \"10r10768\" for decimal, or \"#o25020\" for
 octal).  Treat otherwise-ambiguous strings like \"BED\" (U+1F6CF)
-as names, not numbers."
+as names, not numbers.
+
+Optional arg ALLOW-SINGLE non-nil means to additionally allow
+single characters to be treated as standing for themselves."
   (let* ((enable-recursive-minibuffers t)
 	 (completion-ignore-case t)
 	 (completion-tab-width 4)
@@ -3239,6 +3231,9 @@ as names, not numbers."
 	 (char
           (cond
            ((char-from-name input t))
+           ((and allow-single
+                 (string-match-p "\\`.\\'" input)
+                 (ignore-errors (string-to-char input))))
            ((string-match-p "\\`[[:xdigit:]]+\\'" input)
             (ignore-errors (string-to-number input 16)))
            ((string-match-p "\\`#\\([bBoOxX]\\|[0-9]+[rR]\\)[0-9a-zA-Z]+\\'"
@@ -3248,7 +3243,6 @@ as names, not numbers."
       (error "Invalid character"))
     char))
 
-(define-obsolete-function-alias 'ucs-insert 'insert-char "24.3")
 (define-key ctl-x-map "8\r" 'insert-char)
 (define-key ctl-x-map "8e"
             (define-keymap
