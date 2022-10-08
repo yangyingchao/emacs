@@ -1528,7 +1528,7 @@ of."
 	       time)))
 	(tramp-send-command-and-check
 	 v (format
-	    "env TZ=UTC %s %s %s %s"
+	    "env TZ=UTC0 %s %s %s %s"
 	    (tramp-get-remote-touch v)
 	    (if (tramp-get-connection-property v "touch-t")
 		(format "-t %s" (format-time-string "%Y%m%d%H%M.%S" time t))
@@ -3814,6 +3814,7 @@ Fall back to normal file name handler if no Tramp handler exists."
 		(concat "create,modify,move,moved_from,moved_to,move_self,"
 			"delete,delete_self,ignored"))
 	       ((memq 'attribute-change flags) "attrib,ignored"))
+	      ;; "-P" has been added to version 3.21, so we cannot assume it yet.
 	      sequence `(,command "-mq" "-e" ,events ,localname)
 	      ;; Make events a list of symbols.
 	      events

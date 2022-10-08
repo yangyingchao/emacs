@@ -331,7 +331,6 @@ and the hook `eshell-exit-hook'."
   (setq-local require-final-newline nil)
 
   (setq-local max-lisp-eval-depth (max 3000 max-lisp-eval-depth))
-  (setq-local max-specpdl-size (max 6000 max-lisp-eval-depth))
 
   (setq-local eshell-last-input-start (point-marker))
   (setq-local eshell-last-input-end (point-marker))
@@ -599,7 +598,6 @@ newline."
   ;; Note that the input string does not include its terminal newline.
   (let ((proc-running-p (and (eshell-head-process)
 			     (not queue-p)))
-	(inhibit-point-motion-hooks t)
 	(inhibit-modification-hooks t))
     (unless (and proc-running-p
 		 (not (eq (process-status
@@ -688,7 +686,6 @@ newline."
 This is done after all necessary filtering has been done."
   (let ((oprocbuf (if process (process-buffer process)
                     (current-buffer)))
-        (inhibit-point-motion-hooks t)
         (inhibit-modification-hooks t))
     (when (and string oprocbuf (buffer-name oprocbuf))
       (with-current-buffer oprocbuf

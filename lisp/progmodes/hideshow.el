@@ -3,7 +3,7 @@
 ;; Copyright (C) 1994-2022 Free Software Foundation, Inc.
 
 ;; Author: Thien-Thi Nguyen <ttn@gnu.org>
-;;      Dan Nicolaescu <dann@ics.uci.edu>
+;;      Dan Nicolaescu <dann@gnu.org>
 ;; Keywords: C C++ java lisp tools editing comments blocks hiding outlines
 ;; Maintainer-Version: 5.65.2.2
 ;; Time-of-Day-Author-Most-Likely-to-be-Recalcitrant: early morning
@@ -256,7 +256,7 @@ This has effect only if `search-invisible' is set to `open'."
 
 ;;;###autoload
 (defvar hs-special-modes-alist
-  (mapcar 'purecopy
+  (mapcar #'purecopy
   '((c-mode "{" "}" "/[*/]" nil nil)
     (c++-mode "{" "}" "/[*/]" nil nil)
     (bibtex-mode ("@\\S(*\\(\\s(\\)" 1))
@@ -351,17 +351,17 @@ Use the command `hs-minor-mode' to toggle or set this variable.")
 (defvar hs-minor-mode-map
   (let ((map (make-sparse-keymap)))
     ;; These bindings roughly imitate those used by Outline mode.
-    (define-key map "\C-c@\C-h"	      'hs-hide-block)
-    (define-key map "\C-c@\C-s"	      'hs-show-block)
-    (define-key map "\C-c@\C-\M-h"    'hs-hide-all)
-    (define-key map "\C-c@\C-\M-s"    'hs-show-all)
-    (define-key map "\C-c@\C-l"	      'hs-hide-level)
-    (define-key map "\C-c@\C-c"	      'hs-toggle-hiding)
-    (define-key map "\C-c@\C-a"       'hs-show-all)
-    (define-key map "\C-c@\C-t"       'hs-hide-all)
-    (define-key map "\C-c@\C-d"       'hs-hide-block)
-    (define-key map "\C-c@\C-e"       'hs-toggle-hiding)
-    (define-key map [(shift mouse-2)] 'hs-toggle-hiding)
+    (define-key map "\C-c@\C-h"	      #'hs-hide-block)
+    (define-key map "\C-c@\C-s"	      #'hs-show-block)
+    (define-key map "\C-c@\C-\M-h"    #'hs-hide-all)
+    (define-key map "\C-c@\C-\M-s"    #'hs-show-all)
+    (define-key map "\C-c@\C-l"	      #'hs-hide-level)
+    (define-key map "\C-c@\C-c"	      #'hs-toggle-hiding)
+    (define-key map "\C-c@\C-a"       #'hs-show-all)
+    (define-key map "\C-c@\C-t"       #'hs-hide-all)
+    (define-key map "\C-c@\C-d"       #'hs-hide-block)
+    (define-key map "\C-c@\C-e"       #'hs-toggle-hiding)
+    (define-key map [(shift mouse-2)] #'hs-toggle-hiding)
     map)
   "Keymap for hideshow minor mode.")
 
@@ -778,13 +778,19 @@ region (point MAXP)."
 
 (defmacro hs-life-goes-on (&rest body)
   "Evaluate BODY forms if variable `hs-minor-mode' is non-nil.
-In the dynamic context of this macro, `inhibit-point-motion-hooks'
-and `case-fold-search' are both t."
+In the dynamic context of this macro, `case-fold-search' is t."
   (declare (debug t))
   `(when hs-minor-mode
-     (let ((inhibit-point-motion-hooks t)
-           (case-fold-search t))
+     (let ((case-fold-search t))
        ,@body)))
+
+(defun hs-find-block-beginning-match ()
+  "Reposition point at the end of match of the block-start regexp.
+Return point, or nil if original point was not in a block."
+  (when (and (funcall hs-find-block-beginning-func)
+	     (funcall hs-looking-at-block-start-p-func))
+    ;; point is inside a block
+    (goto-char (match-end 0))))
 
 (defun hs-overlay-at (position)
   "Return hideshow overlay at POSITION, or nil if none to be found."
@@ -802,12 +808,13 @@ and `case-fold-search' are both t."
       (if (and c-reg (nth 0 c-reg))
           ;; point is inside a comment, and that comment is hideable
           (goto-char (nth 0 c-reg))
-        (end-of-line)
-        (when (and (not c-reg)
-                   (funcall hs-find-block-beginning-func)
-		   (funcall hs-looking-at-block-start-p-func))
-          ;; point is inside a block
-          (goto-char (match-end 0)))))
+        (when (not c-reg)
+          (end-of-line)
+          (when (not (hs-find-block-beginning-match))
+            ;; We should also consider ourselves "in" a hidden block when
+            ;; point is right at the edge after a hidden block (bug#52092).
+            (beginning-of-line)
+            (hs-find-block-beginning-match)))))
     (end-of-line)
     (hs-overlay-at (point))))
 
@@ -948,9 +955,9 @@ The hook `hs-hide-hook' is run; see `run-hooks'."
   "Toggle hiding/showing of a block.
 See `hs-hide-block' and `hs-show-block'.
 Argument E should be the event that triggered this action."
-  (interactive)
+  (interactive (list last-nonmenu-event))
   (hs-life-goes-on
-   (posn-set-point (event-end e))
+   (when e (posn-set-point (event-end e)))
    (if (hs-already-hidden-p)
        (hs-show-block)
      (hs-hide-block))))

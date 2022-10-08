@@ -205,9 +205,9 @@ pair of the form (KEY VALUE).  The following KEYs are defined:
     MUST be a Bourne-like shell.  It is normally not necessary to
     set this to any value other than \"/bin/sh\": Tramp wants to
     use a shell which groks tilde expansion, but it can search
-    for it.  Also note that \"/bin/sh\" exists on all Unixen,
-    this might not be true for the value that you decide to use.
-    You Have Been Warned.
+    for it.  Also note that \"/bin/sh\" exists on all Unixen
+    except Andtoid, this might not be true for the value that you
+    decide to use.  You Have Been Warned.
 
   * `tramp-remote-shell-login'
     This specifies the arguments to let `tramp-remote-shell' run
@@ -278,7 +278,8 @@ pair of the form (KEY VALUE).  The following KEYs are defined:
 
   * `tramp-direct-async'
     Whether the method supports direct asynchronous processes.
-    Until now, just \"ssh\"-based and \"adb\"-based methods do.
+    Until now, just \"ssh\"-based, \"sshfs\"-based and
+    \"adb\"-based methods do.
 
   * `tramp-copy-program'
     This specifies the name of the program to use for remotely copying
@@ -1087,18 +1088,34 @@ Derived from `tramp-postfix-host-format'.")
 (defun tramp-build-remote-file-name-spec-regexp ()
   "Construct a regexp matching a Tramp file name for a Tramp syntax.
 It is expected, that `tramp-syntax' has the proper value."
-  (tramp-compat-rx
-   ;; Method.
-   (group (regexp tramp-method-regexp)) (regexp tramp-postfix-method-regexp)
-   ;; Optional user.  This includes domain.
-   (? (group (regexp tramp-user-regexp)) (regexp tramp-postfix-user-regexp))
-   ;; Optional host.
-   (? (group (| (regexp tramp-host-regexp)
-                (: (regexp tramp-prefix-ipv6-regexp)
-		   (? (regexp tramp-ipv6-regexp))
-		   (regexp tramp-postfix-ipv6-regexp)))
-   ;; Optional port.
-   (? (regexp tramp-prefix-port-regexp) (regexp tramp-port-regexp))))))
+  ;; Starting with Emacs 27, we can use `rx-let'.
+  (let* ((user-regexp
+	  (tramp-compat-rx
+	   (group-n 6 (regexp tramp-user-regexp))
+	   (regexp tramp-postfix-user-regexp)))
+	 (host-regexp
+	  (tramp-compat-rx
+	   (group-n 7 (| (regexp tramp-host-regexp)
+			 (: (regexp tramp-prefix-ipv6-regexp)
+			    (? (regexp tramp-ipv6-regexp))
+			    (regexp tramp-postfix-ipv6-regexp)))
+		    ;; Optional port.
+		    (? (regexp tramp-prefix-port-regexp)
+		       (regexp tramp-port-regexp)))))
+	 (user-host-regexp
+	  (if (eq tramp-syntax 'simplified)
+	      ;; There must be either user or host.
+	      (tramp-compat-rx
+	       (| (: (regexp user-regexp) (? (regexp host-regexp)))
+		  (: (? (regexp user-regexp)) (regexp host-regexp))))
+	    (tramp-compat-rx
+	     (? (regexp user-regexp)) (? (regexp host-regexp))))))
+    (tramp-compat-rx
+     ;; Method.
+     (group-n 5 (regexp tramp-method-regexp))
+     (regexp tramp-postfix-method-regexp)
+     ;; User and host.
+     (regexp user-host-regexp))))
 
 (defvar tramp-remote-file-name-spec-regexp
   nil ; Initialized when defining `tramp-syntax'!
@@ -2860,6 +2877,7 @@ remote file names."
   (put #'tramp-completion-file-name-handler 'operations
        (mapcar #'car tramp-completion-file-name-handler-alist))
 
+  ;; Integrated in Emacs 27.
   (when (bound-and-true-p tramp-archive-enabled)
     (add-to-list 'file-name-handler-alist
 	         (cons tramp-archive-file-name-regexp
@@ -3658,7 +3676,7 @@ Let-bind it when necessary.")
 
 ;; `directory-abbrev-apply' and `directory-abbrev-make-regexp' exists
 ;; since Emacs 29.1.  Since this handler isn't called for older
-;; Emacsen, it is save to invoke them via `tramp-compat-funcall'.
+;; Emacs, it is save to invoke them via `tramp-compat-funcall'.
 (defun tramp-handle-abbreviate-file-name (filename)
   "Like `abbreviate-file-name' for Tramp files."
   (let* ((case-fold-search (file-name-case-insensitive-p filename))
@@ -3904,9 +3922,7 @@ Let-bind it when necessary.")
 	      (with-tramp-progress-reporter v 5 "Checking case-insensitive"
 		;; The idea is to compare a file with lower case
 		;; letters with the same file with upper case letters.
-		(let ((candidate
-		       (tramp-compat-file-name-unquote
-			(directory-file-name filename)))
+		(let ((candidate (directory-file-name filename))
 		      case-fold-search
 		      tmpfile)
 		  ;; Check, whether we find an existing file with
@@ -5173,8 +5189,10 @@ of."
   ;; The descriptor must be a process object.
   (unless (processp proc)
     (tramp-error proc 'file-notify-error "Not a valid descriptor %S" proc))
-  ;; There might be pending output.
-  (while (tramp-accept-process-output proc 0))
+  ;; There might be pending output.  Avoid problems with reentrant
+  ;; call of Tramp.
+  (ignore-errors
+    (while (tramp-accept-process-output proc 0)))
   (tramp-message proc 6 "Kill %S" proc)
   (delete-process proc))
 
@@ -5469,7 +5487,7 @@ performed successfully.  Any other value means an error."
 Mostly useful to protect BODY from being interrupted by timers."
   (declare (indent 1) (debug t))
   `(if (tramp-get-connection-property ,proc "locked")
-       ;; Be kind for older Emacsen.
+       ;; Be kind for old versions of Emacs.
        (if (member 'remote-file-error debug-ignored-errors)
 	   (throw 'non-essential 'non-essential)
 	 (tramp-error

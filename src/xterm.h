@@ -580,6 +580,9 @@ struct x_display_info
   XIMStyles *xim_styles;
   struct xim_inst_t *xim_callback_data;
   XIMStyle preferred_xim_style;
+
+  /* The named coding system to use for this input method.  */
+  Lisp_Object xim_coding;
 #endif
 
   /* A cache mapping color names to RGB values.  */
@@ -1196,6 +1199,15 @@ struct x_output
   XIEventMask *xi_masks;
   int num_xi_masks;
 #endif
+
+  /* Whether or not we are certain we know the offset from the root
+     window to this frame.  */
+  bool window_offset_certain_p;
+
+  /* The offset of the edit window from the root window.  This is
+     strictly an optimization to avoid extraneous synchronizing in
+     some cases.  */
+  int root_x, root_y;
 };
 
 enum
@@ -1339,6 +1351,12 @@ extern void x_mark_frame_dirty (struct frame *f);
 #define FRAME_X_XIM_STYLES(f) (FRAME_DISPLAY_INFO (f)->xim_styles)
 #define FRAME_XIC_STYLE(f) ((f)->output_data.x->xic_style)
 #define FRAME_XIC_FONTSET(f) ((f)->output_data.x->xic_xfs)
+#define FRAME_X_XIM_CODING(f)				\
+  (SYMBOLP (Vx_input_coding_system)			\
+   ? Vx_input_coding_system				\
+   : (!NILP (FRAME_DISPLAY_INFO (f)->xim_coding)	\
+      ? FRAME_DISPLAY_INFO(f)->xim_coding		\
+      : Vlocale_coding_system))
 
 /* X-specific scroll bar stuff.  */
 

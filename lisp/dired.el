@@ -2956,7 +2956,7 @@ unchanged."
   (or dir (setq dir default-directory))
   ;; This case comes into play if default-directory is set to
   ;; use ~.
-  (if (and (> (length dir) 0) (= (aref dir 0) ?~))
+  (if (string-match-p "\\(\\`\\|:\\)~" dir)
       (setq dir (expand-file-name dir)))
   (if (string-match (concat "^" (regexp-quote dir)) file)
       (substring file (match-end 0))
@@ -3664,16 +3664,16 @@ non-empty directories is allowed."
 	 case-fold-search markers)
     (if (save-excursion (goto-char (point-min))
 			(re-search-forward regexp nil t))
-	(dired-internal-do-deletions
-         (nreverse
-	  ;; this can't move point since ARG is nil
-	  (dired-map-over-marks (cons (dired-get-filename)
-                                      (let ((m (point-marker)))
-                                        (push m markers)
-                                        m))
-			        nil))
-	 nil t)
-      (dolist (m markers) (set-marker m nil))
+        (progn
+          (dired-internal-do-deletions
+           (nreverse
+            (dired-map-over-marks (cons (dired-get-filename)
+                                   (let ((m (point-marker)))
+                                     (push m markers)
+                                     m))
+                             nil))
+           nil t)
+          (dolist (m markers) (set-marker m nil)))
       (or nomessage
 	  (message "(No deletions requested)")))))
 

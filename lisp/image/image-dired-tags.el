@@ -3,6 +3,7 @@
 ;; Copyright (C) 2005-2022 Free Software Foundation, Inc.
 
 ;; Author: Mathias Dahl <mathias.rem0veth1s.dahl@gmail.com>
+;; Maintainer: Stefan Kangas <stefankangas@gmail.com>
 ;; Keywords: multimedia
 
 ;; This file is part of GNU Emacs.
@@ -22,6 +23,8 @@
 
 ;;; Commentary:
 
+;; See the description of the `image-dired' package.
+
 ;;; Code:
 
 (require 'dired)
@@ -32,34 +35,34 @@
 
 (defvar image-dired-dir)
 (defvar image-dired-thumbnail-storage)
-(defvar image-dired-db-file)
+(defvar image-dired-tags-db-file)
 
 (defmacro image-dired--with-db-file (&rest body)
-  "Run BODY in a temp buffer containing `image-dired-db-file'.
+  "Run BODY in a temp buffer containing `image-dired-tags-db-file'.
 Return the last form in BODY."
   (declare (indent 0) (debug t))
   `(with-temp-buffer
-     (if (file-exists-p image-dired-db-file)
-         (insert-file-contents image-dired-db-file))
+     (if (file-exists-p image-dired-tags-db-file)
+         (insert-file-contents image-dired-tags-db-file))
      ,@body))
 
 (defun image-dired-sane-db-file ()
-  "Check if `image-dired-db-file' exists.
+  "Check if `image-dired-tags-db-file' exists.
 If not, try to create it (including any parent directories).
 Signal error if there are problems creating it."
-  (or (file-exists-p image-dired-db-file)
+  (or (file-exists-p image-dired-tags-db-file)
       (let (dir buf)
         (unless (file-directory-p (setq dir (file-name-directory
-                                             image-dired-db-file)))
+                                             image-dired-tags-db-file)))
           (with-file-modes #o700
             (make-directory dir t)))
         (with-current-buffer (setq buf (create-file-buffer
-                                        image-dired-db-file))
+                                        image-dired-tags-db-file))
           (with-file-modes #o600
-            (write-file image-dired-db-file)))
+            (write-file image-dired-tags-db-file)))
         (kill-buffer buf)
-        (file-exists-p image-dired-db-file))
-      (error "Could not create %s" image-dired-db-file)))
+        (file-exists-p image-dired-tags-db-file))
+      (error "Could not create %s" image-dired-tags-db-file)))
 
 (defvar image-dired-tag-history nil "Variable holding the tag history.")
 
@@ -71,7 +74,7 @@ FILE-TAGS is an alist in the following form:
   (image-dired-sane-db-file)
   (let (end file tag)
     (image-dired--with-db-file
-      (setq buffer-file-name image-dired-db-file)
+      (setq buffer-file-name image-dired-tags-db-file)
       (dolist (elt file-tags)
         (setq file (car elt)
               tag (cdr elt))
@@ -91,7 +94,7 @@ FILE-TAGS is an alist in the following form:
   "For all FILES, remove TAG from the image database."
   (image-dired-sane-db-file)
   (image-dired--with-db-file
-    (setq buffer-file-name image-dired-db-file)
+    (setq buffer-file-name image-dired-tags-db-file)
     (let (end)
       (unless (listp files)
         (if (stringp files)
@@ -106,8 +109,8 @@ FILE-TAGS is an alist in the following form:
           (when (search-forward-regexp
                  (format "\\(;%s\\)\\($\\|;\\)" tag) end t)
             (delete-region (match-beginning 1) (match-end 1))
-            ;; Check if file should still be in the database. If
-            ;; it has no tags or comments, it will be removed.
+            ;; Check if file should still be in the database.
+            ;; If it has no tags or comments, it will be removed.
             (end-of-line)
             (setq end (point))
             (beginning-of-line)
@@ -191,7 +194,7 @@ FILE-COMMENTS is an alist on the following form:
   (image-dired-sane-db-file)
   (let (end comment-beg-pos comment-end-pos file comment)
     (image-dired--with-db-file
-      (setq buffer-file-name image-dired-db-file)
+      (setq buffer-file-name image-dired-tags-db-file)
       (dolist (elt file-comments)
         (setq file (car elt)
               comment (cdr elt))
@@ -290,11 +293,14 @@ easy-to-use form."
     (remove-overlays)
     ;; Some help for the user.
     (widget-insert
-     "\nEdit comments and tags for each image.  Separate multiple tags
-with a comma.  Move forward between fields using TAB or RET.
-Move to the previous field using backtab (S-TAB).  Save by
-activating the Save button at the bottom of the form or cancel
-the operation by activating the Cancel button.\n\n")
+     (substitute-command-keys
+      "\\<widget-field-keymap>
+Edit comments and tags for each image.  Separate multiple tags
+with a comma.  Move forward between fields using \\[widget-forward] \
+or \\[widget-field-activate].
+Move to the previous field using \\[widget-backward].  Save by
+activating the \"Save\" button at the bottom of the form or
+cancel the operation by activating the \"Cancel\" button.\n\n"))
     ;; Here comes all images and a comment and tag field for each
     ;; image.
     (let (thumb-file img comment-widget tag-widget)

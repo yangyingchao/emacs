@@ -3,6 +3,7 @@
 ;; Copyright (C) 2005-2022 Free Software Foundation, Inc.
 
 ;; Author: Mathias Dahl <mathias.rem0veth1s.dahl@gmail.com>
+;; Maintainer: Stefan Kangas <stefankangas@gmail.com>
 
 ;; This file is part of GNU Emacs.
 
@@ -21,6 +22,8 @@
 
 ;;; Commentary:
 
+;; See the description of the `image-dired' package.
+
 ;;; Code:
 
 (require 'xdg)
@@ -37,7 +40,7 @@
 (defvar image-dired-debug nil
   "Non-nil means enable debug messages.")
 
-(defun image-dired-debug-message (&rest args)
+(defun image-dired-debug (&rest args)
   "Display debug message ARGS when `image-dired-debug' is non-nil."
   (when image-dired-debug
     (apply #'message args)))
@@ -45,8 +48,9 @@
 (defun image-dired-dir ()
   "Return the current thumbnail directory (from variable `image-dired-dir').
 Create the thumbnail directory if it does not exist."
-  (let ((image-dired-dir (file-name-as-directory
-                          (expand-file-name image-dired-dir))))
+  (let ((image-dired-dir
+         (file-name-as-directory
+          (expand-file-name image-dired-dir))))
     (unless (file-directory-p image-dired-dir)
       (with-file-modes #o700
         (make-directory image-dired-dir t))
@@ -66,32 +70,29 @@ file name of the thumbnail will vary:
   of the image file's directory name will be added to the
   filename.
 See also `image-dired-thumbnail-storage'."
-  (cond ((memq image-dired-thumbnail-storage
-               image-dired--thumbnail-standard-sizes)
-         (let ((thumbdir (cl-case image-dired-thumbnail-storage
-                           (standard "thumbnails/normal")
-                           (standard-large "thumbnails/large")
-                           (standard-x-large "thumbnails/x-large")
-                           (standard-xx-large "thumbnails/xx-large"))))
-           (expand-file-name
-            ;; MD5 is mandated by the Thumbnail Managing Standard.
-            (concat (md5 (concat "file://" (expand-file-name file))) ".png")
-            (expand-file-name thumbdir (xdg-cache-home)))))
-        ((eq 'use-image-dired-dir image-dired-thumbnail-storage)
-         (let* ((f (expand-file-name file))
-                (hash
-                 (md5 (file-name-as-directory (file-name-directory f)))))
-           (format "%s%s%s.thumb.%s"
-                   (file-name-as-directory (expand-file-name (image-dired-dir)))
-                   (file-name-base f)
-                   (if hash (concat "_" hash) "")
-                   (file-name-extension f))))
-        ((eq 'per-directory image-dired-thumbnail-storage)
-         (let ((f (expand-file-name file)))
-           (format "%s.image-dired/%s.thumb.%s"
-                   (file-name-directory f)
-                   (file-name-base f)
-                   (file-name-extension f))))))
+  (let ((file (expand-file-name file)))
+    (cond ((memq image-dired-thumbnail-storage
+                 image-dired--thumbnail-standard-sizes)
+           (let ((thumbdir (cl-case image-dired-thumbnail-storage
+                             (standard "thumbnails/normal")
+                             (standard-large "thumbnails/large")
+                             (standard-x-large "thumbnails/x-large")
+                             (standard-xx-large "thumbnails/xx-large"))))
+             (expand-file-name
+              ;; MD5 is mandated by the Thumbnail Managing Standard.
+              (concat (md5 (concat "file://" file)) ".png")
+              (expand-file-name thumbdir (xdg-cache-home)))))
+          ((or (eq 'image-dired image-dired-thumbnail-storage)
+               ;; Maintained for backwards compatibility:
+               (eq 'use-image-dired-dir image-dired-thumbnail-storage))
+           (expand-file-name (format "%s.jpg" (sha1 file))
+                             (image-dired-dir)))
+          ((eq 'per-directory image-dired-thumbnail-storage)
+           (expand-file-name (format "%s.thumb.jpg"
+                                     (file-name-nondirectory file))
+                             (expand-file-name
+                              ".image-dired"
+                              (file-name-directory file)))))))
 
 (defvar image-dired-thumbnail-buffer "*image-dired*"
   "Image-Dired's thumbnail buffer.")
@@ -112,6 +113,21 @@ See also `image-dired-thumbnail-storage'."
   "Get associated Dired buffer at point."
   (get-text-property (point) 'associated-dired-buffer))
 
+(defmacro image-dired--with-dired-buffer (&rest body)
+  "Run BODY in associated Dired buffer.
+Should be used by commands in `image-dired-thumbnail-mode'."
+  (declare (indent defun) (debug t))
+  (let ((file (make-symbol "file"))
+        (dired-buf (make-symbol "dired-buf")))
+    `(let ((,file (image-dired-original-file-name))
+           (,dired-buf (image-dired-associated-dired-buffer)))
+       (unless ,file
+         (error "No image at point"))
+       (unless (and ,dired-buf (buffer-live-p ,dired-buf))
+         (error "Cannot find associated Dired buffer for image: %s" ,file))
+       (with-current-buffer ,dired-buf
+         ,@body))))
+
 (defun image-dired-get-buffer-window (buf)
   "Return window where buffer BUF is."
   (get-window-with-predicate
@@ -121,6 +137,10 @@ See also `image-dired-thumbnail-storage'."
 
 (defun image-dired-display-window ()
   "Return window where `image-dired-display-image-buffer' is visible."
+  ;; This is obsolete as it is currently unused.  Once the window
+  ;; handling gets a rethink, there may or may not be a need to
+  ;; un-obsolete it again.
+  (declare (obsolete nil "29.1"))
   (get-window-with-predicate
    (lambda (window)
      (equal (buffer-name (window-buffer window)) image-dired-display-image-buffer))
@@ -135,6 +155,10 @@ See also `image-dired-thumbnail-storage'."
 
 (defun image-dired-associated-dired-buffer-window ()
   "Return window where associated Dired buffer is visible."
+  ;; This is obsolete as it is currently unused.  Once the window
+  ;; handling gets a rethink, there may or may not be a need to
+  ;; un-obsolete it again.
+  (declare (obsolete nil "29.1"))
   (let (buf)
     (if (image-dired-image-at-point-p)
         (progn

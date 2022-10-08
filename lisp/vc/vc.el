@@ -808,12 +808,12 @@ not specific to any particular backend."
 (defcustom vc-annotate-switches nil
   "A string or list of strings specifying switches for annotate under VC.
 When running annotate under a given BACKEND, VC uses the first
-non-nil value of `vc-BACKEND-annotate-switches', `vc-annotate-switches',
-and `annotate-switches', in that order.  Since nil means to check the
-next variable in the sequence, either of the first two may use
-the value t to mean no switches at all.  `vc-annotate-switches'
-should contain switches that are specific to version control, but
-not specific to any particular backend.
+non-nil value of `vc-BACKEND-annotate-switches' and
+`vc-annotate-switches', in that order.  Since nil means to check
+the next variable in the sequence, setting the first to the value
+t means no switches at all.  `vc-annotate-switches' should
+contain switches that are specific to version control, but not
+specific to any particular backend.
 
 As very few switches (if any) are used across different VC tools,
 please consider using the specific `vc-BACKEND-annotate-switches'
@@ -1014,7 +1014,11 @@ responsible for the given file."
                           (lambda (backend)
                             (when-let ((dir (vc-call-backend
                                              backend 'responsible-p file)))
-                              (cons backend dir)))
+                              ;; We run DIR through `expand-file-name'
+                              ;; so that abbreviated directories, such
+                              ;; as "~/", wouldn't look "less specific"
+                              ;; due to their artificially shorter length.
+                              (cons backend (expand-file-name dir))))
                           vc-handled-backends))))
         ;; Just a single response (or none); use it.
         (if (< (length dirs) 2)
@@ -1623,7 +1627,9 @@ Type \\[vc-next-action] to check in changes.")
      (format "I stole the lock on %s, " file-description)
      (current-time-string)
      ".\n")
-    (message "Please explain why you stole the lock.  Type C-c C-c when done.")))
+    (message
+     (substitute-command-keys
+      "Please explain why you stole the lock.  Type \\`C-c C-c' when done"))))
 
 (defun vc-checkin (files backend &optional comment initial-contents rev patch-string)
   "Check in FILES. COMMENT is a comment string; if omitted, a
@@ -1911,8 +1917,11 @@ Return t if the buffer had changes, nil otherwise."
       (setq files (cadr vc-fileset))
       (setq backend (car vc-fileset))))
    ((null backend) (setq backend (vc-backend (car files)))))
-  (let ((completion-table
-         (vc-call-backend backend 'revision-completion-table files)))
+  ;; Override any `vc-filter-command-function' value, as user probably
+  ;; doesn't want to edit the command to get the completions.
+  (let* ((vc-filter-command-function #'list)
+         (completion-table
+          (vc-call-backend backend 'revision-completion-table files)))
     (if completion-table
         (completing-read prompt completion-table
                          nil nil initial-input 'vc-revision-history default)
@@ -2756,10 +2765,11 @@ with its diffs (if the underlying VCS supports that)."
 ;;;###autoload
 (defun vc-log-incoming (&optional remote-location)
   "Show log of changes that will be received with pull from REMOTE-LOCATION.
-When called interactively with a prefix argument, prompt for REMOTE-LOCATION."
+When called interactively with a prefix argument, prompt for REMOTE-LOCATION.
+In some version control systems REMOTE-LOCATION can be a remote branch name."
   (interactive
    (when current-prefix-arg
-     (list (read-string "Remote location (empty for default): "))))
+     (list (read-string "Remote location/branch (empty for default): "))))
   (let ((backend (vc-deduce-backend)))
     (unless backend
       (error "Buffer is not version controlled"))
@@ -2769,10 +2779,11 @@ When called interactively with a prefix argument, prompt for REMOTE-LOCATION."
 ;;;###autoload
 (defun vc-log-outgoing (&optional remote-location)
   "Show log of changes that will be sent with a push operation to REMOTE-LOCATION.
-When called interactively with a prefix argument, prompt for REMOTE-LOCATION."
+When called interactively with a prefix argument, prompt for REMOTE-LOCATION.
+In some version control systems REMOTE-LOCATION can be a remote branch name."
   (interactive
    (when current-prefix-arg
-     (list (read-string "Remote location (empty for default): "))))
+     (list (read-string "Remote location/branch (empty for default): "))))
   (let ((backend (vc-deduce-backend)))
     (unless backend
       (error "Buffer is not version controlled"))
@@ -2958,6 +2969,28 @@ It also signals an error in a Bazaar bound branch."
     (if (vc-find-backend-function backend 'push)
         (vc-call-backend backend 'push arg)
       (user-error "VC push is unsupported for `%s'" backend))))
+
+;;;###autoload
+(defun vc-pull-and-push (&optional arg)
+  "First pull, and then push the current branch.
+The push will only be performed if the pull operation was successful.
+
+You must be visiting a version controlled file, or in a `vc-dir' buffer.
+
+On a distributed version control system, this runs a \"pull\"
+operation on the current branch, prompting for the precise
+command if required.  Optional prefix ARG non-nil forces a prompt
+for the VCS command to run.  If this is successful, a \"push\"
+operation will then be done.
+
+On a non-distributed version control system, this signals an error.
+It also signals an error in a Bazaar bound branch."
+  (interactive "P")
+  (let* ((vc-fileset (vc-deduce-fileset t))
+	 (backend (car vc-fileset)))
+    (if (vc-find-backend-function backend 'pull-and-push)
+        (vc-call-backend backend 'pull-and-push arg)
+      (user-error "VC pull-and-push is unsupported for `%s'" backend))))
 
 (defun vc-version-backup-file (file &optional rev)
   "Return name of backup file for revision REV of FILE.
@@ -3203,6 +3236,33 @@ log entries should be gathered."
 	  nil)))
   (vc-call-backend (vc-responsible-backend default-directory)
                    'update-changelog args))
+
+(defvar vc-filter-command-function)
+
+;;;###autoload
+(defun vc-edit-next-command ()
+  "Request editing the next VC shell command before execution.
+This is a prefix command.  It affects only a VC command executed
+immediately after this one."
+  (interactive)
+  (letrec ((minibuffer-depth (minibuffer-depth))
+           (command this-command)
+           (keys (key-description (this-command-keys)))
+           (old vc-filter-command-function)
+           (echofun (lambda () keys))
+           (postfun
+            (lambda ()
+              (unless (or (eq this-command command)
+                          (> (minibuffer-depth) minibuffer-depth))
+                (remove-hook 'post-command-hook postfun)
+                (remove-hook 'prefix-command-echo-keystrokes-functions
+                             echofun)
+                (setq vc-filter-command-function old)))))
+    (add-hook 'post-command-hook postfun)
+    (add-hook 'prefix-command-echo-keystrokes-functions echofun)
+    (setq vc-filter-command-function
+          (lambda (&rest args)
+            (apply #'vc-user-edit-command (apply old args))))))
 
 (defun vc-default-responsible-p (_backend _file)
   "Indicate whether BACKEND is responsible for FILE.

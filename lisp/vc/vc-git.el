@@ -119,14 +119,6 @@ If nil, use the value of `vc-diff-switches'.  If t, use no switches."
 		 (repeat :tag "Argument List" :value ("") string))
   :version "23.1")
 
-;;;###autoload
-(defun vc-git-annotate-switches-safe-p (switches)
-  "Check if local value of `vc-git-annotate-switches' is safe.
-Currently only \"-w\" (ignore whitespace) is considered safe, but
-this list might be extended in the future."
-  ;; TODO: Probably most options are perfectly safe.
-  (equal switches "-w"))
-
 (defcustom vc-git-annotate-switches nil
   "String or list of strings specifying switches for Git blame under VC.
 If nil, use the value of `vc-annotate-switches'.  If t, use no switches."
@@ -135,7 +127,12 @@ If nil, use the value of `vc-annotate-switches'.  If t, use no switches."
 		 (string :tag "Argument String")
 		 (repeat :tag "Argument List" :value ("") string))
   :version "25.1")
-;;;###autoload(put 'vc-git-annotate-switches 'safe-local-variable #'vc-git-annotate-switches-safe-p)
+
+;; Check if local value of `vc-git-annotate-switches' is safe.
+;; Currently only "-w" (ignore whitespace) is considered safe, but
+;; this list might be extended in the future (probably most options
+;; are perfectly safe.)
+;;;###autoload(put 'vc-git-annotate-switches 'safe-local-variable (lambda (switches) (equal switches "-w")))
 
 (defcustom vc-git-log-switches nil
   "String or list of strings specifying switches for Git log under VC."
@@ -627,7 +624,7 @@ or an empty string if none."
 
 ;; Follows vc-git-command (or vc-do-async-command), which uses vc-do-command
 ;; from vc-dispatcher.
-(declare-function vc-exec-after "vc-dispatcher" (code))
+(declare-function vc-exec-after "vc-dispatcher" (code &optional success))
 ;; Follows vc-exec-after.
 (declare-function vc-set-async-update "vc-dispatcher" (process-buffer))
 
@@ -1018,7 +1015,31 @@ It is based on `log-edit-mode', and has Git-specific extensions."
                 (make-nearby-temp-file "git-msg")))))
     (when vc-git-patch-string
       (unless (zerop (vc-git-command nil t nil "diff" "--cached" "--quiet"))
-        (user-error "Index not empty"))
+        ;; Check that all staged changes also exist in the patch.
+        ;; This is needed to allow adding/removing files that are
+        ;; currently staged to the index.  So remove the whole file diff
+        ;; from the patch because commit will take it from the index.
+        (with-temp-buffer
+          (vc-git-command (current-buffer) t nil "diff" "--cached")
+          (goto-char (point-min))
+          (let ((pos (point)) file-diff file-beg)
+            (while (not (eobp))
+              (forward-line 1) ; skip current "diff --git" line
+              (search-forward "diff --git" nil 'move)
+              (move-beginning-of-line 1)
+              (setq file-diff (buffer-substring pos (point)))
+              (if (and (setq file-beg (string-search
+                                       file-diff vc-git-patch-string))
+                       ;; Check that file diff ends with an empty string
+                       ;; or the beginning of the next file diff.
+                       (string-match-p "\\`\\'\\|\\`diff --git"
+                                       (substring
+                                        vc-git-patch-string
+                                        (+ file-beg (length file-diff)))))
+                  (setq vc-git-patch-string
+                        (string-replace file-diff "" vc-git-patch-string))
+                (user-error "Index not empty"))
+              (setq pos (point))))))
       (let ((patch-file (make-temp-file "git-patch")))
         (with-temp-file patch-file
           (insert vc-git-patch-string))
@@ -1096,31 +1117,37 @@ It is based on `log-edit-mode', and has Git-specific extensions."
 (defun vc-git--pushpull (command prompt extra-args)
   "Run COMMAND (a string; either push or pull) on the current Git branch.
 If PROMPT is non-nil, prompt for the Git command to run."
+  (require 'vc-dispatcher)
   (let* ((root (vc-git-root default-directory))
 	 (buffer (format "*vc-git : %s*" (expand-file-name root)))
-	 (git-program vc-git-program)
-	 args)
-    ;; If necessary, prompt for the exact command.
-    ;; TODO if pushing, prompt if no default push location - cf bzr.
-    (when prompt
-      (setq args (split-string
-		  (read-shell-command
-                   (format "Git %s command: " command)
-                   (format "%s %s" git-program command)
-                   'vc-git-history)
-		  " " t))
-      (setq git-program (car  args)
-	    command     (cadr args)
-	    args        (cddr args)))
-    (setq args (nconc args extra-args))
-    (require 'vc-dispatcher)
-    (apply #'vc-do-async-command buffer root git-program command args)
+         (git-program vc-git-program)
+         ;; TODO if pushing, prompt if no default push location - cf bzr.
+         (vc-filter-command-function
+          (if prompt
+              (lambda (&rest args)
+                (cl-destructuring-bind (&whole args git _ flags)
+                    (apply #'vc-user-edit-command args)
+                  (setq git-program git
+                        command (car flags)
+                        extra-args (cdr flags))
+                  args))
+            vc-filter-command-function))
+         (proc (apply #'vc-do-async-command
+                      buffer root git-program command extra-args)))
+    ;; "git pull" includes progress output that uses ^M to move point
+    ;; to the beginning of the line.  Just translate these to newlines
+    ;; (but don't do anything with the CRLF sequence).
+    (add-function :around (process-filter proc)
+                  (lambda (filter process string)
+                    (funcall filter process
+                             (replace-regexp-in-string "\r\\(\\'\\|[^\n]\\)"
+                                                       "\n\\1" string))))
     (with-current-buffer buffer
       (vc-run-delayed
         (vc-compilation-mode 'git)
         (setq-local compile-command
                     (concat git-program " " command " "
-                            (mapconcat #'identity args " ")))
+                            (mapconcat #'identity extra-args " ")))
         (setq-local compilation-directory root)
         ;; Either set `compilation-buffer-name-function' locally to nil
         ;; or use `compilation-arguments' to set `name-function'.
@@ -1129,7 +1156,8 @@ If PROMPT is non-nil, prompt for the Git command to run."
                     (list compile-command nil
                           (lambda (_name-of-mode) buffer)
                           nil))))
-    (vc-set-async-update buffer)))
+    (vc-set-async-update buffer)
+    proc))
 
 (defun vc-git-pull (prompt)
   "Pull changes into the current Git branch.
@@ -1142,6 +1170,25 @@ for the Git command to run."
 Normally, this runs \"git push\".  If PROMPT is non-nil, prompt
 for the Git command to run."
   (vc-git--pushpull "push" prompt nil))
+
+(defun vc-git-pull-and-push (prompt)
+  "Pull changes into the current Git branch, and then push.
+The push will only be performed if the pull was successful.
+
+Normally, this runs \"git pull\".  If PROMPT is non-nil, prompt
+for the Git command to run."
+  (let ((proc (vc-git--pushpull "pull" prompt '("--stat"))))
+    (when (process-buffer proc)
+      (with-current-buffer (process-buffer proc)
+        (if (and (eq (process-status proc) 'exit)
+                 (zerop (process-exit-status proc)))
+            (let ((vc--inhibit-async-window t))
+              (vc-git-push nil))
+          (vc-exec-after
+           (lambda ()
+             (let ((vc--inhibit-async-window t))
+               (vc-git-push nil)))
+           proc))))))
 
 (defun vc-git-merge-branch ()
   "Merge changes into the current Git branch.
@@ -1299,7 +1346,12 @@ If LIMIT is a revision string, use it as an end-revision."
 
 (defun vc-git-log-incoming (buffer remote-location)
   (vc-setup-buffer buffer)
-  (vc-git-command nil 0 nil "fetch")
+  (vc-git-command nil 0 nil "fetch"
+                  (unless (string= remote-location "")
+                    ;; `remote-location' is in format "repository/branch",
+                    ;; so remove everything except a repository name.
+                    (replace-regexp-in-string
+                     "/.*" "" remote-location)))
   (vc-git-command
    buffer 'async nil
    "log"

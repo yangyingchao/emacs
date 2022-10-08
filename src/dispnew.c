@@ -1810,8 +1810,11 @@ allocate_matrices_for_window_redisplay (struct window *w)
 	  if (w->desired_matrix == NULL)
 	    {
 	      w->desired_matrix = new_glyph_matrix (NULL);
-	      w->current_matrix = new_glyph_matrix (NULL);
+	      eassert (w->current_matrix == NULL);
 	    }
+
+	  if (w->current_matrix == NULL)
+	    w->current_matrix = new_glyph_matrix (NULL);
 
 	  dim.width = required_matrix_width (w);
 	  dim.height = required_matrix_height (w);
@@ -4929,7 +4932,9 @@ update_frame_1 (struct frame *f, bool force_p, bool inhibit_id_p,
     {
       if (MATRIX_ROW_ENABLED_P (desired_matrix, i))
 	{
-	  if (FRAME_TERMCAP_P (f))
+	  /* Note that output_buffer_size being 0 means that we want the
+	     old default behavior of flushing output every now and then.  */
+	  if (FRAME_TERMCAP_P (f) && FRAME_TTY (f)->output_buffer_size == 0)
 	    {
 	      /* Flush out every so many lines.
 		 Also flush out if likely to have more than 1k buffered

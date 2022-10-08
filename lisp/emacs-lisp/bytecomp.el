@@ -1469,9 +1469,11 @@ when printing the error message."
 
 (defun byte-compile-arglist-signature-string (signature)
   (cond ((null (cdr signature))
-	 (format "%d+" (car signature)))
+	 (format "%d or more" (car signature)))
 	((= (car signature) (cdr signature))
 	 (format "%d" (car signature)))
+	((= (1+ (car signature)) (cdr signature))
+	 (format "%d or %d" (car signature) (cdr signature)))
 	(t (format "%d-%d" (car signature) (cdr signature)))))
 
 (defun byte-compile-function-warn (f nargs def)
@@ -1705,12 +1707,12 @@ URLs."
               (+ " " (or
                       ;; Arguments.
                       (+ (or (syntax symbol)
-                             (any word "-/:[]&=().?^\\#'")))
+                             (any word "-/:[]&=()<>.,?^\\#*'\"")))
                       ;; Argument that is a list.
                       (seq "(" (* (not ")")) ")")))
               ")")))
     ""
-    ;; Heuristic: We can't reliably do `subsititute-command-keys'
+    ;; Heuristic: We can't reliably do `substitute-command-keys'
     ;; substitutions, since the value of a keymap in general can't be
     ;; known at compile time.  So instead, we assume that these
     ;; substitutions are of some length N.

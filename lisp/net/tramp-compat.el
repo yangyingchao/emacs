@@ -36,6 +36,7 @@
 (require 'shell)
 (require 'subr-x)
 
+(declare-function tramp-compat-rx "tramp")
 (declare-function tramp-error "tramp")
 (declare-function tramp-file-name-handler "tramp")
 (declare-function tramp-tramp-file-p "tramp")
@@ -48,6 +49,13 @@
 	   (car (version-to-list tramp-compat-emacs-compiled-version)))
   (warn "Tramp has been compiled with Emacs %s, this is Emacs %s"
 	tramp-compat-emacs-compiled-version emacs-version))
+
+(with-eval-after-load 'docker-tramp
+  (warn (concat "Package `docker-tramp' has been obsoleted, "
+		"please use integrated package `tramp-container'")))
+(with-eval-after-load 'kubernetes-tramp
+  (warn (concat "Package `kubernetes-tramp' has been obsoleted, "
+		"please use integrated package `tramp-container'")))
 
 ;; For not existing functions, obsolete functions, or functions with a
 ;; changed argument list, there are compiler warnings.  We want to

@@ -2379,16 +2379,15 @@ the various files."
                                          'buffer-file-name buffer)))
                               (and file (file-exists-p file))))))))
 	;; Let user know if there is a buffer with the same truename.
-	(if other
-	    (progn
-	      (or nowarn
-		  find-file-suppress-same-file-warnings
-		  (string-equal filename (buffer-file-name other))
-		  (files--message "%s and %s are the same file"
-                                  filename (buffer-file-name other)))
-	      ;; Optionally also find that buffer.
-	      (if (or find-file-existing-other-name find-file-visit-truename)
-		  (setq buf other))))
+        (when other
+          (or nowarn
+              find-file-suppress-same-file-warnings
+              (string-equal filename (buffer-file-name other))
+              (files--message "%s and %s are the same file"
+                         filename (buffer-file-name other)))
+          ;; Optionally also find that buffer.
+          (if (or find-file-existing-other-name find-file-visit-truename)
+              (setq buf other)))
 	;; Check to see if the file looks uncommonly large.
 	(when (not (or buf nowarn))
           (when (eq (abort-if-file-too-large
@@ -2711,7 +2710,8 @@ unless NOMODES is non-nil."
 		   (file-newer-than-file-p (or buffer-auto-save-file-name
 					       (make-auto-save-file-name))
 					   buffer-file-name))
-		  (format "%s has auto save data; consider M-x recover-this-file"
+                  (format (substitute-command-keys
+                           "%s has auto save data; consider \\`M-x recover-this-file'")
 			  (file-name-nondirectory buffer-file-name))
 		(setq not-serious t)
 		(if error "(New file)" nil)))
@@ -3016,6 +3016,7 @@ ARC\\|ZIP\\|LZH\\|LHA\\|ZOO\\|[JEW]AR\\|XPI\\|RAR\\|CBR\\|7Z\\|SQUASHFS\\)\\'" .
      ("[cC]hange[lL]og[-.][-0-9a-z]+\\'" . change-log-mode)
      ;; either user's dot-files or under /etc or some such
      ("/\\.?\\(?:gitconfig\\|gnokiirc\\|hgrc\\|kde.*rc\\|mime\\.types\\|wgetrc\\)\\'" . conf-mode)
+     ("/\\.mailmap\\'" . conf-unix-mode)
      ;; alas not all ~/.*rc files are like this
      ("/\\.\\(?:asound\\|enigma\\|fetchmail\\|gltron\\|gtk\\|hxplayer\\|mairix\\|mbsync\\|msmtp\\|net\\|neverball\\|nvidia-settings-\\|offlineimap\\|qt/.+\\|realplayer\\|reportbug\\|rtorrent\\.\\|screen\\|scummvm\\|sversion\\|sylpheed/.+\\|xmp\\)rc\\'" . conf-mode)
      ("/\\.\\(?:gdbtkinit\\|grip\\|mpdconf\\|notmuch-config\\|orbital/.+txt\\|rhosts\\|tuxracer/options\\)\\'" . conf-mode)
@@ -3331,6 +3332,7 @@ checks if it uses an interpreter listed in `interpreter-mode-alist',
 matches the buffer beginning against `magic-mode-alist',
 compares the file name against the entries in `auto-mode-alist',
 then matches the buffer beginning against `magic-fallback-mode-alist'.
+It also obeys `major-mode-remap-alist'.
 
 If `enable-local-variables' is nil, or if the file name matches
 `inhibit-local-variables-regexps', this function does not check
@@ -3468,6 +3470,17 @@ we don't actually set it to the same mode the buffer already has."
     (unless done
       (set-buffer-major-mode (current-buffer)))))
 
+(defvar-local set-auto-mode--last nil
+  "Remember the mode we have set via `set-auto-mode-0'.")
+
+(defcustom major-mode-remap-alist nil
+  "Alist mapping file-specified mode to actual mode.
+Every entry is of the form (MODE . FUNCTION) which means that in order
+to activate the major mode MODE (specified via something like
+`auto-mode-alist', file-local variables, ...) we should actually call
+FUNCTION instead."
+  :type '(alist (symbol) (function)))
+
 ;; When `keep-mode-if-same' is set, we are working on behalf of
 ;; set-visited-file-name.  In that case, if the major mode specified is the
 ;; same one we already have, don't actually reset it.  We don't want to lose
@@ -3478,10 +3491,15 @@ If optional arg KEEP-MODE-IF-SAME is non-nil, MODE is chased of
 any aliases and compared to current major mode.  If they are the
 same, do nothing and return nil."
   (unless (and keep-mode-if-same
-	       (eq (indirect-function mode)
-		   (indirect-function major-mode)))
+	       (or (eq (indirect-function mode)
+		       (indirect-function major-mode))
+		   (and set-auto-mode--last
+		        (eq mode (car set-auto-mode--last))
+		        (eq major-mode (cdr set-auto-mode--last)))))
     (when mode
-      (funcall mode)
+      (funcall (alist-get mode major-mode-remap-alist mode))
+      (unless (eq mode major-mode)
+        (setq set-auto-mode--last (cons mode major-mode)))
       mode)))
 
 (defvar file-auto-mode-skip "^\\(#!\\|'\\\\\"\\)"
@@ -3511,7 +3529,8 @@ have no effect."
                             ;; interpreter invocation.  The same holds
                             ;; for '\" in man pages (preprocessor
                             ;; magic for the `man' program).
-                            (and (looking-at file-auto-mode-skip) 2)) t)
+                            (and (looking-at file-auto-mode-skip) 2))
+                     t)
      (progn
        (skip-chars-forward " \t")
        (setq beg (point))
@@ -3593,7 +3612,6 @@ asking you for confirmation."
 	inhibit-quit
 	load-path
 	max-lisp-eval-depth
-	max-specpdl-size
 	minor-mode-map-alist
 	minor-mode-overriding-map-alist
 	mode-line-format
@@ -4866,6 +4884,14 @@ Interactively, this prompts for NEW-LOCATION."
                            (expand-file-name
                             (file-name-nondirectory (buffer-name))
                             default-directory)))))
+  ;; If the user has given a directory name, the file should be moved
+  ;; there (under the same file name).
+  (when (file-directory-p new-location)
+    (unless buffer-file-name
+      (user-error "Can't rename buffer to a directory file name"))
+    (setq new-location (expand-file-name
+                        (file-name-nondirectory buffer-file-name)
+                        new-location)))
   (when (and buffer-file-name
              (file-exists-p buffer-file-name))
     (rename-file buffer-file-name new-location))
@@ -5174,7 +5200,7 @@ On most systems, this will be true:
           (setq filename nil))))
     components))
 
-(defun file-parent-directory (filename)
+(defun file-name-parent-directory (filename)
   "Return the directory name of the parent directory of FILENAME.
 If FILENAME is at the root of the filesystem, return nil.
 If FILENAME is relative, it is interpreted to be relative
@@ -6128,16 +6154,17 @@ recent files are first."
   (let* ((filename (file-name-sans-versions
 		    (make-backup-file-name (expand-file-name filename))))
          (dir (file-name-directory filename)))
-    (sort
-     (seq-filter
-      (lambda (candidate)
-        (and (backup-file-name-p candidate)
-             (string= (file-name-sans-versions candidate) filename)))
-      (mapcar
-       (lambda (file)
-         (concat dir file))
-       (file-name-all-completions (file-name-nondirectory filename) dir)))
-     #'file-newer-than-file-p)))
+    (when (file-directory-p dir)
+      (sort
+       (seq-filter
+        (lambda (candidate)
+          (and (backup-file-name-p candidate)
+               (string= (file-name-sans-versions candidate) filename)))
+        (mapcar
+         (lambda (file)
+           (concat dir file))
+         (file-name-all-completions (file-name-nondirectory filename) dir)))
+       #'file-newer-than-file-p))))
 
 (defun rename-uniquely ()
   "Rename current buffer to a similar name not already taken.
@@ -8271,10 +8298,10 @@ CHAR is in [ugoa] and represents the category of users (Owner, Group,
 Others, or All) for whom to produce the mask.
 The bit-mask that is returned extracts from mode bits the access rights
 for the specified category of users."
-  (cond ((= char ?u) #o4700)
-	((= char ?g) #o2070)
-	((= char ?o) #o1007)
-	((= char ?a) #o7777)
+  (cond ((eq char ?u) #o4700)
+	((eq char ?g) #o2070)
+	((eq char ?o) #o1007)
+	((eq char ?a) #o7777)
         (t (error "%c: Bad `who' character" char))))
 
 (defun file-modes-char-to-right (char &optional from)
@@ -8282,22 +8309,22 @@ for the specified category of users."
 CHAR is in [rwxXstugo] and represents symbolic access permissions.
 If CHAR is in [Xugo], the value is taken from FROM (or 0 if omitted)."
   (or from (setq from 0))
-  (cond ((= char ?r) #o0444)
-	((= char ?w) #o0222)
-	((= char ?x) #o0111)
-	((= char ?s) #o6000)
-	((= char ?t) #o1000)
+  (cond ((eq char ?r) #o0444)
+	((eq char ?w) #o0222)
+	((eq char ?x) #o0111)
+	((eq char ?s) #o6000)
+	((eq char ?t) #o1000)
 	;; Rights relative to the previous file modes.
-	((= char ?X) (if (= (logand from #o111) 0) 0 #o0111))
-	((= char ?u) (let ((uright (logand #o4700 from)))
-		       ;; FIXME: These divisions/shifts seem to be right
-                       ;; for the `7' part of the #o4700 mask, but not
-                       ;; for the `4' part.  Same below for `g' and `o'.
-		       (+ uright (/ uright #o10) (/ uright #o100))))
-	((= char ?g) (let ((gright (logand #o2070 from)))
-		       (+ gright (/ gright #o10) (* gright #o10))))
-	((= char ?o) (let ((oright (logand #o1007 from)))
-		       (+ oright (* oright #o10) (* oright #o100))))
+	((eq char ?X) (if (= (logand from #o111) 0) 0 #o0111))
+	((eq char ?u) (let ((uright (logand #o4700 from)))
+		        ;; FIXME: These divisions/shifts seem to be right
+                        ;; for the `7' part of the #o4700 mask, but not
+                        ;; for the `4' part.  Same below for `g' and `o'.
+		        (+ uright (/ uright #o10) (/ uright #o100))))
+	((eq char ?g) (let ((gright (logand #o2070 from)))
+		        (+ gright (/ gright #o10) (* gright #o10))))
+	((eq char ?o) (let ((oright (logand #o1007 from)))
+		        (+ oright (* oright #o10) (* oright #o100))))
         (t (error "%c: Bad right character" char))))
 
 (defun file-modes-rights-to-number (rights who-mask &optional from)

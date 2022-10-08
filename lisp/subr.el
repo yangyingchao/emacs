@@ -1562,6 +1562,21 @@ in the current Emacs session, then this function may return nil."
   ;; is this really correct? maybe remove mouse-movement?
   (memq (event-basic-type object) '(mouse-1 mouse-2 mouse-3 mouse-movement)))
 
+(defun event--posn-at-point ()
+  ;; Use `window-point' for the case when the current buffer
+  ;; is temporarily switched to some other buffer (bug#50256)
+  (let* ((pos (window-point))
+         (posn (posn-at-point pos)))
+    (if (null posn) ;; `pos' is "out of sight".
+        (list (selected-window) pos '(0 . 0) 0)
+      ;; If `pos' is inside a chunk of text hidden by an `invisible'
+      ;; or `display' property, `posn-at-point' returns the position
+      ;; that *is* visible, whereas `event--posn-at-point' is used
+      ;; when we have a keyboard event, whose position is `point' even
+      ;; if that position is invisible.
+      (setf (nth 5 posn) pos)
+      posn)))
+
 (defun event-start (event)
   "Return the starting position of EVENT.
 EVENT should be a mouse click, drag, or key press event.  If
@@ -1588,10 +1603,7 @@ nil or (STRING . POSITION)'.
 
 For more information, see Info node `(elisp)Click Events'."
   (or (and (consp event) (nth 1 event))
-      ;; Use `window-point' for the case when the current buffer
-      ;; is temporarily switched to some other buffer (bug#50256)
-      (posn-at-point (window-point))
-      (list (selected-window) (window-point) '(0 . 0) 0)))
+      (event--posn-at-point)))
 
 (defun event-end (event)
   "Return the ending position of EVENT.
@@ -1599,10 +1611,7 @@ EVENT should be a click, drag, or key press event.
 
 See `event-start' for a description of the value returned."
   (or (and (consp event) (nth (if (consp (nth 2 event)) 2 1) event))
-      ;; Use `window-point' for the case when the current buffer
-      ;; is temporarily switched to some other buffer (bug#50256)
-      (posn-at-point (window-point))
-      (list (selected-window) (window-point) '(0 . 0) 0)))
+      (event--posn-at-point)))
 
 (defsubst event-click-count (event)
   "Return the multi-click count of EVENT, a click or drag event.
@@ -1828,7 +1837,12 @@ be a list of the form returned by `event-start' and `event-end'."
 (set-advertised-calling-convention 'time-convert '(time form) "29.1")
 
 ;;;; Obsolescence declarations for variables, and aliases.
-
+(make-obsolete-variable
+ 'inhibit-point-motion-hooks
+ "use `cursor-intangible-mode' or `cursor-sensor-mode' instead"
+ ;; It's been announced as obsolete in NEWS and in the docstring since Emacs-25,
+ ;; but it's only been marked for compilation warnings since Emacs-29.
+ "25.1")
 (make-obsolete-variable 'redisplay-dont-pause nil "24.5")
 (make-obsolete-variable 'operating-system-release nil "28.1")
 (make-obsolete-variable 'inhibit-changing-match-data 'save-match-data "29.1")
@@ -1858,6 +1872,17 @@ be a list of the form returned by `event-start' and `event-end'."
 ;; We can't actually make `values' obsolete, because that will result
 ;; in warnings when using `values' in let-bindings.
 ;;(make-obsolete-variable 'values "no longer used" "28.1")
+
+(defvar max-specpdl-size 2500
+  "Former limit on specbindings, now without effect.
+This variable used to limit the size of the specpdl stack which,
+among other things, holds dynamic variable bindings and `unwind-protect'
+activations.  To prevent runaway recursion, use `max-lisp-eval-depth'
+instead; it will indirectly limit the specpdl stack size as well.")
+(make-obsolete-variable 'max-specpdl-size nil "29.1")
+
+(make-obsolete-variable 'native-comp-deferred-compilation
+                        'inhibit-automatic-native-compilation "29.1")
 
 
 ;;;; Alternate names for functions - these are not being phased out.
@@ -2497,7 +2522,20 @@ The variable list SPEC is the same as in `if-let'."
   (declare (indent 1) (debug if-let))
   (list 'if-let spec (macroexp-progn body)))
 
+(defmacro while-let (spec &rest body)
+  "Bind variables according to SPEC and conditionally evaluate BODY.
+Evaluate each binding in turn, stopping if a binding value is nil.
+If all bindings are non-nil, eval BODY and repeat.
 
+The variable list SPEC is the same as in `if-let'."
+  (declare (indent 1) (debug if-let))
+  (let ((done (gensym "done")))
+    `(catch ',done
+       (while t
+         (if-let* ,spec
+             (progn
+               ,@body)
+           (throw ',done nil))))))
 
 ;; PUBLIC: find if the current mode derives from another.
 
@@ -3514,11 +3552,12 @@ like) while `y-or-n-p' is running)."
 			    (if (or (zerop l) (eq ?\s (aref prompt (1- l))))
 				"" " ")
 			    (if dialog ""
-                              (if help-form
-                                  (format "(y, n or %s) "
-		                          (key-description
-                                           (vector help-char)))
-                                "(y or n) "))))))
+                              (substitute-command-keys
+                               (if help-form
+                                   (format "(\\`y', \\`n' or \\`%s') "
+                                           (key-description
+                                            (vector help-char)))
+                                 "(\\`y' or \\`n') ")))))))
         ;; Preserve the actual command that eventually called
         ;; `y-or-n-p' (otherwise `repeat' will be repeating
         ;; `exit-minibuffer').
@@ -4025,6 +4064,13 @@ system's shell."
   "Return t if OBJECT is a string or nil.
 Otherwise, return nil."
   (or (stringp object) (null object)))
+
+(defun list-of-strings-p (object)
+  "Return t if OBJECT is nil or a list of strings."
+  (declare (pure t) (side-effect-free error-free))
+  (while (and (consp object) (stringp (car object)))
+    (setq object (cdr object)))
+  (null object))
 
 (defun booleanp (object)
   "Return t if OBJECT is one of the two canonical boolean values: t or nil.
@@ -4823,16 +4869,26 @@ the function `undo--wrap-and-run-primitive-undo'."
       (let ((undo--combining-change-calls t))
 	(if (not inhibit-modification-hooks)
 	    (run-hook-with-args 'before-change-functions beg end))
-	(let (;; (inhibit-modification-hooks t)
-              (before-change-functions
-               ;; Ugly Hack: if the body uses syntax-ppss/syntax-propertize
-               ;; (e.g. via a regexp-search or sexp-movement triggering
-               ;; on-the-fly syntax-propertize), make sure that this gets
-               ;; properly refreshed after subsequent changes.
-               (if (memq #'syntax-ppss-flush-cache before-change-functions)
-                   '(syntax-ppss-flush-cache)))
-              after-change-functions)
-	  (setq result (funcall body)))
+	(let ((bcf before-change-functions)
+	      (acf after-change-functions)
+	      (local-bcf (local-variable-p 'before-change-functions))
+	      (local-acf (local-variable-p 'after-change-functions)))
+	  (unwind-protect
+              ;; FIXME: WIBNI we could just use `inhibit-modification-hooks'?
+              (progn
+                ;; Ugly Hack: if the body uses syntax-ppss/syntax-propertize
+                ;; (e.g. via a regexp-search or sexp-movement triggering
+                ;; on-the-fly syntax-propertize), make sure that this gets
+                ;; properly refreshed after subsequent changes.
+	        (setq-local before-change-functions
+                            (if (memq #'syntax-ppss-flush-cache bcf)
+                                '(syntax-ppss-flush-cache)))
+                (setq-local after-change-functions nil)
+	        (setq result (funcall body)))
+	    (if local-bcf (setq before-change-functions bcf)
+	      (kill-local-variable 'before-change-functions))
+	    (if local-acf (setq after-change-functions acf)
+	      (kill-local-variable 'after-change-functions))))
         (when (not (eq buffer-undo-list t))
           (let ((ap-elt
 		 (list 'apply

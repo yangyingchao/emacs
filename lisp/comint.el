@@ -103,6 +103,7 @@
 
 (require 'ring)
 (require 'ansi-color)
+(require 'ansi-osc)
 (require 'regexp-opt)                   ;For regexp-opt-charset.
 (eval-when-compile (require 'subr-x))
 
@@ -1944,7 +1945,7 @@ Similarly for Soar, Scheme, etc."
               (when comint-highlight-input
                 (add-text-properties beg end
                                      '( font-lock-face comint-highlight-input
-                                        comint--fl-inhibit-fontification t
+                                        comint--fontify-input-inhibit-fontification t
                                         front-sticky t )))
               (unless comint-use-prompt-regexp
                 ;; Give old user input a field property of `input', to
@@ -2145,6 +2146,12 @@ Make backspaces delete the previous character."
 
 	    (goto-char (process-mark process))
 	    (set-marker comint-last-output-start (point))
+
+            ;; Before we call `comint--mark-as-output' later,
+            ;; redisplay can be called.  We mark the inserted text as
+            ;; output early, to prevent redisplay from fontifying it
+            ;; as input in case of `comint-fontify-input-mode'.
+            (put-text-property 0 (length string) 'field 'output string)
 
 	    ;; insert-before-markers is a bad thing. XXX
 	    ;; Luckily we don't have to use it any more, we use
@@ -3914,12 +3921,12 @@ REGEXP-GROUP is the regular expression group in REGEXP to use."
 ;; to `comint-osc-handlers' allows a customized treatment of further
 ;; sequences.
 
-(defvar-local comint-osc-handlers '(("7" . comint-osc-directory-tracker)
-                                    ("8" . comint-osc-hyperlink-handler))
-  "Alist of handlers for OSC escape sequences.
-See `comint-osc-process-output' for details.")
-
-(defvar-local comint-osc--marker nil)
+;; Aliases defined for reverse compatibility
+(defvaralias 'comint-osc-handlers 'ansi-osc-handlers)
+(defalias 'comint-osc-directory-tracker 'ansi-osc-directory-tracker)
+(defalias 'comint-osc-hyperlink-handler 'ansi-osc-hyperlink-handler)
+(defalias 'comint-osc-hyperlink 'ansi-osc-hyperlink)
+(defvaralias 'comint-osc-hyperlink-map 'ansi-osc-hyperlink-map)
 
 (defun comint-osc-process-output (_)
   "Interpret OSC escape sequences in comint output.
@@ -3935,81 +3942,10 @@ removed from the buffer.  Then, if `command' is a key of the
 `comint-osc-handlers' alist, the corresponding value, which
 should be a function, is called with `command' and `text' as
 arguments, with point where the escape sequence was located."
-  (let ((bound (process-mark (get-buffer-process (current-buffer)))))
-    (save-excursion
-      ;; Start one char before last output to catch a possibly stray ESC
-      (goto-char (or comint-osc--marker (1- comint-last-output-start)))
-      (when (eq (char-before) ?\e) (backward-char))
-      (while (re-search-forward "\e]" bound t)
-        (let ((pos0 (match-beginning 0))
-              (code (and (re-search-forward "\\=\\([0-9A-Za-z]*\\);" bound t)
-                         (match-string 1)))
-              (pos1 (point)))
-          (if (re-search-forward "\a\\|\e\\\\" bound t)
-              (let ((text (buffer-substring-no-properties
-                           pos1 (match-beginning 0))))
-                (setq comint-osc--marker nil)
-                (delete-region pos0 (point))
-                (when-let ((fun (cdr (assoc-string code comint-osc-handlers))))
-                  (funcall fun code text)))
-            (put-text-property pos0 bound 'invisible t)
-            (setq comint-osc--marker (copy-marker pos0))))))))
-
-;; Current directory tracking (OSC 7)
-
-(declare-function url-host "url/url-parse.el")
-(declare-function url-type "url/url-parse.el")
-(declare-function url-filename "url/url-parse.el")
-(defun comint-osc-directory-tracker (_ text)
-  "Update `default-directory' from OSC 7 escape sequences.
-
-This function is intended to be included as an entry of
-`comint-osc-handlers'.  You should moreover arrange for your
-shell to print the appropriate escape sequence at each prompt,
-say with the following command:
-
-    printf \"\\e]7;file://%s%s\\e\\\\\" \"$HOSTNAME\" \"$PWD\"
-
-This functionality serves as an alternative to `dirtrack-mode'
-and `shell-dirtrack-mode'."
-  (let ((url (url-generic-parse-url text)))
-    (when (and (string= (url-type url) "file")
-               (or (null (url-host url))
-                   (string= (url-host url) (system-name))))
-      (ignore-errors
-        (cd-absolute (url-unhex-string (url-filename url)))))))
-
-;; Hyperlink handling (OSC 8)
-
-(defvar comint-osc-hyperlink-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map "\C-c\r" 'browse-url-button-open)
-    (define-key map [mouse-2] 'browse-url-button-open)
-    (define-key map [follow-link] 'mouse-face)
-    map)
-  "Keymap used by OSC 8 hyperlink buttons.")
-
-(define-button-type 'comint-osc-hyperlink
-  'keymap comint-osc-hyperlink-map
-  'help-echo (lambda (_ buffer pos)
-               (when-let ((url (get-text-property pos 'browse-url-data buffer)))
-                 (format "mouse-2, C-c RET: Open %s" url))))
-
-(defvar-local comint-osc-hyperlink--state nil)
-
-(defun comint-osc-hyperlink-handler (_ text)
-  "Create a hyperlink from an OSC 8 escape sequence.
-This function is intended to be included as an entry of
-`comint-osc-handlers'."
-  (when comint-osc-hyperlink--state
-    (let ((start (car comint-osc-hyperlink--state))
-          (url (cdr comint-osc-hyperlink--state)))
-      (make-text-button start (point)
-                        'type 'comint-osc-hyperlink
-                        'browse-url-data url)))
-  (setq comint-osc-hyperlink--state
-        (and (string-match ";\\(.+\\)" text)
-             (cons (point-marker) (match-string-no-properties 1 text)))))
+  (let ((start (1- comint-last-output-start))
+        ;; Start one char before last output to catch a possibly stray ESC
+        (bound (process-mark (get-buffer-process (current-buffer)))))
+    (ansi-osc-apply-on-region start bound)))
 
 
 ;;; Input fontification and indentation through an indirect buffer
@@ -4036,7 +3972,7 @@ an indirect buffer, whose major mode and syntax highlighting are
 set up according to `comint-indirect-setup-function'.  After this
 setup is done, run this hook with the indirect buffer as the
 current buffer.  This can be used to further customize
-fontification and other behaviour of the indirect buffer."
+fontification and other behavior of the indirect buffer."
   :group 'comint
   :type 'hook
   :version "29.1")
@@ -4044,9 +3980,9 @@ fontification and other behaviour of the indirect buffer."
 (defvar-local comint--indirect-buffer nil
   "Indirect buffer used for input fontification.")
 
-(defvar-local comint--fl-saved-jit-lock-contextually nil)
+(defvar-local comint--fontify-input-saved-jit-lock-contextually nil)
 
-(define-minor-mode comint-fl-mode
+(define-minor-mode comint-fontify-input-mode
   "Enable input fontification in the current comint buffer.
 This minor mode is useful if the current major mode derives from
 `comint-mode' and if `comint-indirect-setup-function' is set.
@@ -4061,71 +3997,71 @@ This function signals an error if `comint-use-prompt-regexp' is
 non-nil.  Input fontification isn't compatible with this
 setting."
   :lighter nil
-  (if comint-fl-mode
+  (if comint-fontify-input-mode
       (let ((success nil))
         (unwind-protect
             (progn
-              (comint--fl-on)
+              (comint--fontify-input-on)
               (setq success t))
           (unless success
-            (setq comint-fl-mode nil)
-            (comint--fl-off))))
-    (comint--fl-off)))
+            (setq comint-fontify-input-mode nil)
+            (comint--fontify-input-off))))
+    (comint--fontify-input-off)))
 
-(defun comint--fl-on ()
+(defun comint--fontify-input-on ()
   "Enable input fontification in the current comint buffer."
-  (comint--fl-off)
+  (comint--fontify-input-off)
 
   (when comint-use-prompt-regexp
     (error
      "Input fontification is incompatible with `comint-use-prompt-regexp'"))
 
   (add-function :around (local 'font-lock-fontify-region-function)
-                #'comint--fl-fontify-region)
+                #'comint--fontify-input-fontify-region)
   ;; `before-change-functions' are only run in the current buffer and
   ;; not in its indirect buffers, which means that we must manually
   ;; flush ppss cache
   (add-hook 'before-change-functions
-            #'comint--fl-ppss-flush-indirect 99 t)
+            #'comint--fontify-input-ppss-flush-indirect 99 t)
 
   ;; Set up contextual fontification
   (unless (booleanp jit-lock-contextually)
-    (setq comint--fl-saved-jit-lock-contextually
+    (setq comint--fontify-input-saved-jit-lock-contextually
           jit-lock-contextually)
     (setq-local jit-lock-contextually t)
     (when jit-lock-mode
       (jit-lock-mode t))))
 
-(defun comint--fl-off ()
+(defun comint--fontify-input-off ()
   "Disable input fontification in the current comint buffer."
   (remove-function (local 'font-lock-fontify-region-function)
-                   #'comint--fl-fontify-region)
+                   #'comint--fontify-input-fontify-region)
   (remove-hook 'before-change-functions
-               #'comint--fl-ppss-flush-indirect t)
+               #'comint--fontify-input-ppss-flush-indirect t)
 
   ;; Reset contextual fontification
-  (when comint--fl-saved-jit-lock-contextually
+  (when comint--fontify-input-saved-jit-lock-contextually
     (setq-local jit-lock-contextually
-                comint--fl-saved-jit-lock-contextually)
-    (setq comint--fl-saved-jit-lock-contextually nil)
+                comint--fontify-input-saved-jit-lock-contextually)
+    (setq comint--fontify-input-saved-jit-lock-contextually nil)
     (when jit-lock-mode
       (jit-lock-mode t)))
 
   (font-lock-flush))
 
-(defun comint--fl-ppss-flush-indirect (beg &rest rest)
+(defun comint--fontify-input-ppss-flush-indirect (beg &rest rest)
   (when-let ((buf (comint-indirect-buffer t)))
     (with-current-buffer buf
       (when (memq #'syntax-ppss-flush-cache before-change-functions)
         (apply #'syntax-ppss-flush-cache beg rest)))))
 
-(defun comint--fl-fontify-region (fun beg end verbose)
+(defun comint--fontify-input-fontify-region (fun beg end verbose)
   "Fontify process output and user input in the current comint buffer.
 First, fontify the region between BEG and END using FUN.  Then
 fontify only the input text in the region with the help of an
 indirect buffer.  VERBOSE is passed to the fontify-region
 functions.  Skip fontification of input regions with non-nil
-`comint--fl-inhibit-fontification' text property."
+`comint--fontify-input-inhibit-fontification' text property."
   (pcase (funcall fun beg end verbose)
     (`(jit-lock-bounds ,beg1 . ,end1)
      (setq beg beg1 end end1)))
@@ -4137,7 +4073,7 @@ functions.  Skip fontification of input regions with non-nil
           (comint--intersect-regions
            nil (lambda (beg end)
                  (unless (get-text-property
-                          beg 'comint--fl-inhibit-fontification)
+                          beg 'comint--fontify-input-inhibit-fontification)
                    (font-lock-fontify-region beg end verbose)))
            beg end)))
     (`((jit-lock-bounds ,beg1 . ,_) . (jit-lock-bounds ,_ . ,end1))

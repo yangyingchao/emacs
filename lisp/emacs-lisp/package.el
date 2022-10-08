@@ -346,21 +346,28 @@ default directory."
 
 (defcustom package-check-signature 'allow-unsigned
   "Non-nil means to check package signatures when installing.
-More specifically the value can be:
-- nil: package signatures are ignored.
-- `allow-unsigned': install a package even if it is unsigned, but
-  if it is signed, we have the key for it, and OpenGPG is
-  installed, verify the signature.
-- t: accept a package only if it comes with at least one verified signature.
-- `all': same as t, except when the package has several signatures,
-  in which case we verify all the signatures.
 
 This also applies to the \"archive-contents\" file that lists the
-contents of the archive."
+contents of the archive.
+
+The value can be one of:
+
+  t                  Accept a package only if it comes with at least
+                     one verified signature.
+
+  `all'              Same as t, but verify all signatures if there
+                     are more than one.
+
+  `allow-unsigned'   Install a package even if it is unsigned,
+                     but verify the signature if possible (that
+                     is, if it is signed, we have the key for it,
+                     and GnuPG is installed).
+
+  nil                Package signatures are ignored."
   :type '(choice (const :value nil            :tag "Never")
                  (const :value allow-unsigned :tag "Allow unsigned")
                  (const :value t              :tag "Check always")
-                 (const :value all            :tag "Check all signatures"))
+                 (const :value all            :tag "Check always (all signatures)"))
   :risky t
   :version "27.1")
 
@@ -2189,8 +2196,8 @@ to install it but still mark it as selected."
              (assq (car elt) package-archive-contents)))
         (and available
              (version-list-<
-              (package-desc-priority-version (cadr elt))
-              (package-desc-priority-version (cadr available))))))
+              (package-desc-version (cadr elt))
+              (package-desc-version (cadr available))))))
     package-alist)))
 
 ;;;###autoload
@@ -2436,10 +2443,14 @@ If NOSAVE is non-nil, the package is not removed from
   "Reinstall package PKG.
 PKG should be either a symbol, the package name, or a `package-desc'
 object."
-  (interactive (list (intern (completing-read
-                              "Reinstall package: "
-                              (mapcar #'symbol-name
-                                      (mapcar #'car package-alist))))))
+  (interactive
+   (progn
+     (package--archives-initialize)
+     (list (intern (completing-read
+                    "Reinstall package: "
+                    (mapcar #'symbol-name
+                            (mapcar #'car package-alist)))))))
+  (package--archives-initialize)
   (package-delete
    (if (package-desc-p pkg) pkg (cadr (assq pkg package-alist)))
    'force 'nosave)

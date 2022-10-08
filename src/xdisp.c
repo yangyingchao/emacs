@@ -1960,15 +1960,18 @@ pos_visible_p (struct window *w, ptrdiff_t charpos, int *x, int *y,
 		  int top_x_before_string = it3.current_x;
 		  /* Finally, advance the iterator until we hit the
 		     first display element whose character position is
-		     CHARPOS, or until the first newline from the
-		     display string, which signals the end of the
-		     display line.  */
+		     at or beyond CHARPOS, or until the first newline
+		     from the display string, which signals the end of
+		     the display line.  */
 		  while (get_next_display_element (&it3))
 		    {
 		      if (!EQ (it3.object, string))
 			top_x_before_string = it3.current_x;
 		      PRODUCE_GLYPHS (&it3);
-		      if (IT_CHARPOS (it3) == charpos
+		      if ((it3.bidi_it.scan_dir == 1
+			   && IT_CHARPOS (it3) >= charpos)
+			  || (it3.bidi_it.scan_dir == -1
+			      && IT_CHARPOS (it3) <= charpos)
 			  || ITERATOR_AT_END_OF_LINE_P (&it3))
 			break;
 		      it3_moved = true;
@@ -6309,7 +6312,10 @@ handle_composition_prop (struct it *it)
       pos_byte = IT_STRING_BYTEPOS (*it);
       string = it->string;
       s = SDATA (string) + pos_byte;
-      it->c = STRING_CHAR (s);
+      if (STRING_MULTIBYTE (string))
+	it->c = STRING_CHAR (s);
+      else
+	it->c = *s;
     }
   else
     {
@@ -7040,7 +7046,14 @@ pop_it (struct it *it)
 	       || (STRINGP (it->object)
 		   && IT_STRING_CHARPOS (*it) == it->bidi_it.charpos
 		   && IT_STRING_BYTEPOS (*it) == it->bidi_it.bytepos)
-	       || (CONSP (it->object) && it->method == GET_FROM_STRETCH));
+	       || (CONSP (it->object) && it->method == GET_FROM_STRETCH)
+	       /* We could be in the middle of handling a list or a
+		  vector of several 'display' properties, in which
+		  case we should only verify the above conditions when
+		  we pop the iterator stack the last time, because
+		  higher stack levels cannot "iterate out of the
+		  display property".  */
+	       || it->sp > 0);
     }
   /* If we move the iterator over text covered by a display property
      to a new buffer position, any info about previously seen overlays
@@ -10710,11 +10723,6 @@ move_it_vertically_backward (struct it *it, int dy)
   while (nlines-- && IT_CHARPOS (*it) > pos_limit)
     back_to_previous_visible_line_start (it);
 
-  /* Move one line more back, for the (rare) situation where we have
-     bidi-reordered continued lines, and we start from the top-most
-     screen line, which is the last in logical order.  */
-  if (it->bidi_p && dy == 0)
-    back_to_previous_visible_line_start (it);
   /* Reseat the iterator here.  When moving backward, we don't want
      reseat to skip forward over invisible text, set up the iterator
      to deliver from overlay strings at the new position etc.  So,
@@ -10956,7 +10964,7 @@ move_it_by_lines (struct it *it, ptrdiff_t dvpos)
     {
       struct it it2;
       void *it2data = NULL;
-      ptrdiff_t start_charpos, i;
+      ptrdiff_t start_charpos, orig_charpos, i;
       int nchars_per_row
 	= (it->last_visible_x - it->first_visible_x) / FRAME_COLUMN_WIDTH (it->f);
       bool hit_pos_limit = false;
@@ -10966,7 +10974,7 @@ move_it_by_lines (struct it *it, ptrdiff_t dvpos)
 	 position.  This may actually move vertically backwards,
          in case of overlays, so adjust dvpos accordingly.  */
       dvpos += it->vpos;
-      start_charpos = IT_CHARPOS (*it);
+      orig_charpos = IT_CHARPOS (*it);
       move_it_vertically_backward (it, 0);
       dvpos -= it->vpos;
 
@@ -11019,8 +11027,9 @@ move_it_by_lines (struct it *it, ptrdiff_t dvpos)
 	  RESTORE_IT (&it2, &it2, it2data);
 	  SAVE_IT (it2, *it, it2data);
 	  move_it_to (it, -1, -1, -1, it->vpos + delta, MOVE_TO_VPOS);
-	  /* Move back again if we got too far ahead.  */
-	  if (it->vpos - it2.vpos > delta)
+	  /* Move back again if we got too far ahead,
+	     or didn't move at all.  */
+	  if (it->vpos - it2.vpos > delta || IT_CHARPOS (*it) == orig_charpos)
 	    RESTORE_IT (it, &it2, it2data);
 	  else
 	    bidi_unshelve_cache (it2data, true);

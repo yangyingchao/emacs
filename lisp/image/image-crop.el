@@ -28,31 +28,48 @@
 ;;; Code:
 
 (require 'svg)
+(require 'text-property-search)
+(eval-when-compile (require 'subr-x))
+
+(defvar image-scaling-factor)
+(declare-function image-property "image.el" (image property))
+(declare-function image-size "image.c" (spec &optional pixels frame))
+(declare-function imagep "image.c" (spec))
+
+(defgroup image-crop ()
+  "Image cropping."
+  :group 'image)
 
 (defvar image-crop-exif-rotate nil
   "If non-nil, rotate images by updating exif data.
 If nil, rotate the images \"physically\".")
 
-(defvar image-crop-resize-command '("convert" "-resize" "%wx" "-" "%f:-")
+(defcustom image-crop-resize-command '("convert" "-resize" "%wx" "-" "%f:-")
   "Command to resize an image.
 The following `format-spec' elements are allowed:
 
 %w: Width.
-%f: Result file type.")
+%f: Result file type."
+  :type '(repeat string)
+  :version "29.1")
 
-(defvar image-crop-elide-command '("convert" "-draw" "rectangle %l,%t %r,%b"
-                                   "-" "%f:-")
-  "Command to make a rectangle inside an image.
+(defcustom image-crop-cut-command '("convert" "-draw" "rectangle %l,%t %r,%b"
+                                    "-fill" "%c"
+                                    "-" "%f:-")
+  "Command to cut a rectangle out of an image.
 
 The following `format-spec' elements are allowed:
 %l: Left.
 %t: Top.
 %r: Right.
 %b: Bottom.
-%f: Result file type.")
+%c: Color.
+%f: Result file type."
+  :type '(repeat string)
+  :version "29.1")
 
-(defvar image-crop-crop-command '("convert" "+repage" "-crop" "%wx%h+%l+%t"
-	                          "-" "%f:-")
+(defcustom image-crop-crop-command '("convert" "+repage" "-crop" "%wx%h+%l+%t"
+	                             "-" "%f:-")
   "Command to crop an image.
 
 The following `format-spec' elements are allowed:
@@ -60,35 +77,64 @@ The following `format-spec' elements are allowed:
 %t: Top.
 %w: Width.
 %h: Height.
-%f: Result file type.")
+%f: Result file type."
+  :type '(repeat string)
+  :version "29.1")
 
-(defvar image-crop-rotate-command '("convert" "-rotate" "%r" "-" "%f:-")
+(defcustom image-crop-rotate-command '("convert" "-rotate" "%r" "-" "%f:-")
   "Command to rotate an image.
 
 The following `format-spec' elements are allowed:
 %r: Rotation (in degrees).
-%f: Result file type.")
+%f: Result file type."
+  :type '(repeat string)
+  :version "29.1")
+
+(defvar image-crop-buffer-text-function #'image-crop--default-buffer-text
+  "Function to return the buffer text for the cropped image.
+After cropping an image, the displayed image will be updated to
+show the cropped image in the buffer.  Different modes will have
+different ways to represent this image data in a buffer.  For
+instance, an HTML-based mode might want to represent the image
+with <img src=\"data:...base64...\">, but that's up to the mode.
+
+The default action is to not alter the buffer text at all.
+
+The function is called with two arguments: The first is the
+original buffer text, and the second parameter is the cropped
+image data.")
+
+(defcustom image-cut-color "black"
+  "Color to use for the rectangle cut from the image."
+  :type 'string
+  :version "29.1")
 
 ;;;###autoload
-(defun image-elide (&optional square)
-  "Elide a square from the image under point.
-If SQUARE (interactively, the prefix), elide a square instead of a
-rectangle from the image."
-  (interactive "P")
-  (image-crop square t))
+(defun image-cut (&optional color)
+  "Cut a rectangle from the image under point, filling it with COLOR.
+COLOR defaults to the value of `image-cut-color'.
+Interactively, with prefix argument, prompt for COLOR to use."
+  (interactive (list (and current-prefix-arg (read-color "Use color: "))))
+  (image-crop (if (zerop (length color)) image-cut-color color)))
 
 ;;;###autoload
-(defun image-crop (&optional square elide)
+(defun image-crop (&optional cut)
   "Crop the image under point.
-If SQUARE (interactively, the prefix), crop a square instead of a
-rectangle from the image.
+If CUT is non-nil, remove a rectangle from the image instead of
+cropping the image.  In that case CUT should be the name of a
+color to fill the rectangle.
 
-If ELIDE, remove a rectangle from the image instead of cropping
-the image.
+While cropping the image, the following key bindings are available:
 
-After cropping an image, it can be saved by `M-x image-save' or
+`q':   Exit without changing anything.
+`RET': Crop/cut the image.
+`m':   Make mouse movements move the rectangle instead of altering the
+       rectangle shape.
+`s':   Same as `m', but make the rectangle into a square first.
+
+After cropping an image, you can save it by `M-x image-save' or
 \\<image-map>\\[image-save] when point is over the image."
-  (interactive "P")
+  (interactive)
   (unless (image-type-available-p 'svg)
     (error "SVG support is needed to crop images"))
   (unless (executable-find (car image-crop-crop-command))
@@ -97,6 +143,8 @@ After cropping an image, it can be saved by `M-x image-save' or
   (let ((image (get-text-property (point) 'display)))
     (unless (imagep image)
       (user-error "No image under point"))
+    (when (overlays-at (point))
+      (user-error "Can't edit images that have overlays"))
     ;; We replace the image under point with an SVG image that looks
     ;; just like that image.  That allows us to draw lines over it.
     ;; At the end, we replace that SVG with a cropped version of the
@@ -109,13 +157,28 @@ After cropping an image, it can be saved by `M-x image-save' or
 		  (data
 		   (image-crop--content-type data))))
 	   (image-scaling-factor 1)
+           (orig-point (point))
 	   (size (image-size image t))
 	   (svg (svg-create (car size) (cdr size)
 			    :xmlns:xlink "http://www.w3.org/1999/xlink"
 			    :stroke-width 5))
-	   (text (buffer-substring (pos-bol) (pos-eol)))
+           ;; We want to get the original text that's covered by the
+           ;; image so that we can restore it.
+           (image-start
+            (save-excursion
+              (let ((match (text-property-search-backward 'display image)))
+                (if match
+                    (prop-match-end match)
+                  (point-min)))))
+           (image-end
+            (save-excursion
+              (let ((match (text-property-search-forward 'display image)))
+                (if match
+                    (prop-match-beginning match)
+                  (point-max)))))
+	   (text (buffer-substring image-start image-end))
 	   (inhibit-read-only t)
-           orig-data)
+           orig-data svg-end)
       (with-temp-buffer
 	(set-buffer-multibyte nil)
 	(if (null data)
@@ -132,23 +195,30 @@ After cropping an image, it can be saved by `M-x image-save' or
       (svg-embed svg data type t
 		 :width (car size)
 		 :height (cdr size))
-      (delete-region (pos-bol) (pos-eol))
-      (svg-insert-image svg)
-      (let ((area (condition-case _
-		      (save-excursion
-			(forward-line 1)
-			(image-crop--crop-image-1
-                         svg square (car size) (cdr size)))
-		    (quit nil))))
-	(delete-region (pos-bol) (pos-eol))
-	(if area
-	    (image-crop--crop-image-update area orig-data size type elide)
-	  ;; If the user didn't complete the crop, re-insert the
-	  ;; original image (and text).
-	  (insert text))
-	(undo-amalgamate-change-group undo-handle)))))
+      (with-buffer-unmodified-if-unchanged
+        (delete-region image-start image-end)
+        (svg-insert-image svg)
+        (setq svg-end (point))
+        (let ((area (condition-case _
+		        (save-excursion
+			  (forward-line 1)
+			  (image-crop--crop-image-1
+                           svg (if cut "cut" "crop")))
+                      (quit nil))))
+          (message (substitute-command-keys
+                    "Type \\[image-save] to save %s image to file")
+                   (if cut "cut" "cropped"))
+	  (delete-region image-start svg-end)
+	  (if area
+	      (image-crop--crop-image-update
+               area orig-data size type cut text)
+	    ;; If the user didn't complete the crop, re-insert the
+	    ;; original image (and text).
+	    (insert text)
+            (goto-char orig-point))
+	  (undo-amalgamate-change-group undo-handle))))))
 
-(defun image-crop--crop-image-update (area data size type elide)
+(defun image-crop--crop-image-update (area data size type cut text)
   (let* ((image-scaling-factor 1)
 	 (osize (image-size (create-image data nil t) t))
 	 (factor (/ (float (car osize)) (car size)))
@@ -165,12 +235,13 @@ After cropping an image, it can be saved by `M-x image-save' or
      (with-temp-buffer
        (set-buffer-multibyte nil)
        (insert data)
-       (if elide
-	   (image-crop--process image-crop-elide-command
+       (if cut
+	   (image-crop--process image-crop-cut-command
                                 `((?l . ,left)
                                   (?t . ,top)
                                   (?r . ,(+ left width))
                                   (?b . ,(+ top height))
+                                  (?c . ,cut)
                                   (?f . ,(cadr (split-string type "/")))))
 	 (image-crop--process image-crop-crop-command
                               `((?l . ,left)
@@ -178,41 +249,56 @@ After cropping an image, it can be saved by `M-x image-save' or
                                 (?w . ,width)
                                 (?h . ,height)
                                 (?f . ,(cadr (split-string type "/"))))))
-       (buffer-string)))))
+       (buffer-string))
+     text)))
 
-(defun image-crop--crop-image-1 (svg &optional square image-width image-height)
+(defun image-crop--width (area)
+  (- (plist-get area :right) (plist-get area :left)))
+
+(defun image-crop--height (area)
+  (- (plist-get area :bottom) (plist-get area :top)))
+
+(defun image-crop--crop-image-1 (svg op)
   (track-mouse
     (cl-loop
-     with prompt = (if square "Move square" "Set start point")
-     and state = (if square 'move-unclick 'begin)
-     and area = (if square
-		    (list :left (- (/ image-width 2)
-				   (/ image-height 2))
-			  :top 0
-			  :right (+ (/ image-width 2)
-				    (/ image-height 2))
-			  :bottom image-height)
-		  (list :left 0
-			:top 0
-			:right 0
-			:bottom 0))
+     with prompt = (format
+                    (substitute-command-keys
+                     "Select area for %s (click \\`mouse-1' and drag)")
+                    op)
+     and state = 'begin
+     and area = (list :left 0
+		      :top 0
+		      :right 0
+		      :bottom 0)
      and corner = nil
      for event = (read-event prompt)
-     do (if (or (not (consp event))
-		(not (consp (cadr event)))
-		(not (nth 7 (cadr event)))
-		;; Only do things if point is over the SVG being
-		;; tracked.
-		(not (eq (cl-getf (cdr (nth 7 (cadr event))) :type)
-			 'svg)))
-	    ()
+     do (cond
+         ;; Go to "square" mode.
+         ((eql event ?s)
+          (setq state 'move-unclick
+                prompt (format "Move square for %s" op))
+          (let ((size (min (image-crop--width area) (image-crop--height area))))
+            (setf (plist-get area :right) (+ (plist-get area :left) size)
+                  (plist-get area :bottom) (+ (plist-get area :top) size))))
+         ;; Go to "move" move.
+         ((eql event ?m)
+          (setq state 'move-unclick
+                prompt (format "Move for %s" op)))
+         ;; We have a (relevant) mouse event.
+         ((and (consp event)
+               (consp (cadr event))
+               (nth 7 (cadr event))
+	       ;; Only do things if point is over the SVG being
+	       ;; tracked.
+               (eq (cl-getf (cdr (nth 7 (cadr event))) :type)
+		   'svg))
 	  (let ((pos (nth 8 (cadr event))))
 	    (cl-case state
 	      (begin
 	       (cond
 		((eq (car event) 'down-mouse-1)
 		 (setq state 'stretch
-		       prompt "Stretch to end point")
+                       prompt (format "Stretch to end point for %s" op))
 		 (setf (cl-getf area :left) (car pos)
 		       (cl-getf area :top) (cdr pos)
 		       (cl-getf area :right) (car pos)
@@ -224,7 +310,12 @@ After cropping an image, it can be saved by `M-x image-save' or
 		       (cl-getf area :bottom) (cdr pos)))
 		((memq (car event) '(mouse-1 drag-mouse-1))
 		 (setq state 'corner
-		       prompt "Choose corner to adjust (RET to crop)"))))
+                       prompt (format
+                               (substitute-command-keys
+                                (concat
+                                 "Type \\`RET' to %s, or click and drag "
+                                 "\\`mouse-1' to adjust corners"))
+                               op)))))
 	      (corner
 	       (cond
 		((eq (car event) 'down-mouse-1)
@@ -237,12 +328,15 @@ After cropping an image, it can be saved by `M-x image-save' or
 				 (:right :bottom))))
 		 (when corner
 		   (setq state 'adjust
-			 prompt "Adjust crop")))))
+                         prompt (format
+                                 (substitute-command-keys
+                                  "Adjusting %s area (release \\`mouse-1' to confirm)")
+                                 op))))))
 	      (adjust
 	       (cond
 		((memq (car event) '(mouse drag-mouse-1))
 		 (setq state 'corner
-		       prompt "Choose corner to adjust"))
+                       prompt (format "Choose corner to adjust area for %s" op)))
 		((eq (car event) 'mouse-movement)
 		 (setf (cl-getf area (car corner)) (car pos)
 		       (cl-getf area (cadr corner)) (cdr pos)))))
@@ -250,27 +344,23 @@ After cropping an image, it can be saved by `M-x image-save' or
 	       (cond
 		((eq (car event) 'down-mouse-1)
 		 (setq state 'move-click
-		       prompt "Move"))))
+                       prompt (format "Move for %s" op)))))
 	      (move-click
 	       (cond
 		((eq (car event) 'mouse-movement)
-		 (setf (cl-getf area :left) (car pos)
-		       (cl-getf area :right) (+ (car pos) image-height)))
+		 (setf (cl-getf area :right)
+                       (+ (car pos) (image-crop--width area)))
+                 (setf (cl-getf area :left) (car pos))
+                 (setf (cl-getf area :bottom)
+                       (+ (cdr pos) (image-crop--height area)))
+                 (setf (cl-getf area :top) (cdr pos)))
 		((memq (car event) '(mouse-1 drag-mouse-1))
 		 (setq state 'move-unclick
-		       prompt "Click to move")))))))
-     do (svg-line svg (cl-getf area :left) (cl-getf area :top)
-		  (cl-getf area :right) (cl-getf area :top)
-		  :id "top-line" :stroke-color "white")
-     (svg-line svg (cl-getf area :left) (cl-getf area :bottom)
-	       (cl-getf area :right) (cl-getf area :bottom)
-	       :id "bottom-line" :stroke-color "white")
-     (svg-line svg (cl-getf area :left) (cl-getf area :top)
-	       (cl-getf area :left) (cl-getf area :bottom)
-	       :id "left-line" :stroke-color "white")
-     (svg-line svg (cl-getf area :right) (cl-getf area :top)
-	       (cl-getf area :right) (cl-getf area :bottom)
-	       :id "right-line" :stroke-color "white")
+                       prompt (format "Click to move for %s" op)))))))))
+     do (svg-rectangle svg (cl-getf area :left) (cl-getf area :top)
+                       (image-crop--width area) (image-crop--height area)
+                       :stroke-color "red" :stroke-width 2
+                       :fill-opacity 0.3 :fill "black" :id "rect")
      while (not (member event '(return ?q)))
      finally (return (and (eq event 'return)
 			  area)))))
@@ -336,19 +426,12 @@ After cropping an image, it can be saved by `M-x image-save' or
          `((?w . ,(image-property image :width))
            (?f . ,(cadr (split-string content-type "/")))))))))
 
-(defun image-crop--insert-image-data (image)
+(defun image-crop--insert-image-data (image text)
   (insert-image
    (create-image image nil t
 		 :max-width (- (frame-pixel-width) 50)
 		 :max-height (- (frame-pixel-height) 150))
-   (format "<img src=\"data:%s;base64,%s\">"
-	   (image-crop--content-type image)
-	   ;; Get a base64 version of the image.
-	   (with-temp-buffer
-	     (set-buffer-multibyte nil)
-	     (insert image)
-	     (base64-encode-region (point-min) (point-max) t)
-	     (buffer-string)))
+   (funcall image-crop-buffer-text-function text image)
    nil nil t))
 
 (defun image-crop--process (command expansions)
@@ -360,6 +443,9 @@ After cropping an image, it can be saved by `M-x image-save' or
    (mapcar (lambda (elem)
              (format-spec elem expansions))
            (cdr command))))
+
+(defun image-crop--default-buffer-text (text _image)
+  (substring-no-properties text))
 
 (provide 'image-crop)
 
