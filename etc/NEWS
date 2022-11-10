@@ -1082,9 +1082,11 @@ the corresponding deleted frame.
 ** Tab Bars and Tab Lines
 
 ---
-*** New user option 'tab-bar-fixed-width' to automatically resize tabs.
-Another option 'tab-bar-fixed-width-max' defines the maximum tab width
-that by default is 220 pixels on GUI and 20 characters on a tty.
+*** New user option 'tab-bar-auto-width' to automatically determine tab width.
+This option is non-nil by default, which resizes tab-bar tabs so that
+their width is evenly distributed across the tab bar.  A companion
+option 'tab-bar-auto-width-max' controls the maximum width of a tab
+before its name on display is truncated.
 
 ---
 *** 'C-x t RET' creates a new tab when the provided tab name doesn't exist.
@@ -1963,6 +1965,13 @@ It narrows to the current node.
 ** EUDC
 
 +++
+*** New user option 'eudc-ignore-options-file' that defaults to 'nil'
+The 'eudc-ignore-options-file' user option can be configured to ignore
+the 'eudc-options-file' (typically "~/.emacs.d/eudc-options").  Most
+users should configure this to 't' and put EUDC configuration in the
+main Emacs initialization file (".emacs" or "~/.emacs.d/init.el").
+
++++
 *** 'eudc-expansion-overwrites-query' to 'eudc-expansion-save-query-as-kill'.
 'eudc-expansion-overwrites-query' is renamed to
 'eudc-expansion-save-query-as-kill' to reflect the actual behavior of
@@ -2007,6 +2016,25 @@ adding the new function 'eudc-capf-complete' to
 The EUDC back-end for the macOS Contacts app now provides a wider set
 of attributes to use for queries, and delivers more attributes in
 query results.
+
++++
+*** New back-end for ecomplete
+A new back-end for ecomplete allows information from that database to
+be queried by EUDC, too.  The attributes present in the EUDC query are
+used to select the entry type in the ecomplete database.
+
++++
+*** New back-end for mailabbrev
+A new back-end for mailabbrev allows information from that database to
+be queried by EUDC, too.  The attributes email, name, and firstname
+are supported only.
+
++++
+*** New default for 'eudc-server-hotlist' includes built-in backends
+The 'eudc-server-hotlist' user option now defaults to including
+entries for the new built-in ecomplete and mailabbrev EUDC backends.
+As a result, 'C-u M-x eudc-expand-try-all' will query both of these
+backends for email address completions, by default.
 
 ** EWW/SHR
 
@@ -4284,3 +4312,11 @@ GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
 along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
+
+
+Local variables:
+coding: utf-8
+mode: outline
+mode: emacs-news
+paragraph-separate: "[ 	]"
+end:

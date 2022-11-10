@@ -5245,7 +5245,9 @@ xi_convert_button_state (XIButtonState *in, unsigned int *out)
     }
 }
 
-/* Return the modifier state in XEV as a standard X modifier mask.  */
+/* Return the modifier state in XEV as a standard X modifier mask.
+   This should be used for non-keyboard events, where the group does
+   not matter.  */
 
 #ifdef USE_GTK
 static
@@ -5261,6 +5263,17 @@ xi_convert_event_state (XIDeviceEvent *xev)
   xi_convert_button_state (&xev->buttons, &buttons);
 
   return mods | buttons;
+}
+
+/* Like the above.  However, buttons are not converted, while the
+   group is.  This should be used for key events being passed to the
+   likes of input methods and Xt.  */
+
+static unsigned int
+xi_convert_event_keyboard_state (XIDeviceEvent *xev)
+{
+  return ((xev->mods.effective & ~(1 << 13 | 1 << 14))
+	  | (xev->group.effective << 13));
 }
 
 /* Free all XI2 devices on DPYINFO.  */
@@ -5326,7 +5339,7 @@ xi_populate_device_from_info (struct x_display_info *dpyinfo,
   struct xi_known_valuator *values, *tem;
   int actual_valuator_count, c;
   XIScrollClassInfo *info;
-  XIValuatorClassInfo *val_info;
+  XIValuatorClassInfo *valuator_info;
 #endif
 #ifdef HAVE_XINPUT2_2
   XITouchClassInfo *touch_info;
@@ -5400,6 +5413,7 @@ xi_populate_device_from_info (struct x_display_info *dpyinfo,
       xi_device->valuators = NULL;
       xi_device->scroll_valuator_count = 0;
 
+      SAFE_FREE ();
       return;
     }
 
@@ -5436,12 +5450,23 @@ xi_populate_device_from_info (struct x_display_info *dpyinfo,
 
 	case XIValuatorClass:
 	  {
-	    val_info = (XIValuatorClassInfo *) device->classes[c];
+	    valuator_info = (XIValuatorClassInfo *) device->classes[c];
 	    tem = SAFE_ALLOCA (sizeof *tem);
 
+	    /* Avoid restoring bogus values if some driver
+	       accidentally specifies relative values in scroll
+	       valuator classes how the input extension spec says they
+	       should be, but allow restoring values when a value is
+	       set, which is how the input extension actually
+	       behaves.  */
+
+	    if (valuator_info->value == 0.0
+		&& valuator_info->mode != XIModeAbsolute)
+	      continue;
+
 	    tem->next = values;
-	    tem->number = val_info->number;
-	    tem->current_value = val_info->value;
+	    tem->number = valuator_info->number;
+	    tem->current_value = valuator_info->value;
 
 	    values = tem;
 	    break;
@@ -5472,7 +5497,9 @@ xi_populate_device_from_info (struct x_display_info *dpyinfo,
 	  if (xi_device->valuators[c].number == tem->number)
 	    {
 	      xi_device->valuators[c].invalid_p = false;
-	      xi_device->valuators[c].current_value = tem->current_value;
+	      xi_device->valuators[c].current_value
+		= tem->current_value;
+	      xi_device->valuators[c].emacs_value = 0.0;
 	    }
 	}
     }
@@ -13166,22 +13193,32 @@ xi_handle_new_classes (struct x_display_info *dpyinfo, struct xi_device_t *devic
 
   for (i = 0; i < num_classes; ++i)
     {
-      switch (classes[i]->type)
-	{
-	case XIValuatorClass:
-	  valuator_info = (XIValuatorClassInfo *) classes[i];
+      if (classes[i]->type != XIValuatorClass)
+	continue;
 
-	  valuator = xi_get_scroll_valuator (device,
-					     valuator_info->number);
-	  if (valuator)
-	    {
-	      valuator->invalid_p = false;
-	      valuator->current_value = valuator_info->value;
-	      valuator->emacs_value = 0;
-	    }
+      valuator_info = (XIValuatorClassInfo *) classes[i];
 
-	  break;
-	}
+      /* Avoid restoring bogus values if some driver accidentally
+	 specifies relative values in scroll valuator classes how the
+	 input extension spec says they should be, but allow restoring
+	 values when a value is set, which is how the input extension
+	 actually behaves.  */
+
+      if (valuator_info->value == 0.0
+	  && valuator_info->mode != XIModeAbsolute)
+	continue;
+
+      valuator = xi_get_scroll_valuator (device,
+					 valuator_info->number);
+
+      if (!valuator)
+	continue;
+
+      valuator->invalid_p = false;
+      valuator->current_value = valuator_info->value;
+      valuator->emacs_value = 0;
+
+      break;
     }
 }
 
@@ -13506,7 +13543,7 @@ x_find_modifier_meanings (struct x_display_info *dpyinfo)
 #ifdef HAVE_XKB
   int i;
   int found_meta_p = false;
-  uint vmodmask;
+  unsigned int vmodmask;
 #endif
 
   dpyinfo->meta_mod_mask = 0;
@@ -23063,7 +23100,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	      char *copy_bufptr = copy_buffer;
 	      int copy_bufsiz = sizeof (copy_buffer);
 	      ptrdiff_t i;
-	      uint old_state;
+	      unsigned int old_state;
 	      struct xi_device_t *device, *source;
 
 	      coding = Qlatin_1;
@@ -23089,8 +23126,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		  copy.xkey.root = xev->root;
 		  copy.xkey.subwindow = xev->child;
 		  copy.xkey.time = xev->time;
-		  copy.xkey.state = ((xev->mods.effective & ~(1 << 13 | 1 << 14))
-				     | (xev->group.effective << 13));
+		  copy.xkey.state = xi_convert_event_keyboard_state (xev);
 		  xi_convert_button_state (&xev->buttons, &copy.xkey.state);
 
 		  copy.xkey.x = lrint (xev->event_x);
@@ -23146,8 +23182,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	      xkey.root = xev->root;
 	      xkey.subwindow = xev->child;
 	      xkey.time = xev->time;
-	      xkey.state = ((xev->mods.effective & ~(1 << 13 | 1 << 14))
-			    | (xev->group.effective << 13));
+	      xkey.state = xi_convert_event_keyboard_state (xev);
 
 	      xkey.x = lrint (xev->event_x);
 	      xkey.y = lrint (xev->event_y);
@@ -23211,8 +23246,9 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 #ifdef HAVE_XKB
 	      if (dpyinfo->xkb_desc)
 		{
-		  uint xkb_state = state;
-		  xkb_state &= ~(1 << 13 | 1 << 14);
+		  unsigned int xkb_state;
+
+		  xkb_state = state & ~(1 << 13 | 1 << 14);
 		  xkb_state |= xev->group.effective << 13;
 
 		  if (!XkbTranslateKeyCode (dpyinfo->xkb_desc, keycode,
@@ -23565,8 +23601,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	      xkey.root = xev->root;
 	      xkey.subwindow = xev->child;
 	      xkey.time = xev->time;
-	      xkey.state = ((xev->mods.effective & ~(1 << 13 | 1 << 14))
-			    | (xev->group.effective << 13));
+	      xkey.state = xi_convert_event_keyboard_state (xev);
 	      xkey.x = lrint (xev->event_x);
 	      xkey.y = lrint (xev->event_y);
 	      xkey.x_root = lrint (xev->root_x);
