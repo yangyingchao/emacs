@@ -912,11 +912,6 @@ struct x_selection_request_event
 
 struct x_selection_request_event *pending_selection_requests;
 
-/* Compare two request serials A and B with OP, handling
-   wraparound.  */
-#define X_COMPARE_SERIALS(a, op ,b) \
-  (((long) (a) - (long) (b)) op 0)
-
 struct x_atom_ref
 {
   /* Atom name.  */
@@ -18780,7 +18775,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 
 	/* If drag-and-drop or another modal dialog/menu is in
 	   progress, handle SelectionRequest events immediately, by
-	   pushing it onto the selecction queue.  */
+	   pushing it onto the selection queue.  */
 
 	if (x_use_pending_selection_requests)
 	  {
@@ -21140,8 +21135,11 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 
 	    if (FRAME_PARENT_FRAME (f) || (hf && frame_ancestor_p (f, hf)))
 	      {
+		x_ignore_errors_for_next_request (dpyinfo);
 		XSetInputFocus (FRAME_X_DISPLAY (f), FRAME_OUTER_WINDOW (f),
 				RevertToParent, event->xbutton.time);
+	        x_stop_ignoring_errors (dpyinfo);
+
 		if (FRAME_PARENT_FRAME (f))
 		  XRaiseWindow (FRAME_X_DISPLAY (f), FRAME_OUTER_WINDOW (f));
 	      }
@@ -22843,9 +22841,13 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 			}
 #else
 		      /* Non-no toolkit builds without GTK 3 use core
-			 events to handle focus.  */
+			 events to handle focus.  Errors are still
+			 caught here in case the window is not
+			 viewable.  */
+		      x_ignore_errors_for_next_request (dpyinfo);
 		      XSetInputFocus (FRAME_X_DISPLAY (f), FRAME_OUTER_WINDOW (f),
 				      RevertToParent, xev->time);
+		      x_stop_ignoring_errors (dpyinfo);
 #endif
 		      if (FRAME_PARENT_FRAME (f))
 			XRaiseWindow (FRAME_X_DISPLAY (f), FRAME_OUTER_WINDOW (f));
@@ -25084,6 +25086,48 @@ static struct x_error_message_stack *x_error_message;
 /* The amount of items (depth) in that stack.  */
 int x_error_message_count;
 
+/* Compare various request serials while handling wraparound.  Treat a
+   difference of more than X_ULONG_MAX / 2 as wraparound.
+
+   Note that these functions truncate serials to 32 bits before
+   comparison.  */
+
+static bool
+x_is_serial_more_than (unsigned int a, unsigned int b)
+{
+  if (a > b)
+    return true;
+
+  return (b - a > X_ULONG_MAX / 2);
+}
+
+static bool
+x_is_serial_more_than_or_equal_to (unsigned int a, unsigned int b)
+{
+  if (a >= b)
+    return true;
+
+  return (b - a > X_ULONG_MAX / 2);
+}
+
+static bool
+x_is_serial_less_than (unsigned int a, unsigned int b)
+{
+  if (a < b)
+    return true;
+
+  return (a - b > X_ULONG_MAX / 2);
+}
+
+static bool
+x_is_serial_less_than_or_equal_to (unsigned int a, unsigned int b)
+{
+  if (a <= b)
+    return true;
+
+  return (a - b > X_ULONG_MAX / 2);
+}
+
 static struct x_error_message_stack *
 x_find_error_handler (Display *dpy, XErrorEvent *event)
 {
@@ -25093,8 +25137,8 @@ x_find_error_handler (Display *dpy, XErrorEvent *event)
 
   while (stack)
     {
-      if (X_COMPARE_SERIALS (event->serial, >=,
-			     stack->first_request)
+      if (x_is_serial_more_than_or_equal_to (event->serial,
+					     stack->first_request)
 	  && dpy == stack->dpy)
 	return stack;
 
@@ -25197,11 +25241,11 @@ x_request_can_fail (struct x_display_info *dpyinfo,
        failable_requests < dpyinfo->next_failable_request;
        failable_requests++)
     {
-      if (X_COMPARE_SERIALS (request, >=,
-			     failable_requests->start)
+      if (x_is_serial_more_than_or_equal_to (request,
+					     failable_requests->start)
 	  && (!failable_requests->end
-	      || X_COMPARE_SERIALS (request, <=,
-				    failable_requests->end)))
+	      || x_is_serial_less_than_or_equal_to (request,
+						    failable_requests->end)))
 	return failable_requests;
     }
 
@@ -25219,11 +25263,11 @@ x_clean_failable_requests (struct x_display_info *dpyinfo)
 
   for (first = dpyinfo->failable_requests; first < last; first++)
     {
-      if (X_COMPARE_SERIALS (first->start, >,
-			     LastKnownRequestProcessed (dpyinfo->display))
+      if (x_is_serial_more_than (first->start,
+				 LastKnownRequestProcessed (dpyinfo->display))
 	  || !first->end
-	  || X_COMPARE_SERIALS (first->end, >,
-				LastKnownRequestProcessed (dpyinfo->display)))
+	  || x_is_serial_more_than (first->end,
+				    LastKnownRequestProcessed (dpyinfo->display)))
 	break;
     }
 
@@ -25302,8 +25346,7 @@ x_stop_ignoring_errors (struct x_display_info *dpyinfo)
   /* Abort if no request was made since
      `x_ignore_errors_for_next_request'.  */
 
-  if (X_COMPARE_SERIALS (range->end, <,
-			 range->start))
+  if (x_is_serial_less_than (range->end, range->start))
     emacs_abort ();
 
 #ifdef HAVE_GTK3
@@ -27522,6 +27565,25 @@ x_get_focus_frame (struct frame *f)
   return lisp_focus;
 }
 
+/* Return the toplevel parent of F, if it is a child frame.
+   Otherwise, return NULL.  */
+
+static struct frame *
+x_get_toplevel_parent (struct frame *f)
+{
+  struct frame *parent;
+
+  if (!FRAME_PARENT_FRAME (f))
+    return NULL;
+
+  parent = FRAME_PARENT_FRAME (f);
+
+  while (FRAME_PARENT_FRAME (parent))
+    parent = FRAME_PARENT_FRAME (parent);
+
+  return parent;
+}
+
 /* In certain situations, when the window manager follows a
    click-to-focus policy, there seems to be no way around calling
    XSetInputFocus to give another frame the input focus.
@@ -27547,6 +27609,18 @@ x_focus_frame (struct frame *f, bool noactivate)
   else
     {
       if (!noactivate
+	  /* If F is override-redirect, use SetInputFocus instead.
+	     Override-redirect frames are not subject to window
+	     management.  */
+	  && !FRAME_OVERRIDE_REDIRECT (f)
+	  /* If F is a child frame, use SetInputFocus instead.  This
+	     may not work if its parent is not activated.  */
+	  && !FRAME_PARENT_FRAME (f)
+	  /* If the focus is being transferred from a child frame to
+	     its toplevel parent, also use SetInputFocus.  */
+	  && (!dpyinfo->x_focus_frame
+	      || (x_get_toplevel_parent (dpyinfo->x_focus_frame)
+		  != f))
 	  && x_wm_supports (f, dpyinfo->Xatom_net_active_window))
 	{
 	  /* When window manager activation is possible, use it
@@ -29057,10 +29131,9 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
 #endif
   int i;
 
+#if defined HAVE_XFIXES && defined USE_XCB
   USE_SAFE_ALLOCA;
-
-  /* Avoid warnings when SAFE_ALLOCA is not actually used.  */
-  ((void) SAFE_ALLOCA (0));
+#endif
 
   block_input ();
 
@@ -29214,7 +29287,9 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
 
       unblock_input ();
 
+#if defined HAVE_XFIXES && defined USE_XCB
       SAFE_FREE ();
+#endif
       return 0;
     }
 
@@ -29234,7 +29309,9 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
 
       unblock_input ();
 
+#if defined HAVE_XFIXES && defined USE_XCB
       SAFE_FREE ();
+#endif
       return 0;
     }
 #endif
@@ -30119,7 +30196,9 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
 
   unblock_input ();
 
+#if defined HAVE_XFIXES && defined USE_XCB
   SAFE_FREE ();
+#endif
   return dpyinfo;
 }
 
