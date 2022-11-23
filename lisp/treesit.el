@@ -610,7 +610,7 @@ to QUERY.  For example,
 For each QUERY, a :language keyword and a :feature keyword are
 required.  Each query's :feature is a symbol summarizing what the
 query fontifies.  It is used to allow users to enable/disable
-certain features.  See `treesit-font-lock-kind-list' for more.
+certain features.  See `treesit-font-lock-feature-list' for more.
 Other keywords include:
 
   KEYWORD    VALUE      DESCRIPTION
@@ -900,8 +900,7 @@ If LOUDLY is non-nil, display some debugging information."
                             sub-node query
                             (max (- start delta-start) (point-min))
                             (min (+ end delta-end) (point-max))))
-                 (end-time (current-time))
-                 (inhibit-point-motion-hooks t))
+                 (end-time (current-time)))
             ;; If for any query the query time is strangely long,
             ;; switch to fast mode (see comments above).
             (when (> (time-to-seconds (time-subtract end-time start-time))
@@ -1602,7 +1601,8 @@ instead of emitting a warning."
       (when (not (treesit-available-p))
         (setq msg "tree-sitter library is not compiled with Emacs")
         (throw 'term nil))
-      (when (> (position-bytes (1- (point-max))) treesit-max-buffer-size)
+      (when (> (position-bytes (max (point-min) (1- (point-max))))
+               treesit-max-buffer-size)
         (setq msg "buffer larger than `treesit-max-buffer-size'")
         (throw 'term nil))
       (dolist (lang language-list)
