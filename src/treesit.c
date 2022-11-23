@@ -840,11 +840,11 @@ treesit_ensure_position_synced (Lisp_Object parser)
 static void
 treesit_check_buffer_size (struct buffer *buffer)
 {
-  ptrdiff_t buffer_size = (BUF_Z (buffer) - BUF_BEG (buffer));
-  if (buffer_size > UINT32_MAX)
+  ptrdiff_t buffer_size_bytes = (BUF_Z_BYTE (buffer) - BUF_BEG_BYTE (buffer));
+  if (buffer_size_bytes > UINT32_MAX)
     xsignal2 (Qtreesit_buffer_too_large,
 	      build_pure_c_string ("Buffer size cannot be larger than 4GB"),
-	      make_fixnum (buffer_size));
+	      make_fixnum (buffer_size_bytes));
 }
 
 static Lisp_Object treesit_make_ranges (const TSRange *, uint32_t, struct buffer *);
@@ -1535,7 +1535,7 @@ positions.  PARSER is the parser issuing the notification.  */)
   CHECK_SYMBOL (function);
 
   Lisp_Object functions = XTS_PARSER (parser)->after_change_functions;
-  if (!Fmemq (function, functions))
+  if (NILP (Fmemq (function, functions)))
     XTS_PARSER (parser)->after_change_functions = Fcons (function, functions);
   return Qnil;
 }
@@ -1555,7 +1555,7 @@ positions.  PARSER is the parser issuing the notification.   */)
   CHECK_SYMBOL (function);
 
   Lisp_Object functions = XTS_PARSER (parser)->after_change_functions;
-  if (Fmemq (function, functions))
+  if (!NILP (Fmemq (function, functions)))
     XTS_PARSER (parser)->after_change_functions = Fdelq (function, functions);
   return Qnil;
 }

@@ -7749,6 +7749,11 @@ x_display_set_last_user_time (struct x_display_info *dpyinfo, Time time,
   old_time = dpyinfo->last_user_time;
 #endif
 
+  /* Time can be sign extended if retrieved from a client message.
+     Make sure it is always 32 bits, or systems with 64-bit longs
+     will crash after 24 days of X server uptime.  (bug#59480) */
+  time &= X_ULONG_MAX;
+
 #ifdef ENABLE_CHECKING
   eassert (time <= X_ULONG_MAX);
 #endif
@@ -27517,9 +27522,14 @@ static void
 x_raise_frame (struct frame *f)
 {
   block_input ();
+
   if (FRAME_VISIBLE_P (f))
-    XRaiseWindow (FRAME_X_DISPLAY (f), FRAME_OUTER_WINDOW (f));
-  XFlush (FRAME_X_DISPLAY (f));
+    {
+      XRaiseWindow (FRAME_X_DISPLAY (f),
+		    FRAME_OUTER_WINDOW (f));
+      XFlush (FRAME_X_DISPLAY (f));
+    }
+
   unblock_input ();
 }
 
@@ -27567,8 +27577,6 @@ x_lower_frame (struct frame *f)
     XLowerWindow (FRAME_X_DISPLAY (f),
 		  FRAME_OUTER_WINDOW (f));
 
-  XFlush (FRAME_X_DISPLAY (f));
-
 #ifdef HAVE_XWIDGETS
   /* Make sure any X windows owned by xwidget views of the parent
      still display below the lowered frame.  */
@@ -27576,6 +27584,8 @@ x_lower_frame (struct frame *f)
   if (FRAME_PARENT_FRAME (f))
     lower_frame_xwidget_views (FRAME_PARENT_FRAME (f));
 #endif
+
+  XFlush (FRAME_X_DISPLAY (f));
 }
 
 static void
