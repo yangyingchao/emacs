@@ -27,9 +27,15 @@
 (require 'compile)
 (require 'cc-mode)
 (require 'cc-langs)
+(require 'treesit)
 
 (eval-when-compile
   (require 'cc-fonts))
+
+(declare-function treesit-parser-create "treesit.c")
+(declare-function treesit-induce-sparse-tree "treesit.c")
+(declare-function treesit-node-start "treesit.c")
+(declare-function treesit-node-child-by-field-name "treesit.c")
 
 (defgroup csharp nil
   "Major mode for editing C# code."
@@ -833,6 +839,18 @@ compilation and evaluation time conflicts."
 
      (method_declaration type: (_) @font-lock-type-face)
      (method_declaration name: (_) @font-lock-function-name-face)
+
+     (invocation_expression
+      (member_access_expression
+       (generic_name (identifier) @font-lock-function-name-face)))
+     (invocation_expression
+      (member_access_expression
+       ((identifier) @font-lock-variable-name-face
+        (identifier) @font-lock-function-name-face)))
+     (invocation_expression
+      (identifier) @font-lock-function-name-face)
+     (invocation_expression
+      (member_access_expression (identifier) @font-lock-function-name-face))
 
      (variable_declaration (identifier) @font-lock-type-face)
      (variable_declarator (identifier) @font-lock-variable-name-face)
