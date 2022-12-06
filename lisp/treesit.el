@@ -545,12 +545,7 @@ This should be a cons cell (START . END).  When fontifying a
 buffer, Emacs will move the start of the query range backward by
 START amount, and the end of the query range by END amount.  Both
 START and END should be positive integers or 0.  This doesn't
-affect the fontified range.
-
-Sometimes, querying on some parser with a restricted range
-returns nodes not in that range but before it, which breaks
-fontification.  Major modes can adjust this variable as a
-temporarily fix.")
+affect the fontified range.")
 
 (defvar-local treesit-font-lock-feature-list nil
   "A list of lists of feature symbols.
@@ -774,25 +769,35 @@ signals the `treesit-font-lock-error' error if that happens."
                        ((memq feature remove-list) nil)
                        (t current-value))))))
 
-(defun treesit-fontify-with-override (start end face override)
+(defun treesit-fontify-with-override
+    (start end face override &optional bound-start bound-end)
   "Apply FACE to the region between START and END.
 OVERRIDE can be nil, t, `append', `prepend', or `keep'.
-See `treesit-font-lock-rules' for their semantic."
-  (pcase override
-    ('nil (unless (text-property-not-all
-                   start end 'face nil)
-            (put-text-property start end 'face face)))
-    ('t (put-text-property start end 'face face))
-    ('append (font-lock-append-text-property
+See `treesit-font-lock-rules' for their semantic.
+
+If BOUND-START and BOUND-END are non-nil, only fontify the region
+in between them."
+  (when (or (null bound-start) (null bound-end)
+            (and bound-start bound-end
+                 (<= bound-start end)
+                 (>= bound-end start)))
+    (when (and bound-start bound-end)
+      (setq start (max bound-start start)
+            end (min bound-end end)))
+    (pcase override
+      ('nil (unless (text-property-not-all start end 'face nil)
+              (put-text-property start end 'face face)))
+      ('t (put-text-property start end 'face face))
+      ('append (font-lock-append-text-property
+                start end 'face face))
+      ('prepend (font-lock-prepend-text-property
+                 start end 'face face))
+      ('keep (font-lock-fillin-text-property
               start end 'face face))
-    ('prepend (font-lock-prepend-text-property
-               start end 'face face))
-    ('keep (font-lock-fillin-text-property
-            start end 'face face))
-    (_ (signal 'treesit-font-lock-error
-               (list
-                "Unrecognized value of :override option"
-                override)))))
+      (_ (signal 'treesit-font-lock-error
+                 (list
+                  "Unrecognized value of :override option"
+                  override))))))
 
 (defun treesit--set-nonsticky (start end sym &optional remove)
   "Set `rear-nonsticky' property between START and END.
