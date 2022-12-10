@@ -10,6 +10,29 @@ else
     soext="so"
 fi
 
+die ()
+{
+    set +xe
+    >&2 echo ""
+    >&2 echo "================================ DIE ==============================="
+
+    >&2 echo "$@"
+
+    >&2 echo "Call stack:"
+    local n=$((\${#BASH_LINENO[@]}-1))
+    local i=0
+    while [ $i -lt $n ]; do
+        local line=\${BASH_LINENO[i]}
+        local func=\${FUNCNAME[i+1]}
+
+        i=$((i+1))
+
+        >&2 echo "    [$i] -- line $line -- $func"
+    done
+    >&2  echo "================================ END ==============================="
+    exit 1
+}
+
 echo "Building ${lang}"
 
 ### Retrieve sources
@@ -34,8 +57,22 @@ case "${lang}" in
         ;;
 esac
 
-git clone "https://github.com/${namespace}/${repo}.git" \
+repo_dir=${topdir}/../${repo}
+sourcedir=${topdir}/../${sourcedir}
+
+if [ -d ${repo_dir} ];
+then
+    cd ${repo_dir}
+    git reset HEAD --hard
+    git pull
+else
+    cd ${topdir}/..
+    git clone "https://github.com/${namespace}/${repo}.git" \
     --depth 1 --quiet
+fi
+
+[ -d ${repo_dir} ] || die "directory ${repo_dir} does not exist"
+
 cp "${grammardir}"/grammar.js "${sourcedir}"
 # We have to go into the source directory to compile, because some
 # C files refer to files like "../../common/scanner.h".
@@ -64,7 +101,6 @@ fi
 
 ### Copy out
 
-mkdir -p "${topdir}/dist"
-cp "libtree-sitter-${lang}.${soext}" "${topdir}/dist"
+cp "libtree-sitter-${lang}.${soext}" ~/.local/lib/
 cd "${topdir}"
 rm -rf "${repo}"
