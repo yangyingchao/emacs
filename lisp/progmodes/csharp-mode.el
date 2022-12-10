@@ -505,7 +505,7 @@ compilation and evaluation time conflicts."
 
 (defun csharp--compilation-error-file-resolve ()
   "Resolve an msbuild error to a (filename . dirname) cons cell."
-  ;; http://stackoverflow.com/a/18049590/429091
+  ;; https://stackoverflow.com/a/18049590/429091
   (cons (match-string 1) (file-name-directory (match-string 4))))
 
 (defconst csharp-compilation-re-msbuild-error
@@ -818,7 +818,13 @@ compilation and evaluation time conflicts."
 
    :language 'c-sharp
    :feature 'delimiter
-   '((["," ":" ";"]) @font-lock-delimiter-face)))
+   '((["," ":" ";"]) @font-lock-delimiter-face)
+
+   :language 'c-sharp
+   :feature 'escape-sequence
+   :override t
+   '((escape_sequence) @font-lock-escape-face
+     (ERROR) @font-lock-warning-face)))
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.cs\\'" . csharp-mode))
@@ -926,7 +932,7 @@ Key bindings:
   (setq-local treesit-font-lock-settings csharp-ts-mode--font-lock-settings)
   (setq-local treesit-font-lock-feature-list
               '(( comment definition)
-                ( keyword string type)
+                ( keyword string escape-sequence type)
                 ( attribute constant expression literal)
                 ( bracket delimiter)))
 
