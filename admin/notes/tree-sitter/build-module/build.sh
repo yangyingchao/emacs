@@ -37,17 +37,17 @@ echo "Building ${lang}"
 
 ### Retrieve sources
 
-namespace="tree-sitter"
+org="tree-sitter"
 repo="tree-sitter-${lang}"
 sourcedir="tree-sitter-${lang}/src"
 grammardir="tree-sitter-${lang}"
 
 case "${lang}" in
     "dockerfile")
-        namespace="camdencheek"
+        org="camdencheek"
         ;;
     "cmake")
-        namespace="uyha"
+        org="uyha"
         ;;
     "typescript")
         sourcedir="tree-sitter-typescript/typescript/src"
@@ -70,7 +70,7 @@ then
     git pull
 else
     cd ${topdir}/..
-    git clone "https://github.com/${namespace}/${repo}.git" \
+    git clone "https://github.com/${org}/${repo}.git" \
     --depth 1 --quiet
 fi
 
