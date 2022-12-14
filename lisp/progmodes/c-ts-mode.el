@@ -95,7 +95,7 @@ MODE is either `c' or `cpp'."
            ((node-is "case") parent-bol 0)
            ((node-is "preproc_arg") no-indent)
            ((and (parent-is "comment") comment-end) comment-start -1)
-           ((parent-is "comment") comment-start-skip 0)
+           ((parent-is "comment") comment-start-skip -1)
            ((node-is "labeled_statement") parent-bol 0)
            ((parent-is "labeled_statement") parent-bol c-ts-mode-indent-offset)
            ((match "preproc_ifdef" "compound_statement") point-min 0)
@@ -186,7 +186,7 @@ MODE is either `c' or `cpp'."
                   "mutable" "namespace" "new" "noexcept"
                   "not" "not_eq" "operator" "or"
                   "or_eq" "override" "private" "protected"
-                  "public" "requires" "template" "throw"
+                  "public" "requires" "template" "thread_local" "throw"
                   "try" "typename" "using" "virtual"
                   "xor" "xor_eq"))
       (append '("auto") c-keywords))))
