@@ -68,6 +68,7 @@ then
     cd ${repo_dir}
     git reset HEAD --hard
     git pull
+    cd ..
 else
     cd ${topdir}/..
     git clone "https://github.com/${org}/${repo}.git" \
@@ -104,6 +105,6 @@ fi
 
 ### Copy out
 
-cp "libtree-sitter-${lang}.${soext}" ~/.local/lib/
+cp -aRfv "libtree-sitter-${lang}.${soext}" ~/.local/lib/
 cd "${topdir}"
-rm -rf "${repo}"
+
