@@ -63,6 +63,9 @@ case "${lang}" in
         sourcedir="tree-sitter-typescript/tsx/src"
         grammardir="tree-sitter-typescript/tsx"
         ;;
+    "yaml")
+        org="ikatyang"
+        ;;
 esac
 
 repo_dir=${topdir}/../${repo}

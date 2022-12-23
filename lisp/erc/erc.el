@@ -1765,8 +1765,7 @@ all channel buffers on all servers."
 ;; to, it was never realized.
 ;;
 ;; New library code should use the `erc--target' struct instead.
-;; Third-party code can continue to use this until a getter for
-;; `erc--target' (or whatever replaces it) is exported.
+;; Third-party code can continue to use this and `erc-default-target'.
 (defvar-local erc-default-recipients nil
   "List of default recipients of the current buffer.")
 
@@ -2226,9 +2225,7 @@ then the server and full-name will be set to those values,
 whereas `erc-compute-port' and `erc-compute-nick' will be invoked
 for the values of the other parameters.
 
-When present, ID should be an opaque object used to identify the
-connection unequivocally.  This is rarely needed and not available
-interactively."
+See `erc-tls' for the meaning of ID."
   (interactive (erc-select-read-args))
   (erc-open server port nick full-name t password nil nil nil nil user id))
 
@@ -2255,6 +2252,7 @@ Non-interactively, it takes the keyword arguments
    (server (erc-compute-server))
    (port   (erc-compute-port))
    (nick   (erc-compute-nick))
+   (user   (erc-compute-user))
    password
    (full-name (erc-compute-full-name))
    client-certificate
@@ -2283,11 +2281,11 @@ Example usage:
              \\='(\"/home/bandali/my-cert.key\"
                \"/home/bandali/my-cert.crt\"))
 
-When present, ID should be an opaque object for identifying the
-connection unequivocally.  (In most cases, this would be a string or a
-symbol composed of letters from the Latin alphabet.)  This option is
-generally unneeded, however.  See info node `(erc) Connecting' for use
-cases.  Not available interactively."
+When present, ID should be a symbol or a string to use for naming
+the server buffer and identifying the connection unequivocally.
+See info node `(erc) Network Identifier' for details.  Like USER
+and CLIENT-CERTIFICATE, this parameter cannot be specified
+interactively."
   (interactive (let ((erc-default-port erc-default-port-tls))
 		 (erc-select-read-args)))
   (let ((erc-server-connect-function 'erc-open-tls-stream))
@@ -2323,7 +2321,7 @@ message instead, to make debugging easier."
 (defvar erc-debug-irc-protocol-time-format "%FT%T.%6N%z "
   "Timestamp format string for protocol logger.")
 
-(defconst erc-debug-irc-protocol-version "1"
+(defconst erc-debug-irc-protocol-version "2"
   "Protocol log format version number.
 This exists to help tooling track changes to the format.
 
@@ -2334,7 +2332,10 @@ interpreted as email-style headers.  Folding is not supported.  A second
 double CRLF, if present, signals the end of a log.  Session resumption
 is not supported.  Logger lines must adhere to the following format:
 TIMESTAMP PEER-NAME FLOW-INDICATOR IRC-MESSAGE CRLF.  Outgoing messages
-are indicated with a >> and incoming with a <<.")
+are indicated with a >> and incoming with a <<.
+
+In version 2, certain outgoing passwords are replaced by a string
+of ten question marks.")
 
 (defvar erc-debug-irc-protocol nil
   "If non-nil, log all IRC protocol traffic to the buffer \"*erc-protocol*\".
@@ -2390,7 +2391,7 @@ workaround."
                       (format "%s:%s" erc-session-server erc-session-port))))
           (ts (when erc-debug-irc-protocol-time-format
                 (format-time-string erc-debug-irc-protocol-time-format))))
-      (when erc--debug-irc-protocol-mask-secrets
+      (when (and outbound erc--debug-irc-protocol-mask-secrets)
         (setq string (erc--mask-secrets string)))
       (with-current-buffer (get-buffer-create "*erc-protocol*")
         (save-excursion
@@ -6010,13 +6011,14 @@ See also `erc-downcase'."
 ;; While `erc-default-target' happens to return nil in channel buffers
 ;; you've parted or from which you've been kicked, using it to detect
 ;; whether a channel is currently joined may become unreliable in the
-;; future.  For now, new code should consider using
+;; future.  For now, third-party code can use
 ;;
 ;;   (erc-get-channel-user (erc-current-nick))
 ;;
-;; and expect a nicer option eventually.  For retrieving a target
-;; regardless of subscription or connection status, use replacements
-;; based on `erc--target' instead.  See also `erc--default-target'.
+;; A predicate may be provided eventually.  For retrieving a target's
+;; name regardless of subscription or connection status, new library
+;; code should use `erc--default-target'.  Third-party code should
+;; continue to use `erc-default-target'.
 
 (defun erc-default-target ()
   "Return the current default target (as a character string) or nil if none."

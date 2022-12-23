@@ -1928,7 +1928,7 @@ This performs fontification according to `js--class-styles'."
 ;; identified as such), then the `syntax-propertize' region won’t be
 ;; extended backwards to the start of the JSXOpeningElement:
 ;;
-;;   <div         ← This line wasn’t JSX when last edited.
+;;   <div         ← This line wasn't JSX when last edited.
 ;;     attr="">   ← Despite completing the JSX, the next
 ;;             ^    `syntax-propertize' region wouldn’t magically
 ;;                  extend back a few lines.
@@ -2090,7 +2090,7 @@ JSXElement or a JSXOpeningElement/JSXClosingElement pair."
                         ;; JSXOpeningElement has been found, so keep
                         ;; looking backwards for an enclosing one).
                         (or (not close-tag-pos) (<= start close-tag-pos)))))))))
-      ;; Don’t return the last tag pos, as it wasn’t enclosing.
+      ;; Don't return the last tag pos, as it wasn't enclosing.
       (setq tag-beg nil close-tag-pos nil))
     (and tag-beg (list tag-beg-pos tag-end-pos close-tag-pos))))
 
@@ -3451,14 +3451,13 @@ This function is intended for use in `after-change-functions'."
        ((parent-is "statement_block") parent-bol js-indent-level)
 
        ;; JSX
-       ((parent-is "jsx_opening_element") parent js-indent-level)
-       ((match "<" "jsx_fragment") parent 0)
-       ((parent-is "jsx_fragment") parent js-indent-level)
+       ((node-is "jsx_fragment") parent typescript-ts-mode-indent-offset)
+       ((node-is "jsx_element") parent typescript-ts-mode-indent-offset)
+       ((node-is "jsx_expression") parent typescript-ts-mode-indent-offset)
+       ((node-is "jsx_self_closing_element") parent typescript-ts-mode-indent-offset)
        ((node-is "jsx_closing_element") parent 0)
-       ((node-is "jsx_text") parent js-indent-level)
-       ((parent-is "jsx_element") parent js-indent-level)
        ((node-is "/") parent 0)
-       ((parent-is "jsx_self_closing_element") parent js-indent-level)))))
+       ((node-is ">") parent 0)))))
 
 (defvar js--treesit-keywords
   '("as" "async" "await" "break" "case" "catch" "class" "const" "continue"
@@ -3739,9 +3738,14 @@ definition*\"."
                      node "function_declaration" nil 1000))
          (var-tree (treesit-induce-sparse-tree
                     node "lexical_declaration" nil 1000)))
-    `(("Class" . ,(js--treesit-imenu-1 class-tree))
-      ("Variable" . ,(js--treesit-imenu-1 var-tree))
-      ("Function" . ,(js--treesit-imenu-1 func-tree)))))
+    ;; When a sub-tree is empty, we should not return that pair at all.
+    (append
+     (and func-tree
+          `(("Function" . ,(js--treesit-imenu-1 func-tree))))
+     (and var-tree
+          `(("Variable" . ,(js--treesit-imenu-1 var-tree))))
+     (and class-tree
+          `(("Class" . ,(js--treesit-imenu-1 class-tree)))))))
 
 ;;; Main Function
 

@@ -1021,7 +1021,7 @@ This variable has effect only when `tab-bar-auto-width' is non-nil."
   :initialize 'custom-initialize-default
   :set (lambda (sym val)
          (set-default sym val)
-         (setq tab-bar--fixed-width-hash nil))
+         (setq tab-bar--auto-width-hash nil))
   :group 'tab-bar
   :version "29.1")
 
@@ -1040,17 +1040,17 @@ tab bar might wrap to the second line when it shouldn't.")
      tab-bar-tab-group-inactive)
   "Resize tabs only with these faces.")
 
-(defvar tab-bar--fixed-width-hash nil
+(defvar tab-bar--auto-width-hash nil
   "Memoization table for `tab-bar-auto-width'.")
 
 (defun tab-bar-auto-width (items)
   "Return tab-bar items with resized tab names."
-  (unless tab-bar--fixed-width-hash
-    (define-hash-table-test 'tab-bar--fixed-width-hash-test
+  (unless tab-bar--auto-width-hash
+    (define-hash-table-test 'tab-bar--auto-width-hash-test
                             #'equal-including-properties
                             #'sxhash-equal-including-properties)
-    (setq tab-bar--fixed-width-hash
-          (make-hash-table :test 'tab-bar--fixed-width-hash-test)))
+    (setq tab-bar--auto-width-hash
+          (make-hash-table :test 'tab-bar--auto-width-hash-test)))
   (let ((tabs nil)    ;; list of resizable tabs
         (non-tabs "") ;; concatenated names of non-resizable tabs
         (width 0))    ;; resize tab names to this width
@@ -1078,7 +1078,7 @@ tab bar might wrap to the second line when it shouldn't.")
         (setf (nth 2 item)
               (with-memoization (gethash (list (selected-frame)
                                                width (nth 2 item))
-                                         tab-bar--fixed-width-hash)
+                                         tab-bar--auto-width-hash)
                 (let* ((name (nth 2 item))
                        (len (length name))
                        (close-p (get-text-property (1- len) 'close-tab name))
@@ -2626,18 +2626,16 @@ When `switch-to-buffer-obey-display-actions' is non-nil,
 (defvar-keymap tab-bar-switch-repeat-map
   :doc "Keymap to repeat tab switch key sequences \\`C-x t o o O'.
 Used in `repeat-mode'."
+  :repeat t
   "o" #'tab-next
   "O" #'tab-previous)
-(put 'tab-next 'repeat-map 'tab-bar-switch-repeat-map)
-(put 'tab-previous 'repeat-map 'tab-bar-switch-repeat-map)
 
 (defvar-keymap tab-bar-move-repeat-map
   :doc "Keymap to repeat tab move key sequences \\`C-x t m m M'.
 Used in `repeat-mode'."
+  :repeat t
   "m" #'tab-move
   "M" #'tab-bar-move-tab-backward)
-(put 'tab-move 'repeat-map 'tab-bar-move-repeat-map)
-(put 'tab-bar-move-tab-backward 'repeat-map 'tab-bar-move-repeat-map)
 
 
 (provide 'tab-bar)
