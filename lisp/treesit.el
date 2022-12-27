@@ -2,6 +2,10 @@
 
 ;; Copyright (C) 2021-2022 Free Software Foundation, Inc.
 
+;; Maintainer: 付禹安 (Yuan Fu) <casouri@gmail.com>
+;; Keywords: treesit, tree-sitter, languages
+;; Package: emacs
+
 ;; This file is part of GNU Emacs.
 
 ;; GNU Emacs is free software: you can redistribute it and/or modify
@@ -1618,7 +1622,7 @@ For example, \"(function|class)_definition\".
 
 Sometimes not all nodes matched by the regexp are valid defuns.
 In that case, set this variable to a cons cell of the
-form (REGEXP . FILTER), where FILTER is a function that takes a
+form (REGEXP . PRED), where PRED is a function that takes a
 node (the matched node) and returns t if node is valid, or nil
 for invalid node.
 
