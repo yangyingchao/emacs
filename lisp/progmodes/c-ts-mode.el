@@ -63,6 +63,8 @@ follows the form of `treesit-simple-indent-rules'."
                  (function :tag "A function for user customized style" ignore))
   :group 'c)
 
+;;; Syntax table
+
 (defvar c-ts-mode--syntax-table
   (let ((table (make-syntax-table)))
     ;; Taken from the cc-langs version
@@ -85,13 +87,27 @@ follows the form of `treesit-simple-indent-rules'."
     table)
   "Syntax table for `c-ts-mode'.")
 
-(defvar c++-ts-mode--syntax-table
-  (let ((table (make-syntax-table c-ts-mode--syntax-table)))
-    ;; Template delimiters.
-    (modify-syntax-entry ?<  "("     table)
-    (modify-syntax-entry ?>  ")"     table)
-    table)
-  "Syntax table for `c++-ts-mode'.")
+(defun c-ts-mode--syntax-propertize (beg end)
+  "Apply syntax text property to template delimiters between BEG and END.
+
+< and > are usually punctuation, e.g., in ->.  But when used for
+templates, they should be considered pairs.
+
+This function checks for < and > in the changed RANGES and apply
+appropriate text property to alter the syntax of template
+delimiters < and >'s."
+  (goto-char beg)
+  (while (re-search-forward (rx (or "<" ">")) end t)
+    (pcase (treesit-node-type
+            (treesit-node-parent
+             (treesit-node-at (match-beginning 0))))
+      ("template_argument_list"
+       (put-text-property (match-beginning 0)
+                          (match-end 0)
+                          'syntax-table
+                          (pcase (char-before)
+                            (?< '(4 . ?>))
+                            (?> '(5 . ?<))))))))
 
 ;;; Indent
 
@@ -487,54 +503,16 @@ For NODE, OVERRIDE, START, and END, see
 
 (defun c-ts-mode--defun-name (node)
   "Return the name of the defun NODE.
-Return nil if NODE is not a defun node, return an empty string if
-NODE doesn't have a name."
+Return nil if NODE is not a defun node or doesn't have a name."
   (treesit-node-text
    (pcase (treesit-node-type node)
      ((or "function_definition" "declaration")
       (c-ts-mode--declarator-identifier
        (treesit-node-child-by-field-name node "declarator")))
-     ("struct_specifier"
+     ((or "struct_specifier" "enum_specifier"
+          "union_specifier" "class_specifier")
       (treesit-node-child-by-field-name node "name")))
    t))
-
-(defun c-ts-mode--imenu-1 (node)
-  "Helper for `c-ts-mode--imenu'.
-Find string representation for NODE and set marker, then recurse
-the subtrees."
-  (let* ((ts-node (car node))
-         (subtrees (mapcan #'c-ts-mode--imenu-1 (cdr node)))
-         (name (when ts-node
-                 (treesit-defun-name ts-node)))
-         (marker (when ts-node
-                   (set-marker (make-marker)
-                               (treesit-node-start ts-node)))))
-    (cond
-     ((or (null ts-node) (null name))
-      subtrees)
-     ((null (c-ts-mode--defun-valid-p ts-node))
-      nil)
-     (subtrees
-      `((,name ,(cons name marker) ,@subtrees)))
-     (t
-      `((,name . ,marker))))))
-
-(defun c-ts-mode--imenu ()
-  "Return Imenu alist for the current buffer."
-  (let* ((node (treesit-buffer-root-node))
-         (func-tree (treesit-induce-sparse-tree
-                     node "^function_definition$" nil 1000))
-         (var-tree (treesit-induce-sparse-tree
-                    node "^declaration$" nil 1000))
-         (struct-tree (treesit-induce-sparse-tree
-                       node "^struct_specifier$" nil 1000))
-         (func-index (c-ts-mode--imenu-1 func-tree))
-         (var-index (c-ts-mode--imenu-1 var-tree))
-         (struct-index (c-ts-mode--imenu-1 struct-tree)))
-    (append
-     (when struct-index `(("Struct" . ,struct-index)))
-     (when var-index `(("Variable" . ,var-index)))
-     (when func-index `(("Function" . ,func-index))))))
 
 ;;; Defun navigation
 
@@ -612,6 +590,10 @@ ARG is passed to `fill-paragraph'."
             (goto-char (match-beginning 1))
             (setq start-marker (point-marker))
             (replace-match " " nil nil nil 1))
+          ;; Include whitespaces before /*.
+          (goto-char start)
+          (beginning-of-line)
+          (setq start (point))
           ;; Mask spaces before "*/" if it is attached at the end
           ;; of a sentence rather than on its own line.
           (goto-char end)
@@ -683,11 +665,18 @@ Set up:
               (concat (rx (* (syntax whitespace))
                           (group (or (seq "/" (+ "/")) (* "*"))))
                       adaptive-fill-regexp))
-  ;; Same as `adaptive-fill-regexp'.
+  ;; Note the missing * comparing to `adaptive-fill-regexp'.  The
+  ;; reason for its absence is a bit convoluted to explain.  Suffice
+  ;; to say that without it, filling a single line paragraph that
+  ;; starts with /* doesn't insert * at the beginning of each
+  ;; following line, and filling a multi-line paragraph whose first
+  ;; two lines start with * does insert * at the beginning of each
+  ;; following line.  If you know how does adaptive filling works, you
+  ;; know what I mean.
   (setq-local adaptive-fill-first-line-regexp
               (rx bos
                   (seq (* (syntax whitespace))
-                       (group (or (seq "/" (+ "/")) (* "*")))
+                       (group (seq "/" (+ "/")))
                        (* (syntax whitespace)))
                   eos))
   ;; Same as `adaptive-fill-regexp'.
@@ -745,8 +734,17 @@ Set up:
               (append "{}():;," electric-indent-chars))
 
   ;; Imenu.
-  (setq-local imenu-create-index-function #'c-ts-mode--imenu)
-  (setq-local which-func-functions nil)
+  (setq-local treesit-simple-imenu-settings
+              (let ((pred #'c-ts-mode--defun-valid-p))
+                `(("Struct" ,(rx bos (or "struct" "enum" "union")
+                                 "_specifier" eos)
+                   ,pred nil)
+                  ("Variable" ,(rx bos "declaration" eos) ,pred nil)
+                  ("Function" "\\`function_definition\\'" ,pred nil)
+                  ("Class" ,(rx bos (or "class_specifier"
+                                        "function_definition")
+                                eos)
+                   ,pred nil))))
 
   (setq-local treesit-font-lock-feature-list
               '(( comment definition)
@@ -780,12 +778,13 @@ Set up:
 (define-derived-mode c++-ts-mode c-ts-base-mode "C++"
   "Major mode for editing C++, powered by tree-sitter."
   :group 'c++
-  :syntax-table c++-ts-mode--syntax-table
 
   (unless (treesit-ready-p 'cpp)
     (error "Tree-sitter for C++ isn't available"))
 
   (treesit-parser-create 'cpp)
+  (setq-local syntax-propertize-function
+              #'c-ts-mode--syntax-propertize)
 
   (setq-local treesit-simple-indent-rules
               (c-ts-mode--set-indent-style 'cpp))
