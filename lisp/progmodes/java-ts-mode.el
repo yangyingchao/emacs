@@ -1,6 +1,6 @@
 ;;; java-ts-mode.el --- tree-sitter support for Java  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2022 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2023 Free Software Foundation, Inc.
 
 ;; Author     : Theodor Thornhill <theo@thornhill.no>
 ;; Maintainer : Theodor Thornhill <theo@thornhill.no>
@@ -240,7 +240,9 @@
      (method_invocation
       name: (identifier) @font-lock-function-name-face)
 
-     (argument_list (identifier) @font-lock-variable-name-face))
+     (argument_list (identifier) @font-lock-variable-name-face)
+
+     (expression_statement (identifier) @font-lock-variable-name-face))
 
    :language 'java
    :feature 'bracket
