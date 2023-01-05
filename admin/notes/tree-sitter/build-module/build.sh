@@ -66,6 +66,9 @@ case "${lang}" in
     "yaml")
         org="ikatyang"
         ;;
+    "elisp")
+        org="Wilfred"
+        ;;
 esac
 
 repo_dir=${topdir}/../${repo}
