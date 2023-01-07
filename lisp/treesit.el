@@ -302,9 +302,15 @@ properties."
 (defun treesit-parent-until (node pred &optional include-node)
   "Return the closest parent of NODE that satisfies PRED.
 
-Return nil if none was found.  PRED should be a function that
-takes one argument, the parent node, and return non-nil/nil for
-match/no match.
+This function successively examines the parent of NODE, then
+the parent of the parent, etc., until it finds the first
+ancestor node which satisfies the predicate PRED; then it
+returns that ancestor node.  It returns nil if no ancestor
+node was found that satisfies PRED.
+
+PRED should be a function that takes one argument, the node to
+examine, and returns a boolean value indicating whether that
+node is a match.
 
 If INCLUDE-NODE is non-nil, return NODE if it satisfies PRED."
   (let ((node (if include-node node
@@ -315,8 +321,16 @@ If INCLUDE-NODE is non-nil, return NODE if it satisfies PRED."
 
 (defun treesit-parent-while (node pred)
   "Return the furthest parent of NODE that satisfies PRED.
-Return nil if none was found.  PRED should be a function that
-takes one argument, the parent node."
+
+This function successively examines the parent of NODE, then
+the parent of the parent, etc., until it finds an ancestor node
+which no longer satisfies the predicate PRED; it returns the last
+examined ancestor that satisfies PRED.  It returns nil if no
+ancestor node was found that satisfies PRED.
+
+PRED should be a function that takes one argument, the node to
+examine, and returns a boolean value indicating whether that
+node is a match."
   (let ((last nil))
     (while (and node (funcall pred node))
       (setq last node
@@ -1165,16 +1179,15 @@ See `treesit-simple-indent-presets'.")
         ;; TODO: Document.
         (cons 'and (lambda (&rest fns)
                      (lambda (node parent bol &rest _)
-                       (cl-reduce (lambda (a b) (and a b))
-                                  (mapcar (lambda (fn)
-                                            (funcall fn node parent bol))
-                                          fns)))))
+                       (not
+                        (seq-find
+                         (lambda (fn) (not (funcall fn node parent bol)))
+                         fns)))))
         (cons 'or (lambda (&rest fns)
                     (lambda (node parent bol &rest _)
-                      (cl-reduce (lambda (a b) (or a b))
-                                 (mapcar (lambda (fn)
-                                           (funcall fn node parent bol))
-                                         fns)))))
+                      (seq-find
+                       (lambda (fn) (funcall fn node parent bol))
+                       fns))))
         (cons 'not (lambda (fn)
                      (lambda (node parent bol &rest _)
                        (not (funcall fn node parent bol)))))
@@ -1533,6 +1546,10 @@ RULES."
                   (pcase func
                     (`(query ,qry)
                      (list 'query (treesit-query-compile lang qry)))
+                    (`(and . ,fns)
+                     (cons 'and (mapcar #'optimize-func fns)))
+                    (`(or . ,fns)
+                     (cons 'or (mapcar #'optimize-func fns)))
                     (_ func)))
                 ;; Optimize a rule (MATCHER ANCHOR OFFSET).
                 (optimize-rule (rule)
