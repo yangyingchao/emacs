@@ -138,6 +138,7 @@ MODE is either `c' or `cpp'."
            ((parent-is "function_definition") parent-bol 0)
            ((parent-is "conditional_expression") first-sibling 0)
            ((parent-is "assignment_expression") parent-bol c-ts-mode-indent-offset)
+           ((parent-is "concatenated_string") parent-bol c-ts-mode-indent-offset)
            ((parent-is "comma_expression") first-sibling 0)
            ((parent-is "init_declarator") parent-bol c-ts-mode-indent-offset)
            ((parent-is "parenthesized_expression") first-sibling 1)
@@ -151,7 +152,9 @@ MODE is either `c' or `cpp'."
            ((parent-is "call_expression") parent 0)
            ((parent-is "enumerator_list") parent-bol c-ts-mode-indent-offset)
            ,@(when (eq mode 'cpp)
-               '(((node-is "access_specifier") parent-bol 0)))
+               '(((node-is "access_specifier") parent-bol 0)
+                 ;; Indent the body of namespace definitions.
+                 ((parent-is "declaration_list") parent-bol c-ts-mode-indent-offset)))
            ((parent-is "field_declaration_list") parent-bol c-ts-mode-indent-offset)
            ((parent-is "initializer_list") parent-bol c-ts-mode-indent-offset)
            ((parent-is "if_statement") parent-bol c-ts-mode-indent-offset)
@@ -167,7 +170,9 @@ MODE is either `c' or `cpp'."
        ((match "while" "do_statement") parent 0)
        ,@common)
       (k&r ,@common)
-      (linux ,@common)
+      (linux
+       ((node-is "labeled_statement") point-min 1)
+       ,@common)
       (bsd
        ((parent-is "if_statement") parent-bol 0)
        ((parent-is "for_statement") parent-bol 0)
@@ -205,11 +210,13 @@ beginning of grandparent."
            (treesit-node-parent parent)
          parent)))))
 
-(defun c-ts-mode--looking-at-star (&rest _)
+(defun c-ts-mode--looking-at-star (_n _p bol &rest _)
   "A tree-sitter simple indent matcher.
 Matches if there is a \"*\" after point (ignoring whitespace in
 between)."
-  (looking-at (rx (* (syntax whitespace)) "*")))
+  (save-excursion
+    (goto-char bol)
+    (looking-at (rx (* (syntax whitespace)) "*"))))
 
 (defun c-ts-mode--comment-start-after-first-star (_n parent &rest _)
   "A tree-sitter simple indent anchor.
@@ -419,20 +426,29 @@ MODE is either `c' or `cpp'."
 
 ;;; Font-lock helpers
 
-(defun c-ts-mode--declarator-identifier (node)
-  "Return the identifier of the declarator node NODE."
+(defun c-ts-mode--declarator-identifier (node &optional qualified)
+  "Return the identifier of the declarator node NODE.
+
+If QUALIFIED is non-nil, include the names space part of the
+identifier and return a qualified_identifier."
   (pcase (treesit-node-type node)
     ;; Recurse.
     ((or "attributed_declarator" "parenthesized_declarator")
-     (c-ts-mode--declarator-identifier (treesit-node-child node 0 t)))
+     (c-ts-mode--declarator-identifier (treesit-node-child node 0 t)
+                                       qualified))
     ((or "pointer_declarator" "reference_declarator")
-     (c-ts-mode--declarator-identifier (treesit-node-child node -1)))
+     (c-ts-mode--declarator-identifier (treesit-node-child node -1)
+                                       qualified))
     ((or "function_declarator" "array_declarator" "init_declarator")
      (c-ts-mode--declarator-identifier
-      (treesit-node-child-by-field-name node "declarator")))
+      (treesit-node-child-by-field-name node "declarator")
+      qualified))
     ("qualified_identifier"
-     (c-ts-mode--declarator-identifier
-      (treesit-node-child-by-field-name node "name")))
+     (if qualified
+         node
+       (c-ts-mode--declarator-identifier
+        (treesit-node-child-by-field-name node "name")
+        qualified)))
     ;; Terminal case.
     ((or "identifier" "field_identifier")
      node)))
@@ -534,9 +550,11 @@ Return nil if NODE is not a defun node or doesn't have a name."
    (pcase (treesit-node-type node)
      ((or "function_definition" "declaration")
       (c-ts-mode--declarator-identifier
-       (treesit-node-child-by-field-name node "declarator")))
+       (treesit-node-child-by-field-name node "declarator")
+       t))
      ((or "struct_specifier" "enum_specifier"
-          "union_specifier" "class_specifier")
+          "union_specifier" "class_specifier"
+          "namespace_definition")
       (treesit-node-child-by-field-name node "name")))
    t))
 
@@ -567,6 +585,23 @@ Ie, NODE is not nested."
                         (treesit-node-child-by-field-name
                          node "declarator"))
                        "function_declarator")))))
+
+(defun c-ts-mode--defun-for-class-in-imenu-p (node)
+  "Check if NODE is a valid entry for the Class subindex.
+
+Basically, if NODE is a class, return non-nil; if NODE is a
+function but is under a class, return non-nil; if NODE is a
+top-level function, return nil.
+
+This is for the Class subindex in
+`treesit-simple-imenu-settings'."
+  (pcase (treesit-node-type node)
+    ;; The Class subindex only has class_specifier and
+    ;; function_definition.
+    ("class_specifier" t)
+    ("function_definition"
+     ;; Return t if this function is nested in a class.
+     (treesit-node-top-level node "class_specifier"))))
 
 (defun c-ts-mode--defun-skipper ()
   "Custom defun skipper for `c-ts-mode' and friends.
@@ -741,7 +776,8 @@ Set up:
                                   "struct_specifier"
                                   "enum_specifier"
                                   "union_specifier"
-                                  "class_specifier"))
+                                  "class_specifier"
+                                  "namespace_definition"))
                     #'c-ts-mode--defun-valid-p))
   (setq-local treesit-defun-skipper #'c-ts-mode--defun-skipper)
   (setq-local treesit-defun-name-function #'c-ts-mode--defun-name)
@@ -772,7 +808,7 @@ Set up:
                   ("Class" ,(rx bos (or "class_specifier"
                                         "function_definition")
                                 eos)
-                   ,pred nil))))
+                   c-ts-mode--defun-for-class-in-imenu-p nil))))
 
   (setq-local treesit-font-lock-feature-list
               '(( comment definition)
@@ -782,45 +818,45 @@ Set up:
 
 ;;;###autoload
 (define-derived-mode c-ts-mode c-ts-base-mode "C"
-  "Major mode for editing C, powered by tree-sitter."
+  "Major mode for editing C, powered by tree-sitter.
+
+This mode is independent from the classic cc-mode.el based
+`c-mode', so configuration variables of that mode, like
+`c-basic-offset', don't affect this mode."
   :group 'c
 
-  (unless (treesit-ready-p 'c)
-    (error "Tree-sitter for C isn't available"))
-
-  (treesit-parser-create 'c)
-
-  ;; Comments.
-  (setq-local comment-start "/* ")
-  (setq-local comment-end " */")
-
-  (setq-local treesit-simple-indent-rules
-              (c-ts-mode--set-indent-style 'c))
-
-  ;; Font-lock.
-  (setq-local treesit-font-lock-settings (c-ts-mode--font-lock-settings 'c))
-
-  (treesit-major-mode-setup))
+  (when (treesit-ready-p 'c)
+    (treesit-parser-create 'c)
+    ;; Comments.
+    (setq-local comment-start "/* ")
+    (setq-local comment-end " */")
+    ;; Indent.
+    (setq-local treesit-simple-indent-rules
+                (c-ts-mode--set-indent-style 'c))
+    ;; Font-lock.
+    (setq-local treesit-font-lock-settings (c-ts-mode--font-lock-settings 'c))
+    (treesit-major-mode-setup)))
 
 ;;;###autoload
 (define-derived-mode c++-ts-mode c-ts-base-mode "C++"
-  "Major mode for editing C++, powered by tree-sitter."
+  "Major mode for editing C++, powered by tree-sitter.
+
+This mode is independent from the classic cc-mode.el based
+`c++-mode', so configuration variables of that mode, like
+`c-basic-offset', don't affect this mode."
   :group 'c++
 
-  (unless (treesit-ready-p 'cpp)
-    (error "Tree-sitter for C++ isn't available"))
-
-  (treesit-parser-create 'cpp)
-  (setq-local syntax-propertize-function
-              #'c-ts-mode--syntax-propertize)
-
-  (setq-local treesit-simple-indent-rules
-              (c-ts-mode--set-indent-style 'cpp))
-
-  ;; Font-lock.
-  (setq-local treesit-font-lock-settings (c-ts-mode--font-lock-settings 'cpp))
-
-  (treesit-major-mode-setup))
+  (when (treesit-ready-p 'cpp)
+    (treesit-parser-create 'cpp)
+    ;; Syntax.
+    (setq-local syntax-propertize-function
+                #'c-ts-mode--syntax-propertize)
+    ;; Indent.
+    (setq-local treesit-simple-indent-rules
+                (c-ts-mode--set-indent-style 'cpp))
+    ;; Font-lock.
+    (setq-local treesit-font-lock-settings (c-ts-mode--font-lock-settings 'cpp))
+    (treesit-major-mode-setup)))
 
 (provide 'c-ts-mode)
 
