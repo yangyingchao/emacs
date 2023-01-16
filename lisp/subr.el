@@ -2540,12 +2540,14 @@ The variable list SPEC is the same as in `if-let'."
 Evaluate each binding in turn, stopping if a binding value is nil.
 If all bindings are non-nil, eval BODY and repeat.
 
-The variable list SPEC is the same as in `if-let'."
+The variable list SPEC is the same as in `if-let*'."
   (declare (indent 1) (debug if-let))
   (let ((done (gensym "done")))
     `(catch ',done
        (while t
-         (if-let ,spec
+         ;; This is `if-let*', not `if-let', deliberately, despite the
+         ;; name of this macro.  See bug#60758.
+         (if-let* ,spec
              (progn
                ,@body)
            (throw ',done nil))))))
@@ -4946,13 +4948,13 @@ the function `undo--wrap-and-run-primitive-undo'."
 		(progn
 		  (while (and (not (eq (cdr ptr) old-bul))
 			      ;; In case garbage collection has removed OLD-BUL.
-			      (cdr ptr)
-			      ;; Don't include a timestamp entry.
-			      (not (and (consp (cdr ptr))
-					(consp (cadr ptr))
-					(eq (caadr ptr) t)
-					(setq old-bul (cdr ptr)))))
-		    (setq ptr (cdr ptr)))
+			      (cdr ptr))
+		    (if (and (consp (cdr ptr))
+			     (consp (cadr ptr))
+			     (eq (caadr ptr) t))
+			;; Don't include a timestamp entry.
+			(setcdr ptr (cddr ptr))
+		      (setq ptr (cdr ptr))))
 		  (unless (cdr ptr)
 		    (message "combine-change-calls: buffer-undo-list broken"))
 		  (setcdr ptr nil)
