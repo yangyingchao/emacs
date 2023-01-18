@@ -1152,7 +1152,9 @@ See `treesit-simple-indent-presets'.")
                     (and (>= (point) comment-start-bol)
                          adaptive-fill-regexp
                          (looking-at adaptive-fill-regexp)
-                         (> (match-end 0) (match-beginning 0))
+                         ;; If previous line is an empty line, don't
+                         ;; indent.
+                         (not (looking-at (rx (* whitespace) eol)))
                          (match-end 0))))))
         ;; TODO: Document.
         (cons 'grand-parent
