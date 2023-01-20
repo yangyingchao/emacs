@@ -54,6 +54,37 @@ qux = foo.fee ?
         bar :
         tee
 
+with_paren = (a + b *
+                  c * d +
+              12)
+
+without_paren = a + b *
+                    c * d +
+                12
+
+{'a' => {
+   'b' => 'c',
+   'd' => %w(e f)
+ }
+}
+
+[1, 2, {
+   'b' => 'c',
+   'd' => %w(e f)
+ }
+]
+
+foo(a, {
+      a: b,
+      c: d
+    })
+
+foo(foo, bar:
+    tee)
+
+foo(foo, :bar =>
+    tee)
+
 # Local Variables:
 # mode: ruby-ts
 # ruby-after-operator-indent: t

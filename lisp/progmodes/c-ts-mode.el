@@ -24,6 +24,34 @@
 
 ;;; Commentary:
 ;;
+;; This package provides major modes for C and C++, plus some handy
+;; functions that are useful generally to major modes for C-like
+;; languages.
+;;
+;; This package provides `c-ts-mode' for C, `c++-ts-mode' for C++, and
+;; `c-or-c++-ts-mode' which automatically chooses the right mode for
+;; C/C++ header files.
+;;
+;; To use these more by default, evaluate
+;;
+;; (add-to-list 'major-mode-remap-alist '(c-mode . c-ts-mode))
+;; (add-to-list 'major-mode-remap-alist '(c++-mode . c++-ts-mode))
+;; (add-to-list 'major-mode-remap-alist '(c-or-c++-mode . c-or-c++-ts-mode))
+;;
+;; in your configuration.
+;;
+;; For C-like language major modes:
+;;
+;; - Use `c-ts-mode-comment-setup' to setup comment variables and
+;;   filling.
+;;
+;; - Use simple-indent matcher `c-ts-mode--looking-at-star' and anchor
+;;   `c-ts-mode--comment-start-after-first-star' for indenting block
+;;   comments.  See `c-ts-mode--indent-styles' for example.
+;;
+;; - Use variable `c-ts-mode-indent-block-type-regexp' with indent
+;;   offset c-ts-mode--statement-offset for indenting statements.
+;;   Again, see `c-ts-mode--indent-styles' for example.
 
 ;;; Code:
 
@@ -257,7 +285,18 @@ PARENT is NODE's parent."
         (cl-incf level)
         (save-excursion
           (goto-char (treesit-node-start node))
-          (cond ((bolp) nil)
+          ;; Add an extra level if the opening bracket is on its own
+          ;; line, except (1) it's at top-level, or (2) it's immedate
+          ;; parent is another block.
+          (cond ((bolp) nil) ; Case (1).
+                ((let ((parent-type (treesit-node-type
+                                     (treesit-node-parent node))))
+                   ;; Case (2).
+                   (and parent-type
+                        (string-match-p c-ts-mode-indent-block-type-regexp
+                                        parent-type)))
+                 nil)
+                ;; Add a level.
                 ((looking-back (rx bol (* whitespace))
                                (line-beginning-position))
                  (cl-incf level))))))
@@ -936,7 +975,16 @@ Set up:
 
 This mode is independent from the classic cc-mode.el based
 `c-mode', so configuration variables of that mode, like
-`c-basic-offset', don't affect this mode."
+`c-basic-offset', doesn't affect this mode.
+
+To use tree-sitter C/C++ modes by default, evaluate
+
+    (add-to-list \\='major-mode-remap-alist \\='(c-mode . c-ts-mode))
+    (add-to-list \\='major-mode-remap-alist \\='(c++-mode . c++-ts-mode))
+    (add-to-list \\='major-mode-remap-alist
+                 \\='(c-or-c++-mode . c-or-c++-ts-mode))
+
+in your configuration."
   :group 'c
 
   (when (treesit-ready-p 'c)
@@ -957,7 +1005,16 @@ This mode is independent from the classic cc-mode.el based
 
 This mode is independent from the classic cc-mode.el based
 `c++-mode', so configuration variables of that mode, like
-`c-basic-offset', don't affect this mode."
+`c-basic-offset', don't affect this mode.
+
+To use tree-sitter C/C++ modes by default, evaluate
+
+    (add-to-list \\='major-mode-remap-alist \\='(c-mode . c-ts-mode))
+    (add-to-list \\='major-mode-remap-alist \\='(c++-mode . c++-ts-mode))
+    (add-to-list \\='major-mode-remap-alist
+                 \\='(c-or-c++-mode . c-or-c++-ts-mode))
+
+in your configuration."
   :group 'c++
 
   (when (treesit-ready-p 'cpp)
