@@ -659,7 +659,7 @@ The `sudo' program appears to insert a `^@' character into the prompt."
 (defcustom tramp-wrong-passwd-regexp
   (rx bol (* nonl)
       (| "Permission denied"
-	 "Login [Ii]ncorrect"
+	 (: "Login " (| "Incorrect" "incorrect"))
 	 "Connection refused"
 	 "Connection closed"
 	 "Timeout, server not responding."
@@ -4031,9 +4031,15 @@ Let-bind it when necessary.")
   "Like `file-regular-p' for Tramp files."
   (and (file-exists-p filename)
        ;; Sometimes, `file-attributes' does not return a proper value
-       ;; even if `file-exists-p' does.
-       (when-let ((attr (file-attributes filename)))
-	 (eq ?- (aref (file-attribute-modes attr) 0)))))
+       ;; even if `file-exists-p' does.  Protect by `ignore-errors',
+       ;; because `file-truename' could raise an error for cyclic
+       ;; symlinks.
+       (ignore-errors
+	 (when-let ((attr (file-attributes filename)))
+	   (cond
+	    ((eq ?- (aref (file-attribute-modes attr) 0)))
+	    ((eq ?l (aref (file-attribute-modes attr) 0))
+	     (file-regular-p (file-truename filename))))))))
 
 (defun tramp-handle-file-remote-p (filename &optional identification connected)
   "Like `file-remote-p' for Tramp files."
@@ -4867,7 +4873,7 @@ substitution.  SPEC-LIST is a list of char/value pairs used for
 		:command (append `(,login-program) login-args command)
 		:coding coding :noquery noquery :connection-type connection-type
 		:sentinel sentinel :stderr stderr))
-	    ;; Set filter.  Prior Emacs 29.1, it doesn't work reliable
+	    ;; Set filter.  Prior Emacs 29.1, it doesn't work reliably
 	    ;; to provide it as `make-process' argument when filter is
 	    ;; t.  See Bug#51177.
 	    (when filter

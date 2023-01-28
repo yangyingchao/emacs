@@ -54,7 +54,7 @@
 (require 'json)
 (require 'prog-mode)
 (require 'treesit)
-(require 'c-ts-mode) ; For comment indent and filling.
+(require 'c-ts-common) ; For comment indent and filling.
 
 (eval-when-compile
   (require 'cl-lib)
@@ -3428,8 +3428,8 @@ This function is intended for use in `after-change-functions'."
        ((node-is ")") parent-bol 0)
        ((node-is "]") parent-bol 0)
        ((node-is ">") parent-bol 0)
-       ((and (parent-is "comment") c-ts-mode--looking-at-star)
-        c-ts-mode--comment-start-after-first-star -1)
+       ((and (parent-is "comment") c-ts-common-looking-at-star)
+        c-ts-common-comment-start-after-first-star -1)
        ((parent-is "comment") prev-adaptive-prefix 0)
        ((parent-is "ternary_expression") parent-bol js-indent-level)
        ((parent-is "member_expression") parent-bol js-indent-level)
@@ -3546,9 +3546,18 @@ This function is intended for use in `after-change-functions'."
              (identifier)
              @font-lock-function-name-face)
       value: (array (number) (function)))
+     ;; full module imports
      (import_clause (identifier) @font-lock-variable-name-face)
-     (import_clause (named_imports (import_specifier (identifier))
-                                   @font-lock-variable-name-face)))
+     ;; named imports with aliasing
+     (import_clause (named_imports (import_specifier
+                                    alias: (identifier) @font-lock-variable-name-face)))
+     ;; named imports without aliasing
+     (import_clause (named_imports (import_specifier
+                                    !alias
+                                    name: (identifier) @font-lock-variable-name-face)))
+
+     ;; full namespace import (* as alias)
+     (import_clause (namespace_import (identifier) @font-lock-variable-name-face)))
 
    :language 'javascript
    :feature 'property
@@ -3806,7 +3815,7 @@ Currently there are `js-mode' and `js-ts-mode'."
     ;; Which-func.
     (setq-local which-func-imenu-joiner-function #'js--which-func-joiner)
     ;; Comment.
-    (c-ts-mode-comment-setup)
+    (c-ts-common-comment-setup)
     (setq-local comment-multi-line t)
     ;; Electric-indent.
     (setq-local electric-indent-chars
@@ -3843,7 +3852,10 @@ Currently there are `js-mode' and `js-ts-mode'."
                                         "method_definition")
                                 eos)
                    nil nil)))
-    (treesit-major-mode-setup)))
+    (treesit-major-mode-setup)
+
+    (add-to-list 'auto-mode-alist
+                 '("\\(\\.js[mx]\\|\\.har\\)\\'" . js-ts-mode))))
 
 ;;;###autoload
 (define-derived-mode js-json-mode js-mode "JSON"

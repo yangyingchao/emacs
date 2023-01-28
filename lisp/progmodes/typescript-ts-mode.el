@@ -30,7 +30,7 @@
 (require 'treesit)
 (require 'js)
 (eval-when-compile (require 'rx))
-(require 'c-ts-mode) ; For comment indent and filling.
+(require 'c-ts-common) ; For comment indent and filling.
 
 (declare-function treesit-parser-create "treesit.c")
 
@@ -69,13 +69,13 @@
   "Rules used for indentation.
 Argument LANGUAGE is either `typescript' or `tsx'."
   `((,language
-     ((parent-is "program") parent-bol 0)
+     ((parent-is "program") point-min 0)
      ((node-is "}") parent-bol 0)
      ((node-is ")") parent-bol 0)
      ((node-is "]") parent-bol 0)
      ((node-is ">") parent-bol 0)
-     ((and (parent-is "comment") c-ts-mode--looking-at-star)
-      c-ts-mode--comment-start-after-first-star -1)
+     ((and (parent-is "comment") c-ts-common-looking-at-star)
+      c-ts-common-comment-start-after-first-star -1)
      ((parent-is "comment") prev-adaptive-prefix 0)
      ((parent-is "ternary_expression") parent-bol typescript-ts-mode-indent-offset)
      ((parent-is "member_expression") parent-bol typescript-ts-mode-indent-offset)
@@ -132,26 +132,21 @@ Argument LANGUAGE is either `typescript' or `tsx'."
 Argument LANGUAGE is either `typescript' or `tsx'."
   (treesit-font-lock-rules
    :language language
-   :override t
    :feature 'comment
    `((comment) @font-lock-comment-face)
 
    :language language
-   :override t
    :feature 'constant
    `(((identifier) @font-lock-constant-face
       (:match "^[A-Z_][A-Z_\\d]*$" @font-lock-constant-face))
-
      [(true) (false) (null)] @font-lock-constant-face)
 
    :language language
-   :override t
    :feature 'keyword
    `([,@typescript-ts-mode--keywords] @font-lock-keyword-face
      [(this) (super)] @font-lock-keyword-face)
 
    :language language
-   :override t
    :feature 'string
    `((regex pattern: (regex_pattern)) @font-lock-regexp-face
      (string) @font-lock-string-face
@@ -159,7 +154,7 @@ Argument LANGUAGE is either `typescript' or `tsx'."
      (template_substitution ["${" "}"] @font-lock-misc-punctuation-face))
 
    :language language
-   :override t
+   :override t ;; for functions assigned to variables
    :feature 'declaration
    `((function
       name: (identifier) @font-lock-function-name-face)
@@ -173,6 +168,10 @@ Argument LANGUAGE is either `typescript' or `tsx'."
       name: (property_identifier) @font-lock-function-name-face)
      (required_parameter (identifier) @font-lock-variable-name-face)
      (optional_parameter (identifier) @font-lock-variable-name-face)
+
+     (variable_declarator
+      name: (identifier) @font-lock-function-name-face
+      value: [(function) (arrow_function)])
 
      (variable_declarator
       name: (identifier) @font-lock-variable-name-face)
@@ -189,10 +188,6 @@ Argument LANGUAGE is either `typescript' or `tsx'."
       parameter: (identifier) @font-lock-variable-name-face)
 
      (variable_declarator
-      name: (identifier) @font-lock-function-name-face
-      value: [(function) (arrow_function)])
-
-     (variable_declarator
       name: (array_pattern
              (identifier)
              (identifier) @font-lock-function-name-face)
@@ -201,11 +196,20 @@ Argument LANGUAGE is either `typescript' or `tsx'."
      (catch_clause
       parameter: (identifier) @font-lock-variable-name-face)
 
+     ;; full module imports
      (import_clause (identifier) @font-lock-variable-name-face)
-     (import_clause (named_imports (import_specifier (identifier)) @font-lock-variable-name-face)))
+     ;; named imports with aliasing
+     (import_clause (named_imports (import_specifier
+                                    alias: (identifier) @font-lock-variable-name-face)))
+     ;; named imports without aliasing
+     (import_clause (named_imports (import_specifier
+                                    !alias
+                                    name: (identifier) @font-lock-variable-name-face)))
+
+     ;; full namespace import (* as alias)
+     (import_clause (namespace_import (identifier) @font-lock-variable-name-face)))
 
    :language language
-   :override t
    :feature 'identifier
    `((nested_type_identifier
       module: (identifier) @font-lock-type-face)
@@ -234,7 +238,6 @@ Argument LANGUAGE is either `typescript' or `tsx'."
        (_ (_ (_ (identifier) @font-lock-variable-name-face)))]))
 
    :language language
-   :override t
    :feature 'property
    `((property_signature
       name: (property_identifier) @font-lock-property-face)
@@ -249,7 +252,6 @@ Argument LANGUAGE is either `typescript' or `tsx'."
       @font-lock-property-face))
 
    :language language
-   :override t
    :feature 'expression
    '((assignment_expression
       left: [(identifier) @font-lock-function-name-face
@@ -266,7 +268,6 @@ Argument LANGUAGE is either `typescript' or `tsx'."
         property: (property_identifier) @font-lock-function-name-face)]))
 
    :language language
-   :override t
    :feature 'pattern
    `((pair_pattern
       key: (property_identifier) @font-lock-property-face)
@@ -274,7 +275,6 @@ Argument LANGUAGE is either `typescript' or `tsx'."
      (array_pattern (identifier) @font-lock-variable-name-face))
 
    :language language
-   :override t
    :feature 'jsx
    `((jsx_opening_element
       [(nested_identifier (identifier)) (identifier)]
@@ -315,19 +315,13 @@ Argument LANGUAGE is either `typescript' or `tsx'."
    '((escape_sequence) @font-lock-escape-face)))
 
 ;;;###autoload
-(add-to-list 'auto-mode-alist '("\\.ts\\'" . typescript-ts-mode))
-
-;;;###autoload
-(add-to-list 'auto-mode-alist '("\\.tsx\\'" . tsx-ts-mode))
-
-;;;###autoload
 (define-derived-mode typescript-ts-base-mode prog-mode "TypeScript"
   "Major mode for editing TypeScript."
   :group 'typescript
   :syntax-table typescript-ts-mode--syntax-table
 
   ;; Comments.
-  (c-ts-mode-comment-setup)
+  (c-ts-common-comment-setup)
 
   ;; Electric
   (setq-local electric-indent-chars
@@ -375,6 +369,9 @@ Argument LANGUAGE is either `typescript' or `tsx'."
 
     (treesit-major-mode-setup)))
 
+(if (treesit-ready-p 'typescript)
+    (add-to-list 'auto-mode-alist '("\\.ts\\'" . typescript-ts-mode)))
+
 ;;;###autoload
 (define-derived-mode tsx-ts-mode typescript-ts-base-mode "TypeScript[TSX]"
   "Major mode for editing TypeScript."
@@ -409,6 +406,9 @@ Argument LANGUAGE is either `typescript' or `tsx'."
                   (function bracket delimiter)))
 
     (treesit-major-mode-setup)))
+
+(if (treesit-ready-p 'tsx)
+    (add-to-list 'auto-mode-alist '("\\.tsx\\'" . tsx-ts-mode)))
 
 (provide 'typescript-ts-mode)
 

@@ -38,7 +38,7 @@
 (declare-function treesit-node-type "treesit.c")
 (declare-function treesit-search-subtree "treesit.c")
 
-(defcustom go-ts-mode-indent-offset 4
+(defcustom go-ts-mode-indent-offset 8
   "Number of spaces for each indentation step in `go-ts-mode'."
   :version "29.1"
   :type 'integer
@@ -78,8 +78,10 @@
      ((parent-is "expression_switch_statement") parent-bol 0)
      ((parent-is "field_declaration_list") parent-bol go-ts-mode-indent-offset)
      ((parent-is "import_spec_list") parent-bol go-ts-mode-indent-offset)
+     ((parent-is "interface_type") parent-bol go-ts-mode-indent-offset)
      ((parent-is "labeled_statement") parent-bol go-ts-mode-indent-offset)
      ((parent-is "literal_value") parent-bol go-ts-mode-indent-offset)
+     ((parent-is "parameter_list") parent-bol go-ts-mode-indent-offset)
      ((parent-is "type_spec") parent-bol go-ts-mode-indent-offset)
      ((parent-is "var_declaration") parent-bol go-ts-mode-indent-offset)
      (no-node parent-bol 0)))
@@ -175,9 +177,6 @@
   "Tree-sitter font-lock settings for `go-ts-mode'.")
 
 ;;;###autoload
-(add-to-list 'auto-mode-alist '("\\.go\\'" . go-ts-mode))
-
-;;;###autoload
 (define-derived-mode go-ts-mode prog-mode "Go"
   "Major mode for editing Go, powered by tree-sitter."
   :group 'go
@@ -225,6 +224,9 @@
                   ( bracket delimiter error operator)))
 
     (treesit-major-mode-setup)))
+
+(if (treesit-ready-p 'go)
+    (add-to-list 'auto-mode-alist '("\\.go\\'" . go-ts-mode)))
 
 (defun go-ts-mode--defun-name (node)
   "Return the defun name of NODE.
@@ -346,9 +348,6 @@ what the parent of the node would be if it were a node."
   "Tree-sitter font-lock settings for `go-mod-ts-mode'.")
 
 ;;;###autoload
-(add-to-list 'auto-mode-alist '("/go\\.mod\\'" . go-mod-ts-mode))
-
-;;;###autoload
 (define-derived-mode go-mod-ts-mode prog-mode "Go Mod"
   "Major mode for editing go.mod files, powered by tree-sitter."
   :group 'go
@@ -375,6 +374,9 @@ what the parent of the node would be if it were a node."
                   (bracket error operator)))
 
     (treesit-major-mode-setup)))
+
+(if (treesit-ready-p 'gomod)
+    (add-to-list 'auto-mode-alist '("/go\\.mod\\'" . go-mod-ts-mode)))
 
 (provide 'go-ts-mode)
 
