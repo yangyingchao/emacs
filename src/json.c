@@ -1092,6 +1092,8 @@ DEFUN ("json-rpc-connection", Fjson_rpc_connection, Sjson_rpc_connection, 1, MAN
       pthread_mutex_init (&state->handle_mx, NULL);
       /* TODO: mutex_init could fail */
       state->handle = handle;
+      state->done = false;
+      state->error_buffer_read = 0;
       SAFE_FREE ();
       return make_user_ptr (json_rpc_state_free, state);
     }
@@ -1295,7 +1297,7 @@ json_rpc_callback (void *arg)
 	  if (!param->done)
 	    {
 	      msg[content_length] = '\0';
-	      param->message = json_loads (msg, JSON_DECODE_ANY, &param->error);
+	      param->message = json_loads (msg, JSON_DECODE_ANY | JSON_ALLOW_NUL, &param->error);
 	      free (msg);
 	    }
 	}
