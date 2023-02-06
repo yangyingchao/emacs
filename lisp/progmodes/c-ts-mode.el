@@ -89,23 +89,23 @@
 
 (defun c-ts-mode--indent-style-setter (sym val)
   "Custom setter for `c-ts-mode-set-style'.
+
 Apart from setting the default value of SYM to VAL, also change
-the value of SYM in `c-ts-mode' and `c++-ts-mode' buffers to VAL."
+the value of SYM in `c-ts-mode' and `c++-ts-mode' buffers to VAL.
+
+SYM should be `c-ts-mode-indent-style', and VAL should be a style
+symbol."
   (set-default sym val)
   (named-let loop ((res nil)
                    (buffers (buffer-list)))
     (if (null buffers)
         (mapc (lambda (b)
                 (with-current-buffer b
-                  (setq-local treesit-simple-indent-rules
-                              (treesit--indent-rules-optimize
-                               (c-ts-mode--get-indent-style
-                                (if (eq major-mode 'c-ts-mode) 'c 'cpp))))))
+                  (c-ts-mode-set-style val)))
               res)
       (let ((buffer (car buffers)))
         (with-current-buffer buffer
-          ;; FIXME: Should we use `derived-mode-p' here?
-          (if (or (eq major-mode 'c-ts-mode) (eq major-mode 'c++-ts-mode))
+          (if (derived-mode-p 'c-ts-mode 'c++-ts-mode)
               (loop (append res (list buffer)) (cdr buffers))
             (loop res (cdr buffers))))))))
 
@@ -113,8 +113,8 @@ the value of SYM in `c-ts-mode' and `c++-ts-mode' buffers to VAL."
   "Style used for indentation.
 
 The selected style could be one of GNU, K&R, LINUX or BSD.  If
-one of the supplied styles doesn't suffice a function could be
-set instead.  This function is expected return a list that
+one of the supplied styles doesn't suffice, a function could be
+set instead.  This function is expected to return a list that
 follows the form of `treesit-simple-indent-rules'."
   :version "29.1"
   :type '(choice (symbol :tag "Gnu" gnu)
@@ -134,24 +134,37 @@ MODE is either `c' or `cpp'."
            (alist-get c-ts-mode-indent-style (c-ts-mode--indent-styles mode)))))
     `((,mode ,@style))))
 
-(defun c-ts-mode-set-style ()
-  "Set the indent style of C/C++ modes globally.
+(defun c-ts-mode--prompt-for-style ()
+  "Prompt for an indent style and return the symbol for it."
+  (let ((mode (if (derived-mode-p 'c-ts-mode) 'c 'c++)))
+    (intern
+     (completing-read
+      "Style: "
+      (mapcar #'car (c-ts-mode--indent-styles mode))
+      nil t nil nil "gnu"))))
+
+(defun c-ts-mode-set-global-style (style)
+  "Set the indent style of C/C++ modes globally to STYLE.
 
 This changes the current indent style of every C/C++ buffer and
-the default C/C++ indent style in this Emacs session."
-  (interactive)
-  ;; FIXME: Should we use `derived-mode-p' here?
-  (or (eq major-mode 'c-ts-mode) (eq major-mode 'c++-ts-mode)
-      (error "Buffer %s is not a c-ts-mode (c-ts-mode-set-style)"
-             (buffer-name)))
-  (c-ts-mode--indent-style-setter
-   'c-ts-mode-indent-style
-   ;; NOTE: We can probably use the interactive form for this.
-   (intern
-    (completing-read
-     "Select style: "
-     (mapcar #'car (c-ts-mode--indent-styles (if (eq major-mode 'c-ts-mode) 'c 'cpp)))
-     nil t nil nil "gnu"))))
+the default C/C++ indent style for `c-ts-mode' and `c++-ts-mode'
+in this Emacs session."
+  (interactive (list (c-ts-mode--prompt-for-style)))
+  (c-ts-mode--indent-style-setter 'c-ts-mode-indent-style style))
+
+(defun c-ts-mode-set-style (style)
+  "Set the C/C++ indent style of the current buffer to STYLE.
+
+To set the default indent style globally, use
+`c-ts-mode-set-global-style'."
+  (interactive (list (c-ts-mode--prompt-for-style)))
+  (if (not (derived-mode-p 'c-ts-mode 'c++-ts-mode))
+      (user-error "The current buffer is not in `c-ts-mode' nor `c++-ts-mode'")
+    (setq-local c-ts-mode-indent-style style)
+    (setq treesit-simple-indent-rules
+          (treesit--indent-rules-optimize
+           (c-ts-mode--get-indent-style
+            (if (derived-mode-p 'c-ts-mode) 'c 'cpp))))))
 
 ;;; Syntax table
 
@@ -254,12 +267,16 @@ MODE is either `c' or `cpp'."
 
            ;; int[5] a = { 0, 0, 0, 0 };
            ((parent-is "initializer_list") parent-bol c-ts-mode-indent-offset)
+           ;; Statement in enum.
            ((parent-is "enumerator_list") point-min c-ts-common-statement-offset)
+           ;; Statement in struct and union.
            ((parent-is "field_declaration_list") point-min c-ts-common-statement-offset)
 
-           ;; {} blocks.
-           ((node-is "}") point-min c-ts-mode--close-bracket-offset)
+           ;; Statement in {} blocks.
            ((parent-is "compound_statement") point-min c-ts-common-statement-offset)
+           ;; Closing bracket.
+           ((node-is "}") point-min c-ts-common-statement-offset)
+           ;; Opening bracket.
            ((node-is "compound_statement") point-min c-ts-common-statement-offset)
 
            ,@(when (eq mode 'cpp)
@@ -428,11 +445,10 @@ MODE is either `c' or `cpp'."
       declarator: (_) @c-ts-mode--fontify-declarator)
 
      (function_definition
-      declarator: (_) @c-ts-mode--fontify-declarator))
+      declarator: (_) @c-ts-mode--fontify-declarator)
 
-   ;; Should we highlight identifiers in the parameter list?
-   ;; (parameter_declaration
-   ;;  declarator: (_) @c-ts-mode--fontify-declarator))
+     (parameter_declaration
+      declarator: (_) @c-ts-mode--fontify-declarator))
 
    :language mode
    :feature 'assignment
@@ -540,9 +556,10 @@ For NODE, OVERRIDE, START, END, and ARGS, see
                                               identifier)))
                  ("function_declarator" 'font-lock-function-name-face)
                  (_ 'font-lock-variable-name-face))))
-    (treesit-fontify-with-override
-     (treesit-node-start identifier) (treesit-node-end identifier)
-     face override start end)))
+    (when identifier
+      (treesit-fontify-with-override
+       (treesit-node-start identifier) (treesit-node-end identifier)
+       face override start end))))
 
 (defun c-ts-mode--fontify-variable (node override start end &rest _)
   "Fontify an identifier node if it is a variable.
@@ -762,8 +779,8 @@ the semicolon.  This function skips the semicolon."
   (setq-local treesit-font-lock-feature-list
               '(( comment definition)
                 ( keyword preprocessor string type)
-                ( assignment constant escape-sequence label literal property )
-                ( bracket delimiter error function operator variable))))
+                ( assignment constant escape-sequence label literal)
+                ( bracket delimiter error function operator property variable))))
 
 ;;;###autoload
 (define-derived-mode c-ts-mode c-ts-base-mode "C"
