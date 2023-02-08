@@ -144,6 +144,44 @@ int f2(int x,
 };
 =-=-=
 
+Name: Semi-colon in While Loop (bug#61291)
+
+=-=
+while (true)
+  ;
+for (int i = 0;
+     i < 5;
+     i++)
+  ;
+=-=-=
+
+Name: Bracketless Simple Statement
+
+=-=
+for (int i = 0; i < 5; i++)
+  continue;
+
+while (true)
+  return 1;
+
+do
+  i++;
+while (true)
+=-=-=
+
+Name: Nested If-Else
+
+=-=
+if (true)
+  return 0;
+else if (false)
+  return 1;
+else if (true)
+  return 2;
+else if (false)
+  return 3;
+=-=-=
+
 Name: Multiline Block Comments 1 (bug#60270)
 
 =-=

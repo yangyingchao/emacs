@@ -285,6 +285,14 @@ MODE is either `c' or `cpp'."
            ((node-is "}") point-min c-ts-common-statement-offset)
            ;; Opening bracket.
            ((node-is "compound_statement") point-min c-ts-common-statement-offset)
+           ;; Bug#61291.
+           ((match "expression_statement" nil "body") point-min c-ts-common-statement-offset)
+           ;; These rules are for cases where the body is bracketless.
+           ;; Tested by the "Bracketless Simple Statement" test.
+           ((parent-is "if_statement") point-min c-ts-common-statement-offset)
+           ((parent-is "for_statement") point-min c-ts-common-statement-offset)
+           ((parent-is "while_statement") point-min c-ts-common-statement-offset)
+           ((parent-is "do_statement") point-min c-ts-common-statement-offset)
 
            ,@(when (eq mode 'cpp)
                `(((node-is "field_initializer_list") parent-bol ,(* c-ts-mode-indent-offset 2)))))))
@@ -757,14 +765,16 @@ the semicolon.  This function skips the semicolon."
   (when (eq c-ts-mode-indent-style 'linux)
     (setq-local indent-tabs-mode t))
   (setq-local c-ts-common-indent-offset 'c-ts-mode-indent-offset)
-  (setq-local c-ts-common-indent-block-type-regexp
-              (rx (or "compound_statement"
-                      "field_declaration_list"
-                      "enumerator_list")))
-  (setq-local c-ts-common-indent-bracketless-type-regexp
-              (rx (or "if_statement" "do_statement"
-                      "for_statement" "while_statement")))
-
+  (setq-local c-ts-common-indent-type-regexp-alist
+              `((block . ,(rx (or "compound_statement"
+                                  "field_declaration_list"
+                                  "enumerator_list")))
+                (if . "if_statement")
+                (else . ("if_statement" . "alternative"))
+                (do . "do_statement")
+                (while . "while_statement")
+                (for . "for_statement")
+                (close-bracket . "}")))
   ;; Comment
   (c-ts-common-comment-setup)
 
