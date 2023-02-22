@@ -166,10 +166,13 @@ parser in `treesit-parser-list', or nil if there is no parser."
 A leaf node is a node that doesn't have any child nodes.
 
 The returned node's span covers POS: the node's beginning is before
-or at POS, and the node's end is at or after POS.
+or at POS, and the node's end is after POS.
 
-If no leaf node's span covers POS (e.g., POS is on whitespace
-between two leaf nodes), return the first leaf node after POS.
+If no such node exists, but there's a leaf node which ends at POS,
+return that node.
+
+Otherwise (e.g., when POS is on whitespace between two leaf
+nodes), return the first leaf node after POS.
 
 If there is no leaf node after POS, return the first leaf node
 before POS.
@@ -1183,12 +1186,18 @@ See `treesit-simple-indent-presets'.")
                   (skip-syntax-backward "-")
                   (point))))
         (cons 'prev-adaptive-prefix
-              (lambda (_n parent &rest _)
-                (let ((comment-start-bol
-                       (save-excursion
-                         (goto-char (treesit-node-start parent))
-                         (line-beginning-position))))
+              (lambda (_n parent bol &rest _)
+                (let (comment-start-bol
+                      this-line-has-prefix)
                   (save-excursion
+                    (goto-char (treesit-node-start parent))
+                    (setq comment-start-bol (line-beginning-position))
+
+                    (goto-char bol)
+                    (setq this-line-has-prefix
+                          (and (looking-at adaptive-fill-regexp)
+                               (match-string 1)))
+
                     (forward-line -1)
                     (and (>= (point) comment-start-bol)
                          adaptive-fill-regexp
@@ -1196,11 +1205,23 @@ See `treesit-simple-indent-presets'.")
                          ;; If previous line is an empty line, don't
                          ;; indent.
                          (not (looking-at (rx (* whitespace) eol)))
-                         (match-end 0))))))
+                         ;; Return the anchor.  If the indenting line
+                         ;; has a prefix and the previous line also
+                         ;; has a prefix, indent to the beginning of
+                         ;; prev line's prefix rather than the end of
+                         ;; prev line's prefix. (Bug#61314).
+                         (or (and this-line-has-prefix
+                                  (match-beginning 1))
+                             (match-end 0)))))))
         ;; TODO: Document.
         (cons 'grand-parent
               (lambda (_n parent &rest _)
                 (treesit-node-start (treesit-node-parent parent))))
+        (cons 'great-grand-parent
+              (lambda (_n parent &rest _)
+                (treesit-node-start
+                 (treesit-node-parent
+                  (treesit-node-parent parent)))))
         (cons 'parent-bol (lambda (_n parent &rest _)
                             (save-excursion
                               (goto-char (treesit-node-start parent))
@@ -1328,8 +1349,11 @@ prev-adaptive-prefix
 
     Goes to the beginning of previous non-empty line, and tries
     to match `adaptive-fill-regexp'.  If it matches, return the
-    end of the match, otherwise return nil.  This is useful for a
-    `indent-relative'-like indent behavior for block comments.")
+    end of the match, otherwise return nil.  However, if the
+    current line begins with a prefix, return the beginning of
+    the prefix of the previous line instead, so that the two
+    prefixes aligns.  This is useful for a `indent-relative'-like
+    indent behavior for block comments.")
 
 (defun treesit--simple-indent-eval (exp)
   "Evaluate EXP.
@@ -2377,7 +2401,8 @@ to the offending pattern and highlight the pattern."
          (with-current-buffer buf
            (let* ((data (cdr err))
                   (message (nth 0 data))
-                  (start (nth 1 data)))
+                  (start (nth 1 data))
+                  (inhibit-read-only t))
              (erase-buffer)
              (insert (treesit-query-expand query))
              (goto-char start)
