@@ -2824,16 +2824,20 @@ for which LSP on-type-formatting should be requested."
                       (mapcar
                        (jsonrpc-lambda
                            (&rest item &key label insertText insertTextFormat
-                                  &allow-other-keys)
+                                  textEdit &allow-other-keys)
                          (let ((proxy
-                                (cond ((and (eql insertTextFormat 2)
-                                            (eglot--snippet-expansion-fn))
+                                ;; Snippet or textEdit, it's safe to
+                                ;; display/insert the label since
+                                ;; it'll be adjusted.  If no usable
+                                ;; insertText at all, label is best,
+                                ;; too.
+                                (cond ((or (and (eql insertTextFormat 2)
+                                                (eglot--snippet-expansion-fn))
+                                           textEdit
+                                           (null insertText)
+                                           (string-empty-p insertText))
                                        (string-trim-left label))
-                                      ((and insertText
-                                            (not (string-empty-p insertText)))
-                                       insertText)
-                                      (t
-                                       (string-trim-left label)))))
+                                      (t insertText))))
                            (unless (zerop (length proxy))
                              (put-text-property 0 1 'eglot--lsp-item item proxy))
                            proxy))
@@ -3486,17 +3490,17 @@ If NOERROR, return predicate, else erroring function."
   "Face used for parameter inlay hint overlays.")
 
 (defcustom eglot-lazy-inlay-hints 0.3
-  "If non-nil, restrict LSP inlay hints to visible portion of buffer.
+  "If non-nil, restrict LSP inlay hints to visible portion of the buffer.
 
-Value is number specifying how many seconds to wait after a
+Value is a number specifying how many seconds to wait after a
 window has been (re)scrolled before requesting new inlay hints
-for the visible region of the window being manipulated.
+for the now-visible portion of the buffer shown in the window.
 
 If nil, then inlay hints are requested for the entire buffer.
+This could be slow.
 
 This value is only meaningful if the minor mode
-`eglot-inlay-hints-mode' is true.
-"
+`eglot-inlay-hints-mode' is turned on in a buffer."
   :type 'number
   :version "29.1")
 
@@ -3568,8 +3572,11 @@ This value is only meaningful if the minor mode
                                                  (window-end window))
                           (wsetq eglot--inlay-hints-timer nil))))))))))
 
+(defun eglot--inlay-hints-after-window-config-change ()
+  (eglot--update-hints-1 (window-start) (window-end)))
+
 (define-minor-mode eglot-inlay-hints-mode
-  "Minor mode annotating buffer with LSP inlay hints."
+  "Minor mode for annotating buffers with LSP server's inlay hints."
   :global nil
   (cond (eglot-inlay-hints-mode
          (cond
@@ -3581,6 +3588,8 @@ This value is only meaningful if the minor mode
                      #'eglot--inlay-hints-lazily t t)
            (add-hook 'window-scroll-functions
                      #'eglot--inlay-hints-after-scroll nil t)
+           (add-hook 'window-configuration-change-hook
+                     #'eglot--inlay-hints-after-window-config-change nil t)
            ;; Maybe there isn't a window yet for current buffer,
            ;; so `run-at-time' ensures this runs after redisplay.
            (run-at-time 0 nil #'eglot--inlay-hints-lazily))
@@ -3589,6 +3598,8 @@ This value is only meaningful if the minor mode
                      #'eglot--inlay-hints-fully nil t)
            (eglot--inlay-hints-fully))))
         (t
+         (remove-hook 'window-configuration-change-hook
+                      #'eglot--inlay-hints-after-window-config-change)
          (remove-hook 'eglot--document-changed-hook
                       #'eglot--inlay-hints-lazily t)
          (remove-hook 'eglot--document-changed-hook
