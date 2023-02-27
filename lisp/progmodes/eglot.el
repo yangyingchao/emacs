@@ -816,6 +816,7 @@ treated as in `eglot--dbind'."
                                        `(:valueSet
                                          [,@(mapcar
                                              #'car eglot--tag-faces)])))
+            :general (list :positionEncodings ["utf-32" "utf-8" "utf-16"])
             :experimental eglot--{})))
 
 (cl-defgeneric eglot-workspace-folders (server)
@@ -1439,20 +1440,32 @@ CONNECT-ARGS are passed as additional arguments to
   (let ((warning-minimum-level :error))
     (display-warning 'eglot (apply #'format format args) :warning)))
 
-(defun eglot-current-column () (- (point) (line-beginning-position)))
+
+;;; Encoding fever
+;;;
+(define-obsolete-function-alias
+  'eglot-lsp-abiding-column 'eglot-utf-16-linepos "29.1")
+(define-obsolete-function-alias
+  'eglot-current-column 'eglot-utf-32-linepos "29.1")
+(define-obsolete-variable-alias
+  'eglot-current-column-function 'eglot-current-linepos-function "29.1")
 
-(defvar eglot-current-column-function #'eglot-lsp-abiding-column
-  "Function to calculate the current column.
+(defvar eglot-current-linepos-function #'eglot-utf-16-linepos
+  "Function calculating position relative to line beginning.
 
-This is the inverse operation of
-`eglot-move-to-column-function' (which see).  It is a function of
-no arguments returning a column number.  For buffers managed by
-fully LSP-compliant servers, this should be set to
-`eglot-lsp-abiding-column' (the default), and
-`eglot-current-column' for all others.")
+This is the inverse of `eglot-move-to-linepos-function' (which see).
+It is a function of no arguments returning the number of code units
+or bytes or codepoints corresponding to the current position of point,
+relative to line beginning, as expected by the function that is the
+value of `eglot-move-to-linepos-function'.")
 
-(defun eglot-lsp-abiding-column (&optional lbp)
-  "Calculate current COLUMN as defined by the LSP spec.
+(defun eglot-utf-8-linepos ()
+  "Calculate number of UTF-8 bytes from line beginning."
+  (length (encode-coding-region (line-beginning-position) (point)
+                                'utf-8-unix t)))
+
+(defun eglot-utf-16-linepos (&optional lbp)
+  "Calculate number of UTF-16 code units from position given by LBP.
 LBP defaults to `line-beginning-position'."
   (/ (- (length (encode-coding-region (or lbp (line-beginning-position))
                                       ;; Fix github#860
@@ -1460,50 +1473,70 @@ LBP defaults to `line-beginning-position'."
         2)
      2))
 
+(defun eglot-utf-32-linepos ()
+  "Calculate number of Unicode codepoints from line beginning."
+  (- (point) (line-beginning-position)))
+
 (defun eglot--pos-to-lsp-position (&optional pos)
   "Convert point POS to LSP position."
   (eglot--widening
    ;; LSP line is zero-origin; emacs is one-origin.
    (list :line (1- (line-number-at-pos pos t))
          :character (progn (when pos (goto-char pos))
-                           (funcall eglot-current-column-function)))))
+                           (funcall eglot-current-linepos-function)))))
 
-(defvar eglot-move-to-column-function #'eglot-move-to-lsp-abiding-column
-  "Function to move to a column reported by the LSP server.
+(define-obsolete-function-alias
+  'eglot-move-to-current-column 'eglot-move-to-utf-32-linepos "29.1")
+(define-obsolete-function-alias
+  'eglot-move-to-lsp-abiding-column 'eglot-move-to-utf-16-linepos "29.1")
+(define-obsolete-variable-alias
+'eglot-move-to-column-function 'eglot-move-to-linepos-function "29.1")
 
-According to the standard, LSP column/character offsets are based
-on a count of UTF-16 code units, not actual visual columns.  So
-when LSP says position 3 of a line containing just \"aXbc\",
-where X is a multi-byte character, it actually means `b', not
-`c'. However, many servers don't follow the spec this closely.
+(defvar eglot-move-to-linepos-function #'eglot-move-to-utf-16-linepos
+  "Function to move to a position within a line reported by the LSP server.
 
-For buffers managed by fully LSP-compliant servers, this should
-be set to `eglot-move-to-lsp-abiding-column' (the default), and
-`eglot-move-to-column' for all others.")
+Per the LSP spec, character offsets in LSP Position objects count
+UTF-16 code units, not actual code points.  So when LSP says
+position 3 of a line containing just \"aXbc\", where X is a funny
+looking character in the UTF-16 \"supplementary plane\", it
+actually means `b', not `c'.  The default value
+`eglot-move-to-utf-16-linepos' accounts for this.
 
-(defun eglot-move-to-column (column)
-  "Move to COLUMN without closely following the LSP spec."
+This variable can also be set to `eglot-move-to-utf-8-linepos' or
+`eglot-move-to-utf-32-linepos' for servers not closely following
+the spec.  Also, since LSP 3.17 server and client may agree on an
+encoding and Eglot will set this variable automatically.")
+
+(defun eglot-move-to-utf-8-linepos (n)
+  "Move to line's Nth byte as computed by LSP's UTF-8 criterion."
+  (let* ((bol (line-beginning-position))
+         (goal-byte (+ (position-bytes bol) n))
+         (eol (line-end-position)))
+    (goto-char bol)
+    (while (and (< (position-bytes (point)) goal-byte) (< (point) eol))
+      ;; raw bytes take 2 bytes in the buffer
+      (when (>= (char-after) #x3fff80) (setq goal-byte (1+ goal-byte)))
+      (forward-char 1))))
+
+(defun eglot-move-to-utf-16-linepos (n)
+  "Move to line's Nth code unit as computed by LSP's UTF-16 criterion."
+  (let* ((bol (line-beginning-position))
+         (goal-char (+ bol n))
+         (eol (line-end-position)))
+    (goto-char bol)
+    (while (and (< (point) goal-char) (< (point) eol))
+      ;; code points in the "supplementary place" use two code units
+      (when (<= #x010000 (char-after) #x10ffff) (setq goal-char (1- goal-char)))
+      (forward-char 1))))
+
+(defun eglot-move-to-utf-32-linepos (n)
+  "Move to line's Nth codepoint as computed by LSP's UTF-32 criterion."
   ;; We cannot use `move-to-column' here, because it moves to *visual*
-  ;; columns, which can be different from LSP columns in case of
+  ;; columns, which can be different from LSP characters in case of
   ;; `whitespace-mode', `prettify-symbols-mode', etc.  (github#296,
   ;; github#297)
-  (goto-char (min (+ (line-beginning-position) column)
+  (goto-char (min (+ (line-beginning-position) n)
                   (line-end-position))))
-
-(defun eglot-move-to-lsp-abiding-column (column)
-  "Move to COLUMN abiding by the LSP spec."
-  (save-restriction
-    (cl-loop
-     with lbp = (line-beginning-position)
-     initially
-     (narrow-to-region lbp (line-end-position))
-     (move-to-column column)
-     for diff = (- column
-                   (eglot-lsp-abiding-column lbp))
-     until (zerop diff)
-     do (condition-case eob-err
-            (forward-char (/ (if (> diff 0) (1+ diff) (1- diff)) 2))
-          (end-of-buffer (cl-return eob-err))))))
 
 (defun eglot--lsp-position-to-point (pos-plist &optional marker)
   "Convert LSP position POS-PLIST to Emacs point.
@@ -1515,16 +1548,17 @@ If optional MARKER, return a marker instead"
       (forward-line (min most-positive-fixnum
                          (plist-get pos-plist :line)))
       (unless (eobp) ;; if line was excessive leave point at eob
-        (let ((tab-width 1)
-              (col (plist-get pos-plist :character)))
+        (let ((col (plist-get pos-plist :character)))
           (unless (wholenump col)
             (eglot--warn
              "Caution: LSP server sent invalid character position %s. Using 0 instead."
              col)
             (setq col 0))
-          (funcall eglot-move-to-column-function col)))
+          (funcall eglot-move-to-linepos-function col)))
       (if marker (copy-marker (point-marker)) (point)))))
 
+
+;;; More helpers
 (defconst eglot--uri-path-allowed-chars
   (let ((vec (copy-sequence url-path-allowed-chars)))
     (aset vec ?: nil) ;; see github#639
@@ -1758,6 +1792,14 @@ Use `eglot-managed-p' to determine if current buffer is managed.")
   :init-value nil :lighter nil :keymap eglot-mode-map
   (cond
    (eglot--managed-mode
+    (pcase (plist-get (eglot--capabilities (eglot-current-server))
+                      :positionEncoding)
+      ("utf-32"
+       (eglot--setq-saving eglot-current-linepos-function #'eglot-utf-32-linepos)
+       (eglot--setq-saving eglot-move-to-linepos-function #'eglot-move-to-utf-32-linepos))
+      ("utf-8"
+       (eglot--setq-saving eglot-current-linepos-function #'eglot-utf-8-linepos)
+       (eglot--setq-saving eglot-move-to-linepos-function #'eglot-move-to-utf-8-linepos)))
     (add-hook 'after-change-functions 'eglot--after-change nil t)
     (add-hook 'before-change-functions 'eglot--before-change nil t)
     (add-hook 'kill-buffer-hook #'eglot--managed-mode-off nil t)
@@ -2591,7 +2633,7 @@ Try to visit the target file for a richer summary line."
                      (add-face-text-property hi-beg hi-end 'xref-match
                                              t substring)
                      (list substring (line-number-at-pos (point) t)
-                           (eglot-current-column) (- end beg))))))
+                           (eglot-utf-32-linepos) (- end beg))))))
        (`(,summary ,line ,column ,length)
         (cond
          (visiting (with-current-buffer visiting (funcall collect)))
@@ -3489,32 +3531,58 @@ If NOERROR, return predicate, else erroring function."
 (defface eglot-parameter-hint-face '((t (:inherit eglot-inlay-hint-face)))
   "Face used for parameter inlay hint overlays.")
 
-(defcustom eglot-lazy-inlay-hints 0.3
-  "If non-nil, restrict LSP inlay hints to visible portion of the buffer.
+(defvar-local eglot--outstanding-inlay-hints-region (cons nil nil)
+  "Jit-lock-calculated (FROM . TO) region with potentially outdated hints")
 
-Value is a number specifying how many seconds to wait after a
-window has been (re)scrolled before requesting new inlay hints
-for the now-visible portion of the buffer shown in the window.
+(defvar-local eglot--outstanding-inlay-hints-last-region nil)
 
-If nil, then inlay hints are requested for the entire buffer.
-This could be slow.
+(defvar-local eglot--outstanding-inlay-regions-timer nil
+  "Helper timer for `eglot--update-hints'")
 
-This value is only meaningful if the minor mode
-`eglot-inlay-hints-mode' is turned on in a buffer."
-  :type 'number
-  :version "29.1")
-
-(defun eglot--inlay-hints-fully ()
-  (eglot--widening (eglot--update-hints-1 (point-min) (point-max))))
-
-(cl-defun eglot--inlay-hints-lazily (&optional (buffer (current-buffer)))
-  (eglot--when-live-buffer buffer
-    (when eglot--managed-mode
-      (dolist (window (get-buffer-window-list nil nil 'visible))
-        (eglot--update-hints-1 (window-start window) (window-end window))))))
+(defun eglot--update-hints (from to)
+  "Jit-lock function for Eglot inlay hints."
+  (cl-symbol-macrolet ((region eglot--outstanding-inlay-hints-region)
+                       (last-region eglot--outstanding-inlay-hints-last-region)
+                       (timer eglot--outstanding-inlay-regions-timer))
+    (setcar region (min (or (car region) (point-max)) from))
+    (setcdr region (max (or (cdr region) (point-min)) to))
+    ;; HACK: We're relying on knowledge of jit-lock internals here.  The
+    ;; condition comparing `jit-lock-context-unfontify-pos' to
+    ;; `point-max' is a heuristic for telling whether this call to
+    ;; `jit-lock-functions' happens after `jit-lock-context-timer' has
+    ;; just run.  Only after this delay should we start the smoothing
+    ;; timer that will eventually call `eglot--update-hints-1' with the
+    ;; coalesced region.  I wish we didn't need the timer, but sometimes
+    ;; a lot of "non-contextual" calls come in all at once and do verify
+    ;; the condition.  Notice it is a 0 second timer though, so we're
+    ;; not introducing any more delay over jit-lock's timers.
+    (when (= jit-lock-context-unfontify-pos (point-max))
+      (if timer (cancel-timer timer))
+      (let ((buf (current-buffer)))
+        (setq timer (run-at-time
+                     0 nil
+                     (lambda ()
+                       (eglot--when-live-buffer buf
+                         ;; HACK: In some pathological situations
+                         ;; (Emacs's own coding.c, for example),
+                         ;; jit-lock is calling `eglot--update-hints'
+                         ;; repeatedly with same sequence of
+                         ;; arguments, which leads to
+                         ;; `eglot--update-hints-1' being called with
+                         ;; the same region repeatedly.  This happens
+                         ;; even if the hint-painting code does
+                         ;; nothing else other than widen, narrow,
+                         ;; move point then restore these things.
+                         ;; Possible Emacs bug, but this fixes it.
+                         (unless (equal last-region region)
+                           (eglot--update-hints-1 (max (car region) (point-min))
+                                                  (min (cdr region) (point-max)))
+                           (setq last-region region))
+                         (setq region (cons nil nil)
+                               timer nil)))))))))
 
 (defun eglot--update-hints-1 (from to)
-  "Request LSP inlay hints and annotate current buffer from FROM to TO."
+  "Do most work for `eglot--update-hints', including LSP request."
   (let* ((buf (current-buffer))
          (paint-hint
           (eglot--lambda ((InlayHint) position kind label paddingLeft paddingRight)
@@ -3522,7 +3590,8 @@ This value is only meaningful if the minor mode
             (let ((ov (make-overlay (point) (point)))
                   (left-pad (and paddingLeft (not (memq (char-before) '(32 9)))))
                   (right-pad (and paddingRight (not (memq (char-after) '(32 9)))))
-                  (text (if (stringp label) label (plist-get label :value))))
+                  (text (if (stringp label)
+                            label (plist-get (elt label 0) :value))))
               (overlay-put ov 'before-string
                            (propertize
                             (concat (and left-pad " ") text (and right-pad " "))
@@ -3545,67 +3614,16 @@ This value is only meaningful if the minor mode
                       (mapc paint-hint hints))))
      :deferred 'eglot--update-hints-1)))
 
-(defun eglot--inlay-hints-after-scroll (window display-start)
-  (cl-macrolet ((wsetq (sym val) `(set-window-parameter window ',sym ,val))
-                (wgetq (sym) `(window-parameter window ',sym)))
-    (let ((buf (window-buffer window))
-          (timer (wgetq eglot--inlay-hints-timer))
-          (last-display-start (wgetq eglot--last-inlay-hint-display-start)))
-      (when (and eglot-lazy-inlay-hints
-                 ;; FIXME: If `window' is _not_ the selected window,
-                 ;; then for some unknown reason probably related to
-                 ;; the overlays added later to the buffer, the scroll
-                 ;; function will be called indefinitely.  Not sure if
-                 ;; an Emacs bug, but prevent useless duplicate calls
-                 ;; by saving and examining `display-start' fixes it.
-                 (not (eql last-display-start display-start)))
-        (when timer (cancel-timer timer))
-        (wsetq eglot--last-inlay-hint-display-start
-               display-start)
-        (wsetq eglot--inlay-hints-timer
-               (run-at-time
-                eglot-lazy-inlay-hints
-                nil (lambda ()
-                      (eglot--when-live-buffer buf
-                        (when (eq buf (window-buffer window))
-                          (eglot--update-hints-1 (window-start window)
-                                                 (window-end window))
-                          (wsetq eglot--inlay-hints-timer nil))))))))))
-
-(defun eglot--inlay-hints-after-window-config-change ()
-  (eglot--update-hints-1 (window-start) (window-end)))
-
 (define-minor-mode eglot-inlay-hints-mode
   "Minor mode for annotating buffers with LSP server's inlay hints."
   :global nil
   (cond (eglot-inlay-hints-mode
-         (cond
-          ((not (eglot--server-capable :inlayHintProvider))
+         (if (eglot--server-capable :inlayHintProvider)
+             (jit-lock-register #'eglot--update-hints 'contextual)
            (eglot--warn
-            "No :inlayHintProvider support. Inlay hints will not work."))
-          (eglot-lazy-inlay-hints
-           (add-hook 'eglot--document-changed-hook
-                     #'eglot--inlay-hints-lazily t t)
-           (add-hook 'window-scroll-functions
-                     #'eglot--inlay-hints-after-scroll nil t)
-           (add-hook 'window-configuration-change-hook
-                     #'eglot--inlay-hints-after-window-config-change nil t)
-           ;; Maybe there isn't a window yet for current buffer,
-           ;; so `run-at-time' ensures this runs after redisplay.
-           (run-at-time 0 nil #'eglot--inlay-hints-lazily))
-          (t
-           (add-hook 'eglot--document-changed-hook
-                     #'eglot--inlay-hints-fully nil t)
-           (eglot--inlay-hints-fully))))
+            "No :inlayHintProvider support. Inlay hints will not work.")))
         (t
-         (remove-hook 'window-configuration-change-hook
-                      #'eglot--inlay-hints-after-window-config-change)
-         (remove-hook 'eglot--document-changed-hook
-                      #'eglot--inlay-hints-lazily t)
-         (remove-hook 'eglot--document-changed-hook
-                      #'eglot--inlay-hints-fully t)
-         (remove-hook 'window-scroll-functions
-                      #'eglot--inlay-hints-after-scroll t)
+         (jit-lock-unregister #'eglot--update-hints)
          (remove-overlays nil nil 'eglot--inlay-hint t))))
 
 
