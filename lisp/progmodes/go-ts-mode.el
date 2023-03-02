@@ -177,12 +177,12 @@
 
    :language 'go
    :feature 'property
-   '((selector_expression field: (field_identifier) @font-lock-property-ref-face)
-     (keyed_element (_ (identifier) @font-lock-property-ref-face)))
+   '((selector_expression field: (field_identifier) @font-lock-property-use-face)
+     (keyed_element (_ (identifier) @font-lock-property-use-face)))
 
    :language 'go
    :feature 'variable
-   '((identifier) @font-lock-variable-ref-face)
+   '((identifier) @font-lock-variable-use-face)
 
    :language 'go
    :feature 'escape-sequence
@@ -393,7 +393,7 @@ what the parent of the node would be if it were a node."
 
     (treesit-major-mode-setup)))
 
-(if (treesit-ready-p 'gomod)
+(if (treesit-language-available-p 'gomod)
     (add-to-list 'auto-mode-alist '("/go\\.mod\\'" . go-mod-ts-mode)))
 
 (provide 'go-ts-mode)

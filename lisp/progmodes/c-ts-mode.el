@@ -88,19 +88,23 @@
   :safe 'integerp
   :group 'c)
 
-(defun c-ts-mode-toggle-comment-style ()
+(defun c-ts-mode-toggle-comment-style (&optional arg)
   "Toggle the comment style between block and line comments.
 Optional numeric ARG, if supplied, switches to block comment
 style when positive, to line comment style when negative, and
 just toggles it when zero or left out."
-  (interactive)
-  (pcase-let ((`(,starter . ,ender)
-               (if (string= comment-start "// ")
-                   (cons "/* " " */")
-                 (cons "// " ""))))
-    (setq-local comment-start starter
-                comment-end ender))
-  (c-ts-mode-set-modeline))
+  (interactive "P")
+  (let ((prevstate-line (string= comment-start "// ")))
+    (when (or (not arg)
+              (zerop (setq arg (prefix-numeric-value arg)))
+              (xor (> 0 arg) prevstate-line))
+      (pcase-let ((`(,starter . ,ender)
+                   (if prevstate-line
+                       (cons "/* " " */")
+                     (cons "// " ""))))
+        (setq-local comment-start starter
+                    comment-end ender))
+      (c-ts-mode-set-modeline))))
 
 (defun c-ts-mode-set-modeline ()
   (setq mode-name
@@ -253,7 +257,7 @@ is actually the parent of point at the moment of indentation."
         0
       c-ts-mode-indent-offset)))
 
-(defun c-ts-mode--anchor-prev-sibling (node &rest _)
+(defun c-ts-mode--anchor-prev-sibling (node parent bol &rest _)
   "Return the start of the previous named sibling of NODE.
 
 This anchor handles the special case where the previous sibling
@@ -269,8 +273,14 @@ The anchor of \"int y = 2;\" should be \"int x = 1;\" rather than
 the labeled_statement.
 
 Return nil if a) there is no prev-sibling, or 2) prev-sibling
-doesn't have a child."
-  (when-let ((prev-sibling (treesit-node-prev-sibling node t)))
+doesn't have a child.
+
+PARENT and BOL are like other anchor functions."
+  (when-let ((prev-sibling
+              (or (treesit-node-prev-sibling node t)
+                  (treesit-node-prev-sibling
+                   (treesit-node-first-child-for-pos parent bol) t)
+                  (treesit-node-child parent -1 t))))
     (while (and prev-sibling
                 (equal "labeled_statement"
                        (treesit-node-type prev-sibling)))
@@ -346,17 +356,17 @@ MODE is either `c' or `cpp'."
 
            ;; int[5] a = { 0, 0, 0, 0 };
            ((match nil "initializer_list" nil 1 1) parent-bol c-ts-mode-indent-offset)
-           ((match nil "initializer_list" nil 2) c-ts-mode--anchor-prev-sibling 0)
+           ((parent-is "initializer_list") c-ts-mode--anchor-prev-sibling 0)
            ;; Statement in enum.
            ((match nil "enumerator_list" nil 1 1) standalone-parent c-ts-mode-indent-offset)
-           ((match nil "enumerator_list" nil 2) c-ts-mode--anchor-prev-sibling 0)
+           ((parent-is "enumerator_list") c-ts-mode--anchor-prev-sibling 0)
            ;; Statement in struct and union.
            ((match nil "field_declaration_list" nil 1 1) standalone-parent c-ts-mode-indent-offset)
-           ((match nil "field_declaration_list" nil 2) c-ts-mode--anchor-prev-sibling 0)
+           ((parent-is "field_declaration_list") c-ts-mode--anchor-prev-sibling 0)
 
            ;; Statement in {} blocks.
            ((match nil "compound_statement" nil 1 1) standalone-parent c-ts-mode-indent-offset)
-           ((match nil "compound_statement" nil 2) c-ts-mode--anchor-prev-sibling 0)
+           ((parent-is "compound_statement") c-ts-mode--anchor-prev-sibling 0)
            ;; Opening bracket.
            ((node-is "compound_statement") standalone-parent c-ts-mode-indent-offset)
            ;; Bug#61291.
@@ -547,7 +557,7 @@ MODE is either `c' or `cpp'."
    '((assignment_expression
       left: (identifier) @font-lock-variable-name-face)
      (assignment_expression
-      left: (field_expression field: (_) @font-lock-property-ref-face))
+      left: (field_expression field: (_) @font-lock-property-use-face))
      (assignment_expression
       left: (pointer_expression
              (identifier) @font-lock-variable-name-face))
@@ -583,7 +593,7 @@ MODE is either `c' or `cpp'."
 
    :language mode
    :feature 'property
-   '((field_identifier) @font-lock-property-ref-face)
+   '((field_identifier) @font-lock-property-use-face)
 
    :language mode
    :feature 'bracket
@@ -660,7 +670,7 @@ OVERRIDE, START, END, and ARGS, see `treesit-font-lock-rules'."
                     "call_expression"))
     (treesit-fontify-with-override
      (treesit-node-start node) (treesit-node-end node)
-     'font-lock-variable-ref-face override start end)))
+     'font-lock-variable-use-face override start end)))
 
 (defun c-ts-mode--fontify-defun (node override start end &rest _)
   "Correctly fontify the DEFUN macro.
