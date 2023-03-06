@@ -284,20 +284,50 @@ PARENT and BOL are like other anchor functions."
                    (treesit-node-first-child-for-pos parent bol) t)
                   (treesit-node-child parent -1 t)))
              (continue t))
-    (while (and prev-sibling continue)
-      (pcase (treesit-node-type prev-sibling)
-        ;; Get the statement in the label.
-        ("labeled_statement"
-         (setq prev-sibling (treesit-node-child prev-sibling 2)))
-        ;; Get the last statement in the preproc.  Tested by
-        ;; "Prev-Sibling When Prev-Sibling is Preproc" test.
-        ((or "preproc_if" "preproc_ifdef" "preproc_elif" "preproc_else")
-         (setq prev-sibling (treesit-node-child prev-sibling -2)))
-        ;; Don't do anything special.
-        (_ (setq continue nil))))
+    (save-excursion
+      (while (and prev-sibling continue)
+        (pcase (treesit-node-type prev-sibling)
+          ;; Get the statement in the label.
+          ("labeled_statement"
+           (setq prev-sibling (treesit-node-child prev-sibling 2)))
+          ;; Get the last statement in the preproc.  Tested by
+          ;; "Prev-Sibling When Prev-Sibling is Preproc" test.
+          ((or "preproc_if" "preproc_ifdef")
+           (setq prev-sibling (treesit-node-child prev-sibling -2)))
+          ((or "preproc_elif" "preproc_else")
+           (setq prev-sibling (treesit-node-child prev-sibling -1)))
+          ((or "#elif" "#else")
+           (setq prev-sibling (treesit-node-prev-sibling
+                               (treesit-node-parent prev-sibling) t)))
+          ;; If the start of the previous sibling isn't at the
+          ;; beginning of a line, something's probably not quite
+          ;; right, go a step further.
+          (_ (goto-char (treesit-node-start prev-sibling))
+             (if (looking-back (rx bol (* whitespace))
+                               (line-beginning-position))
+                 (setq continue nil)
+               (setq prev-sibling
+                     (treesit-node-prev-sibling prev-sibling)))))))
     ;; This could be nil if a) there is no prev-sibling or b)
     ;; prev-sibling doesn't have a child.
     (treesit-node-start prev-sibling)))
+
+(defun c-ts-mode--standalone-parent-skip-preproc (_n parent &rest _)
+  "Like the standalone-parent anchor but skips preproc nodes.
+PARENT is the same as other anchor functions."
+  (save-excursion
+    (treesit-node-start
+     (treesit-parent-until
+      ;; Use PARENT rather than NODE, to handle the case where NODE is
+      ;; nil.
+      parent (lambda (node)
+               (and node
+                    (not (string-match "preproc" (treesit-node-type node)))
+                    (progn
+                      (goto-char (treesit-node-start node))
+                      (looking-back (rx bol (* whitespace))
+                                    (line-beginning-position)))))
+      t))))
 
 (defun c-ts-mode--standalone-grandparent (_node parent bol &rest args)
   "Like the standalone-parent anchor but pass it the grandparent.
@@ -309,8 +339,8 @@ PARENT, BOL, ARGS are the same as other anchor functions."
   "Indent rules supported by `c-ts-mode'.
 MODE is either `c' or `cpp'."
   (let ((common
-         `(((parent-is "translation_unit") point-min 0)
-           ((query "(ERROR (ERROR)) @indent") point-min 0)
+         `(((parent-is "translation_unit") column-0 0)
+           ((query "(ERROR (ERROR)) @indent") column-0 0)
            ((node-is ")") parent 1)
            ((node-is "]") parent-bol 0)
            ((node-is "else") parent-bol 0)
@@ -330,13 +360,28 @@ MODE is either `c' or `cpp'."
            ((parent-is "labeled_statement")
             c-ts-mode--standalone-grandparent c-ts-mode-indent-offset)
 
-           ((node-is "preproc") point-min 0)
-           ((node-is "#endif") point-min 0)
-           ((match "preproc_call" "compound_statement") point-min 0)
+           ;; Preproc directives
+           ((node-is "preproc") column-0 0)
+           ((node-is "#endif") column-0 0)
+           ((match "preproc_call" "compound_statement") column-0 0)
 
-           ((n-p-gp nil "preproc" "translation_unit") point-min 0)
-           ((n-p-gp nil "\n" "preproc") great-grand-parent c-ts-mode--preproc-offset)
-           ((parent-is "preproc") grand-parent c-ts-mode-indent-offset)
+           ;; Top-level things under a preproc directive.  Note that
+           ;; "preproc" matches more than one type: it matches
+           ;; preproc_if, preproc_elif, etc.
+           ((n-p-gp nil "preproc" "translation_unit") column-0 0)
+           ;; Indent rule for an empty line after a preproc directive.
+           ((and no-node (parent-is ,(rx (or "\n" "preproc"))))
+            c-ts-mode--standalone-parent-skip-preproc c-ts-mode--preproc-offset)
+           ;; Statement under a preproc directive, the first statement
+           ;; indents against parent, the rest statements indent to
+           ;; their prev-sibling.
+           ((match nil ,(rx "preproc_" (or "if" "elif")) nil 3 3)
+            c-ts-mode--standalone-parent-skip-preproc c-ts-mode-indent-offset)
+           ((match nil "preproc_ifdef" nil 2 2)
+            c-ts-mode--standalone-parent-skip-preproc c-ts-mode-indent-offset)
+           ((match nil "preproc_else" nil 1 1)
+            c-ts-mode--standalone-parent-skip-preproc c-ts-mode-indent-offset)
+           ((parent-is "preproc") c-ts-mode--anchor-prev-sibling 0)
 
            ((parent-is "function_definition") parent-bol 0)
            ((parent-is "conditional_expression") first-sibling 0)
@@ -392,14 +437,14 @@ MODE is either `c' or `cpp'."
     `((gnu
        ;; Prepend rules to set highest priority
        ((match "while" "do_statement") parent 0)
-       (c-ts-mode--top-level-label-matcher point-min 1)
+       (c-ts-mode--top-level-label-matcher column-0 1)
        ,@common)
       (k&r ,@common)
       (linux
        ;; Reference:
        ;; https://www.kernel.org/doc/html/latest/process/coding-style.html,
        ;; and script/Lindent in Linux kernel repository.
-       ((node-is "labeled_statement") point-min 0)
+       ((node-is "labeled_statement") column-0 0)
        ,@common)
       (bsd
        ((node-is "}") parent-bol 0)
