@@ -2,12 +2,11 @@
 
 ;; Copyright (C) 2018-2023 Free Software Foundation, Inc.
 
-;; Version: 1.12
+;; Version: 1.12-emacs29
 ;; Author: João Távora <joaotavora@gmail.com>
 ;; Maintainer: João Távora <joaotavora@gmail.com>
 ;; URL: https://github.com/joaotavora/eglot
 ;; Keywords: convenience, languages
-;; Package-Requires: ((emacs "26.3") (jsonrpc "1.0.16") (flymake "1.2.1") (project "0.9.8") (xref "1.6.2") (eldoc "1.11.0") (seq "2.23") (external-completion "0.1"))
 
 ;; This is a GNU ELPA :core package.  Avoid adding functionality
 ;; that is not available in the version of Emacs recorded above or any
@@ -3372,7 +3371,7 @@ at point.  With prefix argument, prompt for ACTION-KIND."
   `(defun ,name (beg &optional end)
      ,(format "Execute `%s' code actions between BEG and END." kind)
      (interactive (eglot--region-bounds))
-     (eglot-code-actions beg end ,kind)))
+     (eglot-code-actions beg end ,kind t)))
 
 (eglot--code-action eglot-code-action-organize-imports "source.organizeImports")
 (eglot--code-action eglot-code-action-extract "refactor.extract")
@@ -3655,13 +3654,11 @@ If NOERROR, return predicate, else erroring function."
 
 ;;; Hacks
 ;;;
-;; FIXME: Although desktop.el compatibility is Emacs bug#56407, the
-;; optimal solution agreed to there is a bit more work than what I
-;; have time to right now.  See
-;; e.g. https://debbugs.gnu.org/cgi/bugreport.cgi?bug=bug%2356407#68.
-;; For now, just use `with-eval-after-load'
+;; Emacs bug#56407, the optimal solution is in desktop.el, but that's
+;; harder. For now, use `with-eval-after-load'. See also github#1183.
 (with-eval-after-load 'desktop
-  (add-to-list 'desktop-minor-mode-handlers '(eglot--managed-mode . ignore)))
+  (add-to-list 'desktop-minor-mode-handlers '(eglot--managed-mode . ignore))
+  (add-to-list 'desktop-minor-mode-handlers '(eglot-inlay-hints-mode . ignore)))
 
 
 ;;; Misc
