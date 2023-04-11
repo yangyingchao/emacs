@@ -2584,8 +2584,8 @@ merge_face_ref (struct window *w,
 	    }
 	  else
 	    {
-	      if (err_msgs)
-		add_to_log ("Invalid face color %S", color_name);
+	      /* if (err_msgs) */
+	      /*   add_to_log ("Invalid face color %S", color_name); */
 	      ok = false;
 	    }
 	}
