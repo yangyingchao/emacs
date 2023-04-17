@@ -3156,6 +3156,13 @@ treesit_search_forward (TSTreeCursor *cursor,
     }
 }
 
+/* Cleanup function for cursor.  */
+static void
+treesit_traverse_cleanup_cursor(void *cursor)
+{
+  ts_tree_cursor_delete ((TSTreeCursor *) cursor);
+}
+
 DEFUN ("treesit-search-subtree",
        Ftreesit_search_subtree,
        Streesit_search_subtree, 2, 5, 0,
@@ -3197,14 +3204,17 @@ Return the first matched node, or nil if none matches.  */)
   if (!treesit_cursor_helper (&cursor, XTS_NODE (node)->node, parser))
     return return_value;
 
+  specpdl_ref count = SPECPDL_INDEX ();
+  record_unwind_protect_ptr (treesit_traverse_cleanup_cursor, &cursor);
+
   if (treesit_search_dfs (&cursor, predicate, parser, NILP (backward),
 			  NILP (all), the_limit, false))
     {
       TSNode node = ts_tree_cursor_current_node (&cursor);
       return_value = make_treesit_node (parser, node);
     }
-  ts_tree_cursor_delete (&cursor);
-  return return_value;
+
+  return unbind_to (count, return_value);
 }
 
 DEFUN ("treesit-search-forward",
@@ -3254,14 +3264,17 @@ always traverse leaf nodes first, then upwards.  */)
   if (!treesit_cursor_helper (&cursor, XTS_NODE (start)->node, parser))
     return return_value;
 
+  specpdl_ref count = SPECPDL_INDEX ();
+  record_unwind_protect_ptr (treesit_traverse_cleanup_cursor, &cursor);
+
   if (treesit_search_forward (&cursor, predicate, parser,
 			      NILP (backward), NILP (all)))
     {
       TSNode node = ts_tree_cursor_current_node (&cursor);
       return_value = make_treesit_node (parser, node);
     }
-  ts_tree_cursor_delete (&cursor);
-  return return_value;
+
+  return unbind_to (count, return_value);
 }
 
 /* Recursively traverse the tree under CURSOR, and append the result
@@ -3376,9 +3389,14 @@ a regexp.  */)
      to use treesit_cursor_helper.  */
   TSTreeCursor cursor = ts_tree_cursor_new (XTS_NODE (root)->node);
 
+  specpdl_ref count = SPECPDL_INDEX ();
+  record_unwind_protect_ptr (treesit_traverse_cleanup_cursor, &cursor);
+
   treesit_build_sparse_tree (&cursor, parent, predicate, process_fn,
 			     the_limit, parser);
-  ts_tree_cursor_delete (&cursor);
+
+  unbind_to (count, Qnil);
+
   Fsetcdr (parent, Fnreverse (Fcdr (parent)));
   if (NILP (Fcdr (parent)))
     return Qnil;
