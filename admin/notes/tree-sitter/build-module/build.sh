@@ -15,29 +15,6 @@ case $(uname) in
         ;;
 esac
 
-die ()
-{
-    set +xe
-    >&2 echo ""
-    >&2 echo "================================ DIE ==============================="
-
-    >&2 echo "$@"
-
-    >&2 echo "Call stack:"
-    local n=$((\${#BASH_LINENO[@]}-1))
-    local i=0
-    while [ $i -lt $n ]; do
-        local line=\${BASH_LINENO[i]}
-        local func=\${FUNCNAME[i+1]}
-
-        i=$((i+1))
-
-        >&2 echo "    [$i] -- line $line -- $func"
-    done
-    >&2  echo "================================ END ==============================="
-    exit 1
-}
-
 echo "Building ${lang}"
 
 ### Retrieve sources
@@ -123,4 +100,3 @@ fi
 
 cp -aRfv "libtree-sitter-${lang}.${soext}" ~/.local/lib/
 cd "${topdir}"
-
