@@ -74,10 +74,11 @@ and Italian.")))
 	    (coding-priority utf-8 iso-8859-6 windows-1256)
 	    (input-method . "farsi-transliterate-banan")
 	    (sample-text . "Persian	فارسی")
-	    (documentation . "Bidirectional editing is supported.")))
+	    (documentation . "Bidirectional editing is supported.")
+            (tutorial . "TUTORIAL.fa")))
 
 (defcustom arabic-shaper-ZWNJ-handling nil
-  "How to handle ZWMJ in Arabic text rendering.
+  "How to handle ZWNJ (Zero-width Non-Joiner) in Arabic text rendering.
 This variable controls the way to handle a glyph for ZWNJ
 returned by the underling shaping engine.
 
@@ -343,6 +344,17 @@ language environment."))
 ;; Traditional Mongolian
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;; The Mongolian-cyrillic language environment is in cyrillic.el.
+(set-language-info-alist
+ "Mongolian-traditional" '((coding-system utf-8)
+	                   (coding-priority utf-8)
+	                   ; (input-method . "FIXME")
+		           (sample-text . "Mongolian Traditional (ᠮᠣᠩᠭᠣᠯ ᠪᠢᠴᠢᠭ᠋)	ᠰᠠᠶᠢᠨ ᠪᠠᠶᠢᠨ᠎ᠠ ᠤᠤ?")
+	                   (documentation
+		            . "Support for Mongolian language with traditional script."))
+ '("Misc"))
+
+;; Composition rules for Mongolian Traditional script.
 (set-char-table-range
  composition-function-table
  '(#x1820 . #x18AF)
@@ -351,7 +363,6 @@ language environment."))
        (vector "[\u1820-\u18AF][\u200C\u200D]" 0 'font-shape-gstring)
        (vector "[\u1820-\u18AF\u202F\u180B-\u180F\u1807]+"
                0 'font-shape-gstring)))
-
 
 (provide 'misc-lang)
 
