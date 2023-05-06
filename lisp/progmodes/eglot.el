@@ -1966,6 +1966,19 @@ If it is activated, also signal textDocument/didOpen."
        (declare (obsolete info "29.1"))
        (interactive) (info "(eglot)"))
 
+;;;###autoload
+(defun eglot-upgrade-eglot (&rest _) "Update Eglot to latest version."
+  (interactive)
+  (with-no-warnings
+    (require 'package)
+    (unless package-archive-contents (package-refresh-contents))
+    (when-let ((existing (cadr (assoc 'eglot package-alist))))
+      (package-delete existing t))
+    (package-install (cadr (assoc 'eglot package-archive-contents)))))
+
+;;;###autoload
+(define-obsolete-function-alias 'eglot-update 'eglot-upgrade-eglot "29.1")
+
 (easy-menu-define eglot-menu nil "Eglot"
   `("Eglot"
     ;; Commands for getting information and customization.
@@ -3056,8 +3069,7 @@ for which LSP on-type-formatting should be requested."
                         (funcall snippet-fn (or insertText label))))
                  (when (cl-plusp (length additionalTextEdits))
                    (eglot--apply-text-edits additionalTextEdits)))
-               (eglot--signal-textDocument/didChange)
-               (eldoc)))))))))
+               (eglot--signal-textDocument/didChange)))))))))
 
 (defun eglot--hover-info (contents &optional _range)
   (mapconcat #'eglot--format-markup
@@ -3664,7 +3676,19 @@ If NOERROR, return predicate, else erroring function."
      :success-fn (lambda (hints)
                    (eglot--when-live-buffer buf
                      (eglot--widening
-                      (remove-overlays from to 'eglot--inlay-hint t)
+                      ;; Overlays ending right at FROM with an
+                      ;; `after-string' property logically belong to
+                      ;; the (FROM TO) region.  Likewise, such
+                      ;; overlays ending at TO don't logically belong
+                      ;; to it.
+                      (dolist (o (overlays-in (1- from) to))
+                        (when (and (overlay-get o 'eglot--inlay-hint)
+                                   (cond ((eq (overlay-end o) from)
+                                          (overlay-get o 'after-string))
+                                         ((eq (overlay-end o) to)
+                                          (overlay-get o 'before-string))
+                                         (t)))
+                          (delete-overlay o)))
                       (mapc paint-hint hints))))
      :deferred 'eglot--update-hints-1)))
 
