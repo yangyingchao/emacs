@@ -32,6 +32,17 @@ YOSHIDA <syohex@gmail.com>, which can be found at:
 
 #include <sqlite3.h>
 
+/* Support for loading SQLite extensions requires the ability to
+   enable and disable loading of extensions (by default this is
+   disabled, and we want to keep it that way).  The required macro is
+   available since SQLite 3.13.  */
+# if defined HAVE_SQLITE3_LOAD_EXTENSION && \
+     defined SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION
+#  define HAVE_LOAD_EXTENSION 1
+# else
+#  define HAVE_LOAD_EXTENSION 0
+# endif
+
 #ifdef WINDOWSNT
 
 # include <windows.h>
@@ -77,7 +88,7 @@ DEF_DLL_FN (SQLITE_API int, sqlite3_exec,
 DEF_DLL_FN (SQLITE_API int, sqlite3_prepare_v2,
 	    (sqlite3*, const char*, int, sqlite3_stmt**, const char**));
 
-# ifdef HAVE_SQLITE3_LOAD_EXTENSION
+# if HAVE_LOAD_EXTENSION
 DEF_DLL_FN (SQLITE_API int, sqlite3_load_extension,
 	    (sqlite3*, const char*, const char*, char**));
 #  undef sqlite3_load_extension
@@ -175,7 +186,7 @@ load_dll_functions (HMODULE library)
   LOAD_DLL_FN (library, sqlite3_column_text);
   LOAD_DLL_FN (library, sqlite3_column_name);
   LOAD_DLL_FN (library, sqlite3_exec);
-# ifdef HAVE_SQLITE3_LOAD_EXTENSION
+# if HAVE_LOAD_EXTENSION
   LOAD_DLL_FN (library, sqlite3_load_extension);
   LOAD_DLL_FN (library, sqlite3_db_config);
 # endif
@@ -675,7 +686,7 @@ DEFUN ("sqlite-pragma", Fsqlite_pragma, Ssqlite_pragma, 2, 2, 0,
 		      SSDATA (concat2 (build_string ("PRAGMA "), pragma)));
 }
 
-#ifdef HAVE_SQLITE3_LOAD_EXTENSION
+#if HAVE_LOAD_EXTENSION
 DEFUN ("sqlite-load-extension", Fsqlite_load_extension,
        Ssqlite_load_extension, 2, 2, 0,
        doc: /* Load an SQlite MODULE into DB.
@@ -719,10 +730,12 @@ Only modules on Emacs' list of allowed modules can be loaded.  */)
   bool do_allow = false;
   for (const char **allow = allowlist; *allow; allow++)
     {
-      if (strlen (*allow) < strlen (name)
-	  && !strncmp (*allow, name, strlen (*allow))
-	  && (!strcmp (name + strlen (*allow), ".so")
-	      || !strcasecmp (name + strlen (*allow), ".dll")))
+      ptrdiff_t allow_len = strlen (*allow);
+      if (allow_len < strlen (name)
+	  && !strncmp (*allow, name, allow_len)
+	  && (!strcmp (name + allow_len, ".so")
+	      ||!strcmp (name + allow_len, ".dylib")
+	      || !strcasecmp (name + allow_len, ".dll")))
 	{
 	  do_allow = true;
 	  break;
@@ -750,7 +763,7 @@ Only modules on Emacs' list of allowed modules can be loaded.  */)
     }
   return Qnil;
 }
-#endif /* HAVE_SQLITE3_LOAD_EXTENSION */
+#endif /* HAVE_LOAD_EXTENSION */
 
 DEFUN ("sqlite-next", Fsqlite_next, Ssqlite_next, 1, 1, 0,
        doc: /* Return the next result set from SET.
@@ -860,7 +873,7 @@ syms_of_sqlite (void)
   defsubr (&Ssqlite_commit);
   defsubr (&Ssqlite_rollback);
   defsubr (&Ssqlite_pragma);
-#ifdef HAVE_SQLITE3_LOAD_EXTENSION
+#if HAVE_LOAD_EXTENSION
   defsubr (&Ssqlite_load_extension);
 #endif
   defsubr (&Ssqlite_next);

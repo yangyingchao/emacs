@@ -91,24 +91,6 @@ available, and includes support for animated WebP images.  To disable
 WebP support, use the '--without-webp' configure flag.  Image
 specifiers can now use ':type webp'.
 
-+++
-** Emacs has been ported to the Haiku operating system.
-The configuration process should automatically detect and build for
-Haiku.  There is also an optional window-system port to Haiku, which
-can be enabled by configuring Emacs with the option '--with-be-app',
-which will require the Haiku Application Kit development headers and a
-C++ compiler to be present on your system.  If Emacs is not built with
-the option '--with-be-app', the resulting Emacs will only run in
-text-mode terminals.
-
-To enable Cairo support, ensure that the Cairo and FreeType
-development files are present on your system, and configure Emacs with
-'--with-be-cairo'.
-
-Unlike X, there is no compile-time option to enable or disable
-double-buffering; it is always enabled.  To disable it, change the
-frame parameter 'inhibit-double-buffering' instead.
-
 ---
 ** Emacs now installs the ".pdmp" file using a unique fingerprint in the name.
 The file is typically installed using a file name akin to
@@ -126,6 +108,16 @@ option '--without-xinput2' to disable this support.
 '(featurep 'xinput2)' can be used to test for the presence of XInput 2
 support from Lisp programs.
 
+---
+** Emacs can now be optionally built with the Cairo XCB backend.
+Configure Emacs with the '--with-cairo-xcb' option to use the Cairo
+XCB backend; the default is not to use it.  This backend makes Emacs
+moderately faster when running over X connections with high latency,
+but is currently known to crash when Emacs repeatedly closes and opens
+a display connection to the same terminal; this could happen, for
+example, if you repeatedly visit files via emacsclient in a single
+client frame, each time deleting the frame with 'C-x C-c'.
+
 +++
 ** Emacs now supports being built with pure GTK.
 To use this option, make sure the GTK 3 (version 3.22.23 or later) and
@@ -140,9 +132,27 @@ various issues with keyboard input of sequences such as 'C-;' and
 'C-S-u'.
 
 Note that, unlike the X build of Emacs, the PGTK build cannot
-automatically switch to text-mode interface (thus emulating -nw) if it
-cannot determine the default display; it will instead complain and ask
-you to invoke it with the explicit -nw option.
+automatically switch to text-mode interface (thus emulating '-nw') if
+it cannot determine the default display; it will instead complain and
+ask you to invoke it with the explicit '-nw' option.
+
++++
+** Emacs has been ported to the Haiku operating system.
+The configuration process should automatically detect and build for
+Haiku.  There is also an optional window-system port to Haiku, which
+can be enabled by configuring Emacs with the option '--with-be-app',
+which will require the Haiku Application Kit development headers and a
+C++ compiler to be present on your system.  If Emacs is not built with
+the option '--with-be-app', the resulting Emacs will only run in
+text-mode terminals.
+
+To enable Cairo support, ensure that the Cairo and FreeType
+development files are present on your system, and configure Emacs with
+'--with-be-cairo'.
+
+Unlike X, there is no compile-time option to enable or disable
+double-buffering; it is always enabled.  To disable it, change the
+frame parameter 'inhibit-double-buffering' instead.
 
 ---
 ** Emacs no longer reduces the size of the Japanese dictionary.
@@ -1683,6 +1693,13 @@ the following to your Init file:
 This command visits the file on the current line with EWW.
 
 ---
+*** 'browse-url-of-dired-file' can now call the secondary browser.
+When invoked with a prefix arg, this will now call
+'browse-url-secondary-browser-function' instead of the default
+browser.  'browse-url-of-dired-file' is bound to 'W' by default in
+dired mode.
+
+---
 *** New user option 'dired-omit-lines'.
 This is used by 'dired-omit-mode', and now allows you to hide based on
 other things than just the file names.
@@ -1759,7 +1776,7 @@ or can take a long time to render.
 +++
 *** New command 'enriched-toggle-markup'.
 This allows you to see the markup in 'enriched-mode' buffers (e.g.,
-the "HELLO" file).
+the "HELLO" file).  Bound to 'M-o m' by default.
 
 ** Shell Script Mode
 
@@ -1869,7 +1886,9 @@ These commands can be useful if the ".elc" files are out of date
 +++
 *** New DWIM action on 'x' in "*Packages*" buffer.
 If no packages are marked, 'x' will install the package under point if
-it isn't already, and remove it if it is installed.
+it isn't already, and remove it if it is installed.  Customize the new
+option 'package-menu-use-current-if-no-marks' to the nil value to get
+back the old behavior of signaling an error in that case.
 
 +++
 *** New command 'package-vc-install'.
