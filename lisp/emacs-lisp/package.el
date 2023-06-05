@@ -739,7 +739,7 @@ description file containing a call to `define-package', which
 updates `package-alist'."
   (dolist (dir (cons package-user-dir package-directory-list))
     (when (file-directory-p dir)
-      (dolist (pkg-dir (directory-files dir t "\\`[^.]" t))
+      (dolist (pkg-dir (directory-files dir t "\\`[^.]"))
         (when (file-directory-p pkg-dir)
           (package-load-descriptor pkg-dir))))))
 
@@ -3769,8 +3769,8 @@ object corresponding to the newer version."
         (and avail-pkg
              (version-list-< (package-desc-priority-version pkg-desc)
                              (package-desc-priority-version avail-pkg))
-             (xor (not package-install-upgrade-built-in)
-                  (package--active-built-in-p pkg-desc))
+             (or (not (package--active-built-in-p pkg-desc))
+                 package-install-upgrade-built-in)
              (push (cons name avail-pkg) upgrades))))
     upgrades))
 
