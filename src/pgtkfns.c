@@ -1794,7 +1794,7 @@ Some window managers may refuse to restack windows.  */)
 
 #ifdef HAVE_GSETTINGS
 
-#define RESOURCE_KEY_MAX_LEN 128
+#define RESOURCE_KEY_MAX_LEN 256
 #define SCHEMA_ID "org.gnu.emacs.defaults"
 #define PATH_FOR_CLASS_TYPE "/org/gnu/emacs/defaults-by-class/"
 #define PATH_PREFIX_FOR_NAME_TYPE "/org/gnu/emacs/defaults-by-name/"
@@ -1924,7 +1924,7 @@ pgtk_get_defaults_value (const char *key)
   char skey[(RESOURCE_KEY_MAX_LEN + 1) * 2];
 
   if (strlen (key) >= RESOURCE_KEY_MAX_LEN)
-    error ("resource key too long.");
+    error ("resource key too long, key: %s, len: %d.", key, (int)strlen(key));
 
   GSettings *gs = parse_resource_key (key, skey);
   if (gs == NULL)
@@ -1954,7 +1954,7 @@ pgtk_set_defaults_value (const char *key, const char *value)
   char skey[(RESOURCE_KEY_MAX_LEN + 1) * 2];
 
   if (strlen (key) >= RESOURCE_KEY_MAX_LEN)
-    error ("resource key too long.");
+    error ("resource key too long, key: %s, len: %d.", key, (int)strlen(key));
 
   GSettings *gs = parse_resource_key (key, skey);
   if (gs == NULL)
