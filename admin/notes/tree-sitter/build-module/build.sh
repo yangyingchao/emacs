@@ -51,6 +51,9 @@ case "${lang}" in
     "elisp")
         org="Wilfred"
         ;;
+    "meson")
+        org="Decodetalkers"
+        ;;
 esac
 
 repo_dir=${topdir}/../${repo}
