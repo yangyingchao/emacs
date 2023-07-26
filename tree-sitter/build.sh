@@ -10,10 +10,16 @@
 ###   -l, --lib  Build treesitter library only.
 ###   -a, --all  Build all languages.
 ###   -A, --ALL  Build library & all languages.
+###   -u, --update Update to latest tag
 ###
 ### More parses can be found in:
 ###   https://github.com/tree-sitter/tree-sitter/blob/master/docs/index.md
 ###
+
+help()
+{
+    sed -rn 's/^### ?//;T;p' "$0"
+}
 
 TOPDIR=$(dirname `realpath $0`)
 
@@ -55,7 +61,7 @@ die ()
 build-tree-sitter ()
 {
     echo "Building tree-sitter.."
-    pushd tree-sitter
+    pushd ${TOPDIR}/tree-sitter
     git reset HEAD --hard
     git pull
     make -j8
@@ -68,6 +74,8 @@ build-tree-sitter ()
 build-language ()
 {
     [ $# -ne 1 ] && die "Usage: build-language language."
+
+    pushd ${TOPDIR}
 
     local lang=$1
     local sourcedir="tree-sitter-${lang}/src"
@@ -182,7 +190,15 @@ build-all-langs ()
     done
 }
 
-pushd ${TOPDIR}
+update-to-lastest-tag ()
+{
+    if [[ "$PWD" =~ cmake ]]; then
+        echo "Skip cmake: latest version does not work with emacs!"
+        return;
+    fi
+
+    git checkout $(git describe --tags $(git rev-list --tags --max-count=1))
+}
 
 while [ $# -ne 0 ]; do
     case "$1" in
@@ -199,6 +215,13 @@ while [ $# -ne 0 ]; do
             build-all-languages || die "Failed to build parser."
             exit $?
             ;;
+        -u|--update)
+            git submodule foreach $0 -U
+            build-tree-sitter
+            build-all-languages
+            ;;
+        -U) # internal only
+            update-to-lastest-tag ;;
         *)
             if [[ $1 = -* ]]; then
                 echo "Unrecognized opt: $1"
@@ -211,6 +234,8 @@ while [ $# -ne 0 ]; do
 
     shift
 done
+
+pushd ${TOPDIR}
 
 for lang in $@; do
     build-language ${lang}
