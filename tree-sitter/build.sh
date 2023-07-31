@@ -192,11 +192,6 @@ build-all-langs ()
 
 update-to-lastest-tag ()
 {
-    if [[ "$PWD" =~ cmake ]]; then
-        echo "Skip cmake: latest version does not work with emacs!"
-        return;
-    fi
-
     git checkout $(git describe --tags $(git rev-list --tags --max-count=1))
 }
 
