@@ -207,13 +207,13 @@ while [ $# -ne 0 ]; do
             ;;
         -A|--ALL)
             build-tree-sitter || die "Failed to build tree-sitter library."
-            build-all-languages || die "Failed to build parser."
+            build-all-langs || die "Failed to build parser."
             exit $?
             ;;
         -u|--update)
             git submodule foreach $0 -U
             build-tree-sitter
-            build-all-languages
+            build-all-langs
             ;;
         -U) # internal only
             update-to-lastest-tag ;;
