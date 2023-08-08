@@ -60,7 +60,7 @@ die ()
 
 build-tree-sitter ()
 {
-    echo "Building tree-sitter.."
+    echo "======================== Building tree-sitter ========================"
     pushd ${TOPDIR}/tree-sitter
     git reset HEAD --hard
     git pull
@@ -83,7 +83,7 @@ build-language ()
     local repo="tree-sitter-${lang}"
     local org="tree-sitter"
 
-    echo "Building language $lang"
+    echo "======================== Building language $lang ========================"
 
     case "${lang}" in
         "dockerfile")
@@ -142,7 +142,6 @@ build-language ()
     pushd "${sourcedir}" || die "Failed to change directory to ${sourcedir}"
 
     ### Build
-
     cc -fPIC -c -I. parser.c
     [ -f scanner.c ] && cc -fPIC -c -I. scanner.c
     [ -f scanner.cc ] && c++ -fPIC -I. -c scanner.cc
@@ -152,9 +151,10 @@ build-language ()
             || cc -fPIC -shared *.o -o "libtree-sitter-${lang}.${soext}"
 
     # Copy out
-
     cp -aRfv "libtree-sitter-${lang}.${soext}" ~/.local/lib/
     popd
+
+    echo ""
 }
 
 build-all-langs ()
@@ -192,7 +192,10 @@ build-all-langs ()
 
 update-to-lastest-tag ()
 {
+    echo "======================== Updating: $(basename ${PWD}) ========================"
+    git fetch origin
     git checkout $(git describe --tags $(git rev-list --tags --max-count=1))
+    echo ""
 }
 
 while [ $# -ne 0 ]; do
@@ -212,8 +215,13 @@ while [ $# -ne 0 ]; do
             ;;
         -u|--update)
             git submodule foreach $0 -U
-            build-tree-sitter
-            build-all-langs
+            for fn in `git status -s | grep tree-sitter | sed -E 's/.*?tree-sitter-//g'`; do
+                if [ "$fn" = "tree-sitter" ]; then
+                    build-tree-sitter
+                else
+                    build-language $fn
+                fi
+            done
             ;;
         -U) # internal only
             update-to-lastest-tag ;;
