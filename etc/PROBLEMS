@@ -516,7 +516,7 @@ directory copy is ineffective.
 This is due to an arbitrary limit in certain versions of awk.
 The solution is to use gawk (GNU awk).
 
-*** Saving a file encrypted with GnuPG via EasyPG hangs
+*** Saving a file encrypted with GnuPG via EasyPG hangs.
 
 This is known to happen with GnuPG v2.4.1.  The only known workaround
 is to downgrade to a version of GnuPG older than 2.4.1 (or, in the
@@ -574,6 +574,20 @@ This can happen with CVS versions 1.12.8 and 1.12.9.  Upgrade to CVS
 1.12.10 or newer to fix this problem.
 
 ** Miscellaneous problems
+
+*** 'set-mouse-color' and the '-ms' command line argument do not work.
+
+Systems where the default cursors are not simple 1 bit-per-pixel
+bitmaps usually forbid recoloring the cursor, since it is unclear
+which colors should replace those already present within each cursor
+image.  For example, 'set-mouse-color' and '-ms' have no function on X
+systems with GNOME, KDE, and other recent desktop environments
+employing cursor images containing colors and partial transparency.
+
+Changing the cursor color is also impossible on MS-Windows and PGTK
+systems.  In the former case, it is because the prerequisite code has
+yet to be written.  In the latter, it is because GTK does not provide
+for changing the color of cursor images.
 
 *** Display artifacts on GUI frames on X-based systems.
 
