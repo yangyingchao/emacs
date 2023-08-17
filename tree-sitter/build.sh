@@ -66,7 +66,7 @@ build-tree-sitter ()
     git pull
     make -j8
     PREFIX=${HOME}/.local make install
-    popd
+    popd >/dev/null 2>&1
 
     echo ""
 }
@@ -152,7 +152,7 @@ build-language ()
 
     # Copy out
     cp -aRfv "libtree-sitter-${lang}.${soext}" ~/.local/lib/
-    popd
+    popd >/dev/null 2>&1
 
     echo ""
 }
