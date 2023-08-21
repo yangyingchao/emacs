@@ -82,6 +82,13 @@ build-language ()
     local grammardir="tree-sitter-${lang}"
     local repo="tree-sitter-${lang}"
     local org="tree-sitter"
+    local libname="libtree-sitter-${lang}.${soext}"
+    local targetname="${HOME}/.local/lib/${libname}"
+
+    # emacs crashes when overwrite shared library script inside emacs..
+    if [[ -n "${INSIDE_EMACS}" ]]; then
+        targetname=${targetname}_new
+    fi
 
     echo "======================== Building language $lang ========================"
 
@@ -125,10 +132,10 @@ build-language ()
                 git submodule add --name tree-sitter/${repo} -- \
                     "https://github.com/${org}/${repo}.git" "${repo}" || \
                     die "Failed to clone repo: ${org}/${repo}"
-            ;;
+                ;;
             *)
                 die "Operation abort..."
-            ;;
+                ;;
         esac
     fi
 
@@ -145,13 +152,10 @@ build-language ()
     cc -fPIC -c -I. parser.c
     [ -f scanner.c ] && cc -fPIC -c -I. scanner.c
     [ -f scanner.cc ] && c++ -fPIC -I. -c scanner.cc
-
-    [ -f scanner.cc ] && \
-        c++ -fPIC -shared *.o -o "libtree-sitter-${lang}.${soext}" \
-            || cc -fPIC -shared *.o -o "libtree-sitter-${lang}.${soext}"
+    [ -f scanner.cc ] && c++ -fPIC -shared *.o -o ${libname} || cc -fPIC -shared *.o -o ${libname}
 
     # Copy out
-    cp -aRfv "libtree-sitter-${lang}.${soext}" ~/.local/lib/
+    cp -aRfv ${libname} ${targetname}
     popd >/dev/null 2>&1
 
     echo ""
