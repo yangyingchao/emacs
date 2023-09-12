@@ -11,6 +11,7 @@
 ###   -a, --all  Build all languages.
 ###   -A, --ALL  Build library & all languages.
 ###   -u, --update Update to latest tag
+###   -s, --source specify source code dir to compile
 ###
 ### More parses can be found in:
 ###   https://github.com/tree-sitter/tree-sitter/blob/master/docs/index.md
@@ -22,6 +23,7 @@ help()
 }
 
 TOPDIR=$(dirname `realpath $0`)
+SOURCEDIR=
 
 case $(uname) in
     "Darwin")
@@ -66,6 +68,8 @@ build-tree-sitter ()
     git pull
     make -j8
     PREFIX=${HOME}/.local make install
+    ls ${HOME}.local/lib/libtree-sitter.a
+    [ -f ${HOME}.local/lib/libtree-sitter.a ] && rm ${HOME}.local/lib/libtree-sitter.a
     popd >/dev/null 2>&1
 
     echo ""
@@ -78,10 +82,13 @@ build-language ()
     pushd ${TOPDIR}
 
     local lang=$1
-    local sourcedir="tree-sitter-${lang}/src"
-    local grammardir="tree-sitter-${lang}"
     local repo="tree-sitter-${lang}"
-    local org="tree-sitter"
+    if [[ -n "${SOURCEDIR}" ]]; then
+        repo=${SOURCEDIR}
+    fi
+
+    local sourcedir="${repo}/src"
+    local grammardir="${repo}"
     local libname="libtree-sitter-${lang}.${soext}"
     local targetname="${HOME}/.local/lib/${libname}"
 
@@ -93,55 +100,14 @@ build-language ()
     echo "======================== Building language $lang ========================"
 
     case "${lang}" in
-        "dockerfile")
-            org="camdencheek"
-            ;;
-        "cmake")
-            org="uyha"
-            ;;
         "go-mod")
             lang="gomod"
-            org="camdencheek"
-            ;;
-        "typescript")
-            sourcedir="tree-sitter-typescript/typescript/src"
-            grammardir="tree-sitter-typescript/typescript"
-            ;;
-        "tsx")
-            repo="tree-sitter-typescript"
-            sourcedir="tree-sitter-typescript/tsx/src"
-            grammardir="tree-sitter-typescript/tsx"
-            ;;
-        "yaml")
-            org="ikatyang"
-            ;;
-        "elisp")
-            org="Wilfred"
-            ;;
-        "meson")
-            org="Decodetalkers"
             ;;
     esac
 
-    echo "PWD: ${PWD} , repo: ${repo}"
-    if ! [ -d ${repo} ]; then
-        echo "${repo} does not exist, clone and add as submodule? (Y/n)"
-        read -r ans
-        case ${ans} in
-            y|Y|"")
-                git submodule add --name tree-sitter/${repo} -- \
-                    "https://github.com/${org}/${repo}.git" "${repo}" || \
-                    die "Failed to clone repo: ${org}/${repo}"
-                ;;
-            *)
-                die "Operation abort..."
-                ;;
-        esac
-    fi
-
+    echo "PWD: ${PWD}, repo: ${repo}"
     [ -d ${repo} ] || die "Directory ${repo} does not exist"
 
-    local sourcedir=${TOPDIR}/${sourcedir}
     cp "${grammardir}"/grammar.js "${sourcedir}"
 
     # We have to go into the source directory to compile, because some
@@ -163,34 +129,23 @@ build-language ()
 
 build-all-langs ()
 {
-    echo "Building all languages..."
+    echo "Building all ..."
 
-    local languages=(
-        'bash'
-        'c'
-        'cmake'
-        'cpp'
-        "elisp"
-        'css'
-        # 'c-sharp'
-        # 'dockerfile'
-        'go'
-        'go-mod'
-        # 'html'
-        'javascript'
-        'json'
-        'python'
-        # 'rust'
-        # 'toml'
-        # 'tsx'
-        # 'typescript'
-        "java"
-        'yaml'
-        "meson"
-    )
+    pushd ${TOPDIR}
 
-    for language in ${languages[@]}; do
-        build-language $language
+    for file in `ls -1`; do
+        if [[ ! -d $file ]]; then
+            echo "Skipping file: $file"
+            continue
+        fi
+
+        if [[ "$file" = "tree-sitter" ]]; then
+            echo "Skipping directory: $file"
+            continue;
+        fi
+
+        echo "Building ${file}"
+        build-language $(echo $file | sed "s/tree-sitter-//g")
     done
 }
 
@@ -206,12 +161,8 @@ while [ $# -ne 0 ]; do
     case "$1" in
         -h|--help)  help; exit 0 ;;
         -d|--debug) DEBUG=1 ;;
-        -l|--lib)
-            build-tree-sitter || die "Failed to build tree-sitter library."
-            ;;
-        -a|--all)
-            build-all-langs  || die "Failed to build tree-sitter library."
-            ;;
+        -l|--lib)   build-tree-sitter || die "Failed to build tree-sitter library." ;;
+        -a|--all)   build-all-langs  || die "Failed to build tree-sitter library." ;;
         -A|--ALL)
             build-tree-sitter || die "Failed to build tree-sitter library."
             build-all-langs || die "Failed to build parser."
@@ -227,8 +178,8 @@ while [ $# -ne 0 ]; do
                 fi
             done
             ;;
-        -U) # internal only
-            update-to-lastest-tag ;;
+        -U) update-to-lastest-tag ;;
+        -s|--source) shift; SOURCEDIR=$1 ;;
         *)
             if [[ $1 = -* ]]; then
                 echo "Unrecognized opt: $1"
@@ -243,6 +194,9 @@ while [ $# -ne 0 ]; do
 done
 
 pushd ${TOPDIR}
+if [[ -n "${SOURCEDIR}" ]]; then
+    [ $# -eq 1 ] || die "Accept 1 language only when '-s' is given..."
+fi
 
 for lang in $@; do
     build-language ${lang}

@@ -43,3 +43,6 @@
 [submodule "tree-sitter/tree-sitter-meson"]
 	path = tree-sitter/tree-sitter-meson
 	url = https://github.com/Decodetalkers/tree-sitter-meson.git
+[submodule "tree-sitter/tree-sitter-toml"]
+	path = tree-sitter/tree-sitter-toml
+	url = https://github.com/ikatyang/tree-sitter-toml.git
