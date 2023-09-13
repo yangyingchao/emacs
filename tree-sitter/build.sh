@@ -68,7 +68,6 @@ build-tree-sitter ()
     git pull
     make -j8
     PREFIX=${HOME}/.local make install
-    ls ${HOME}.local/lib/libtree-sitter.a
     [ -f ${HOME}.local/lib/libtree-sitter.a ] && rm ${HOME}.local/lib/libtree-sitter.a
     popd >/dev/null 2>&1
 
