@@ -507,8 +507,10 @@ If COUNT is negative, shifting is actually to the right.
 In this case, if VALUE is a negative fixnum treat it as unsigned,
 i.e., subtract 2 * `most-negative-fixnum' from VALUE before shifting it.
 
-This function is provided for compatibility.  In new code, use `ash'
-instead."
+Most uses of this function turn out to be mistakes.  We recommend
+to use `ash' instead, unless COUNT could ever be negative, and
+if, when COUNT is negative, your program really needs the special
+treatment of negative COUNT provided by this function."
   (declare (compiler-macro
             (lambda (form)
               (macroexp-warn-and-return "avoid `lsh'; use `ash' instead"
@@ -5494,9 +5496,11 @@ See also `string-equal'."
   (eq t (compare-strings string1 0 nil string2 0 nil t)))
 
 (defun string-prefix-p (prefix string &optional ignore-case)
-  "Return non-nil if PREFIX is a prefix of STRING.
+  "Return non-nil if STRING begins with PREFIX.
+PREFIX should be a string; the function returns non-nil if the
+characters at the beginning of STRING compare equal with PREFIX.
 If IGNORE-CASE is non-nil, the comparison is done without paying attention
-to case differences."
+to letter-case differences."
   (declare (pure t) (side-effect-free t))
   (let ((prefix-length (length prefix)))
     (if (> prefix-length (length string)) nil
@@ -5504,9 +5508,11 @@ to case differences."
 			     0 prefix-length ignore-case)))))
 
 (defun string-suffix-p (suffix string  &optional ignore-case)
-  "Return non-nil if SUFFIX is a suffix of STRING.
+  "Return non-nil if STRING ends with SUFFIX.
+SUFFIX should be a string; the function returns non-nil if the
+characters at end of STRING compare equal with SUFFIX.
 If IGNORE-CASE is non-nil, the comparison is done without paying
-attention to case differences."
+attention to letter-case differences."
   (declare (pure t) (side-effect-free t))
   (let ((start-pos (- (length string) (length suffix))))
     (and (>= start-pos 0)

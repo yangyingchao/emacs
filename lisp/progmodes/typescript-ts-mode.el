@@ -32,8 +32,11 @@
 (eval-when-compile (require 'rx))
 (require 'c-ts-common) ; For comment indent and filling.
 
+(declare-function treesit-node-start "treesit.c")
+(declare-function treesit-node-end "treesit.c")
 (declare-function treesit-parser-create "treesit.c")
 (declare-function treesit-query-capture "treesit.c")
+(declare-function treesit-query-compile "treesit.c")
 
 (defcustom typescript-ts-mode-indent-offset 2
   "Number of spaces for each indentation step in `typescript-ts-mode'."
@@ -84,7 +87,7 @@ Check if a node type is available, then return the right indent rules."
       (progn (treesit-query-capture 'tsx '((jsx_fragment) @capture))
              `(((match "<" "jsx_fragment") parent 0)
                ((parent-is "jsx_fragment") parent typescript-ts-mode-indent-offset)))
-    (error
+    (treesit-query-error
      `(((match "<" "jsx_text") parent 0)
        ((parent-is "jsx_text") parent typescript-ts-mode-indent-offset)))))
 
@@ -163,7 +166,7 @@ Argument LANGUAGE is either `typescript' or `tsx'."
   ;; but then raises an error if the wrong node type is used. So it is
   ;; important to check with the new node type (member_expression)
   (condition-case nil
-      (progn (treesit-query-capture language '((member_expression) @capture))
+      (progn (treesit-query-capture language '(jsx_opening_element (member_expression) @capture))
 	     '((jsx_opening_element
 		[(member_expression (identifier)) (identifier)]
 		@typescript-ts-jsx-tag-face)
@@ -175,7 +178,8 @@ Argument LANGUAGE is either `typescript' or `tsx'."
 	       (jsx_self_closing_element
 		[(member_expression (identifier)) (identifier)]
 		@typescript-ts-jsx-tag-face)))
-    (error '((jsx_opening_element
+    (treesit-query-error
+           '((jsx_opening_element
 	      [(nested_identifier (identifier)) (identifier)]
 	      @typescript-ts-jsx-tag-face)
 
@@ -367,7 +371,9 @@ Argument LANGUAGE is either `typescript' or `tsx'."
 
 ;;;###autoload
 (define-derived-mode typescript-ts-base-mode prog-mode "TypeScript"
-  "Major mode for editing TypeScript."
+  "Generic major mode for editing TypeScript.
+
+This mode is intended to be inherited by concrete major modes."
   :group 'typescript
   :syntax-table typescript-ts-mode--syntax-table
 
@@ -418,7 +424,7 @@ Argument LANGUAGE is either `typescript' or `tsx'."
                   (keyword string escape-sequence)
                   (constant expression identifier number pattern property)
                   (function bracket delimiter)))
-    (setq-local syntax-propertize-function #'ts-ts--syntax-propertize)
+    (setq-local syntax-propertize-function #'typescript-ts--syntax-propertize)
 
     (treesit-major-mode-setup)))
 
@@ -469,7 +475,7 @@ at least 3 (which is the default value)."
 
     (treesit-major-mode-setup)))
 
-(defvar ts-ts--s-p-query
+(defvar typescript-ts--s-p-query
   (when (treesit-available-p)
     (treesit-query-compile 'typescript
                            '(((regex pattern: (regex_pattern) @regexp))))))
@@ -484,15 +490,15 @@ at least 3 (which is the default value)."
                              ((parenthesized_expression (jsx_element) @jsx))
                              ((return_statement (jsx_element) @jsx))))))
 
-(defun ts-ts--syntax-propertize (beg end)
-  (let ((captures (treesit-query-capture 'typescript ts-ts--s-p-query beg end)))
-    (ts-ts--syntax-propertize-captures captures)))
+(defun typescript-ts--syntax-propertize (beg end)
+  (let ((captures (treesit-query-capture 'typescript typescript-ts--s-p-query beg end)))
+    (tsx-ts--syntax-propertize-captures captures)))
 
 (defun tsx-ts--syntax-propertize (beg end)
   (let ((captures (treesit-query-capture 'tsx tsx-ts--s-p-query beg end)))
-    (ts-ts--syntax-propertize-captures captures)))
+    (tsx-ts--syntax-propertize-captures captures)))
 
-(defun ts-ts--syntax-propertize-captures (captures)
+(defun tsx-ts--syntax-propertize-captures (captures)
   (pcase-dolist (`(,name . ,node) captures)
     (let* ((ns (treesit-node-start node))
            (ne (treesit-node-end node))
