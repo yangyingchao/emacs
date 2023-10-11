@@ -2394,7 +2394,6 @@ before calling this function."
                 '( nil nil nil nil
                    (font-lock-fontify-syntactically-function
                     . treesit-font-lock-fontify-region)))
-    (font-lock-mode 1)
     (treesit-font-lock-recompute-features)
     (dolist (parser (treesit-parser-list))
       (treesit-parser-add-notifier
@@ -2536,7 +2535,9 @@ to the offending pattern and highlight the pattern."
                   (start (nth 1 data))
                   (inhibit-read-only t))
              (erase-buffer)
-             (insert (treesit-query-expand query))
+             (insert (if (stringp query)
+                         query
+                       (treesit-query-expand query)))
              (goto-char start)
              (search-forward " " nil t)
              (put-text-property start (point) 'face 'error)
