@@ -11,7 +11,6 @@
 ###   -a, --all  Build all languages.
 ###   -A, --ALL  Build library & all languages.
 ###   -u, --update Update to latest tag
-###   -s, --source specify source code dir to compile
 ###
 ### More parses can be found in:
 ###   https://github.com/tree-sitter/tree-sitter/blob/master/docs/index.md
@@ -24,7 +23,6 @@ help()
 
 SCRIPT=$(realpath "$0")
 TOPDIR=${SCRIPT%/*}
-SOURCEDIR=
 
 case $(uname) in
     "Darwin")
@@ -80,10 +78,6 @@ build-language ()
 
     local lang=$1
     local repo="tree-sitter-${lang}"
-    if [[ -n "${SOURCEDIR}" ]]; then
-        repo=${SOURCEDIR}
-    fi
-
     local sourcedir="${repo}/src"
     local grammardir="${repo}"
     local libname="libtree-sitter-${lang}.${soext}"
@@ -178,7 +172,6 @@ while [ $# -ne 0 ]; do
             done
             ;;
         -U) update-to-lastest-tag ;;
-        -s|--source) shift; SOURCEDIR=$1 ;;
         *)
             if [[ $1 = -* ]]; then
                 echo "Unrecognized opt: $1"
@@ -193,10 +186,6 @@ while [ $# -ne 0 ]; do
 done
 
 pushd "${TOPDIR}" || die "change dir"
-if [[ -n "${SOURCEDIR}" ]]; then
-    [ $# -eq 1 ] || die "Accept 1 language only when '-s' is given..."
-fi
-
 for lang in "$@"; do
     build-language "${lang}"
 done
