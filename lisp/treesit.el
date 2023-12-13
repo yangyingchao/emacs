@@ -360,6 +360,7 @@ If NAMED is non-nil, collect named child only."
   "Return the index of NODE in its parent.
 If NAMED is non-nil, count named child only."
   (let ((count 0))
+    ;; TODO: Use next-sibling as it's more efficient.
     (while (setq node (treesit-node-prev-sibling node named))
       (cl-incf count))
     count))
@@ -367,7 +368,7 @@ If NAMED is non-nil, count named child only."
 (defun treesit-node-field-name (node)
   "Return the field name of NODE as a child of its parent."
   (when-let ((parent (treesit-node-parent node))
-             (idx (treesit-node-index node)))
+             (idx (treesit-node-index node t)))
     (treesit-node-field-name-for-child parent idx)))
 
 ;;; Query API supplement
@@ -1961,7 +1962,7 @@ the current line if the beginning of the defun is indented."
          (forward-line 1))
         ;; Moving backward, but there are some whitespace (and only
         ;; whitespace) between point and BOL: go back to BOL.
-        ((looking-back (rx (+ (or " " "\t")))
+        ((looking-back (rx bol (+ (or " " "\t")))
                        (line-beginning-position))
          (beginning-of-line))))
 
