@@ -188,7 +188,7 @@ chosen (interactively or automatically)."
                                 (vimrc-mode . ("vim-language-server" "--stdio"))
                                 ((python-mode python-ts-mode)
                                  . ,(eglot-alternatives
-                                     '("pylsp" "pyls" ("pyright-langserver" "--stdio") "jedi-language-server")))
+                                     '("pylsp" "pyls" ("pyright-langserver" "--stdio") "jedi-language-server" "ruff-lsp")))
                                 ((js-json-mode json-mode json-ts-mode)
                                  . ,(eglot-alternatives '(("vscode-json-language-server" "--stdio")
                                                           ("vscode-json-languageserver" "--stdio")
@@ -259,7 +259,8 @@ chosen (interactively or automatically)."
                                      '(("marksman" "server")
                                        ("vscode-markdown-language-server" "--stdio"))))
                                 (graphviz-dot-mode . ("dot-language-server" "--stdio"))
-                                (terraform-mode . ("terraform-ls" "serve")))
+                                (terraform-mode . ("terraform-ls" "serve"))
+                                ((uiua-ts-mode uiua-mode) . ("uiua" "lsp")))
   "How the command `eglot' guesses the server to start.
 An association list of (MAJOR-MODE . CONTACT) pairs.  MAJOR-MODE
 identifies the buffers that are to be managed by a specific
