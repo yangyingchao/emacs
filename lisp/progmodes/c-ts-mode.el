@@ -1392,27 +1392,31 @@ the code is C or C++ and based on that chooses whether to enable
             (re-search-forward c-ts-mode--c-or-c++-regexp nil t))))
       (c++-ts-mode)
     (c-ts-mode)))
-;; The entries for C++ must come first to prevent *.c files be taken
-;; as C++ on case-insensitive filesystems, since *.C files are C++,
-;; not C.
-(if (treesit-ready-p 'cpp)
-    (add-to-list 'auto-mode-alist
-                 '("\\(\\.ii\\|\\.\\(CC?\\|HH?\\)\\|\\.[ch]\\(pp\\|xx\\|\\+\\+\\)\\|\\.\\(cc\\|hh\\)\\)\\'"
-                   . c++-ts-mode)))
 
-(when (treesit-ready-p 'c)
-  (add-to-list 'auto-mode-alist
-               '("\\(\\.[chi]\\|\\.lex\\|\\.y\\(acc\\)?\\)\\'" . c-ts-mode))
-  (add-to-list 'auto-mode-alist '("\\.x[pb]m\\'" . c-ts-mode))
-  ;; image-mode's association must be before the C mode, otherwise XPM
-  ;; images will be initially visited as C files.  Also note that the
-  ;; regexp must be different from what files.el does, or else
-  ;; add-to-list will not add the association where we want it.
-  (add-to-list 'auto-mode-alist '("\\.x[pb]m\\'" . image-mode)))
+;; NOTE: don't modify auto-mode-alist here, xx-ts-mode is enabled in
+;;       xx-mode's advice...
+;;
+;; ;; The entries for C++ must come first to prevent *.c files be taken
+;; ;; as C++ on case-insensitive filesystems, since *.C files are C++,
+;; ;; not C.
+;; (if (treesit-ready-p 'cpp)
+;;     (add-to-list 'auto-mode-alist
+;;                  '("\\(\\.ii\\|\\.\\(CC?\\|HH?\\)\\|\\.[ch]\\(pp\\|xx\\|\\+\\+\\)\\|\\.\\(cc\\|hh\\)\\)\\'"
+;;                    . c++-ts-mode)))
 
-(if (and (treesit-ready-p 'cpp)
-         (treesit-ready-p 'c))
-    (add-to-list 'auto-mode-alist '("\\.h\\'" . c-or-c++-ts-mode)))
+;; (when (treesit-ready-p 'c)
+;;   (add-to-list 'auto-mode-alist
+;;                '("\\(\\.[chi]\\|\\.lex\\|\\.y\\(acc\\)?\\)\\'" . c-ts-mode))
+;;   (add-to-list 'auto-mode-alist '("\\.x[pb]m\\'" . c-ts-mode))
+;;   ;; image-mode's association must be before the C mode, otherwise XPM
+;;   ;; images will be initially visited as C files.  Also note that the
+;;   ;; regexp must be different from what files.el does, or else
+;;   ;; add-to-list will not add the association where we want it.
+;;   (add-to-list 'auto-mode-alist '("\\.x[pb]m\\'" . image-mode)))
+
+;; (if (and (treesit-ready-p 'cpp)
+;;          (treesit-ready-p 'c))
+;;     (add-to-list 'auto-mode-alist '("\\.h\\'" . c-or-c++-ts-mode)))
 
 (provide 'c-ts-mode)
 (provide 'c++-ts-mode)
