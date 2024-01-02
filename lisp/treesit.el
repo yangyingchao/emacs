@@ -1,6 +1,6 @@
 ;;; treesit.el --- tree-sitter utilities -*- lexical-binding: t -*-
 
-;; Copyright (C) 2021-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2024 Free Software Foundation, Inc.
 
 ;; Maintainer: 付禹安 (Yuan Fu) <casouri@gmail.com>
 ;; Keywords: treesit, tree-sitter, languages
@@ -360,7 +360,6 @@ If NAMED is non-nil, collect named child only."
   "Return the index of NODE in its parent.
 If NAMED is non-nil, count named child only."
   (let ((count 0))
-    ;; TODO: Use next-sibling as it's more efficient.
     (while (setq node (treesit-node-prev-sibling node named))
       (cl-incf count))
     count))
@@ -368,7 +367,7 @@ If NAMED is non-nil, count named child only."
 (defun treesit-node-field-name (node)
   "Return the field name of NODE as a child of its parent."
   (when-let ((parent (treesit-node-parent node))
-             (idx (treesit-node-index node t)))
+             (idx (treesit-node-index node)))
     (treesit-node-field-name-for-child parent idx)))
 
 ;;; Query API supplement
