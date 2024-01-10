@@ -2118,12 +2118,14 @@ to add functions and PL/SQL keywords.")
 "xmlagg" "xmlbinary" "xmlcast" "xmlcomment" "xmldeclaration"
 "xmldocument" "xmlexists" "xmliterate" "xmlnamespaces" "xmlquery"
 "xmlschema" "xmltable" "xmltext" "xmlvalidate"
+
+"appendonly" "orientation"
 )
 
      ;; Postgres non-reserved words
      (sql-font-lock-keywords-builder 'font-lock-builtin-face nil
-"abort" "absolute" "access" "action" "add" "admin" "after" "aggregate"
-"also" "alter" "always" "assertion" "assignment" "at" "attribute" "backward"
+"absolute" "access" "action" "add" "admin" "after" "aggregate"
+"also" "always" "assertion" "assignment" "at" "attribute" "backward"
 "before" "begin" "between" "by" "cache" "called" "cascade" "cascaded"
 "catalog" "chain" "characteristics" "checkpoint" "class" "close"
 "cluster" "coalesce" "comment" "comments" "commit" "committed"
@@ -2132,13 +2134,13 @@ to add functions and PL/SQL keywords.")
 "current" "cursor" "cycle" "data" "database" "day" "deallocate" "dec"
 "declare" "defaults" "deferred" "definer" "delete" "delimiter"
 "delimiters" "dictionary" "disable" "discard" "document" "domain"
-"drop" "each" "enable" "encoding" "encrypted" "enum" "escape"
+"each" "enable" "encoding" "encrypted" "enum" "escape"
 "exclude" "excluding" "exclusive" "execute" "exists" "explain"
 "extension" "external" "extract" "family" "first" "float" "following" "force"
 "forward" "function" "functions" "global" "granted" "greatest"
 "handler" "header" "hold" "hour" "identity" "if" "immediate"
 "immutable" "implicit" "including" "increment" "index" "indexes"
-"inherit" "inherits" "inline" "inout" "input" "insensitive" "insert"
+"inherit" "inherits" "inline" "inout" "input" "insensitive"
 "instead" "invoker" "isolation" "key" "label" "language" "large" "last"
 "lc_collate" "lc_ctype" "leakproof" "least" "level" "listen" "load" "local"
 "location" "lock" "login" "mapping" "match" "maxvalue" "minute"
@@ -2150,16 +2152,16 @@ to add functions and PL/SQL keywords.")
 "plans" "position" "preceding" "precision" "prepare" "prepared" "preserve" "prior"
 "privileges" "procedural" "procedure" "quote" "range" "read"
 "reassign" "recheck" "recursive" "ref" "reindex" "relative" "release"
-"rename" "repeatable" "replace" "replica" "replication" "reset" "restart" "restrict"
-"returns" "revoke" "role" "rollback" "row" "rows" "rule" "savepoint"
-"schema" "scroll" "search" "second" "security" "sequence"
-"serializable" "server" "session" "set" "setof" "share" "show"
+"rename" "repeatable" "replica" "replication" "restrict"
+"row" "rows" "rule"
+"scroll" "search" "second" "security" "sequence"
+"serializable" "server" "session" "setof" "share"
 "simple" "snapshot" "stable" "standalone" "start" "statement" "statistics"
 "stdin" "stdout" "storage" "strict" "strip" "substring" "superuser"
 "sysid" "system" "tables" "tablespace" "temp" "template" "temporary"
 "transaction" "treat" "trim" "truncate" "trusted" "type" "types"
 "unbounded" "uncommitted" "unencrypted" "unlisten" "unlogged" "until"
-"update" "vacuum" "valid" "validate" "validator" "value" "values" "varying" "version"
+"valid" "validator" "value" "values" "varying" "version"
 "view" "volatile" "whitespace" "without" "work" "wrapper" "write"
 "xmlattributes" "xmlconcat" "xmlelement" "xmlexists" "xmlforest" "xmlparse"
 "xmlpi" "xmlroot" "xmlserialize" "year" "yes" "zone"
@@ -2182,6 +2184,10 @@ to add functions and PL/SQL keywords.")
 "some" "symmetric" "table" "then" "to" "trailing" "true" "union"
 "unique" "user" "using" "variadic" "verbose" "when" "where" "window"
 "with"
+
+"abort" "alter" "replace" "returns" "set" "insert"  "update" "drop" "distributed"
+"replicated" "vacuum" "validate" "reset" "restart"  "show" "role"
+"rollback" "revoke"  "savepoint" "schema"
 )
 
      ;; Postgres PL/pgSQL
