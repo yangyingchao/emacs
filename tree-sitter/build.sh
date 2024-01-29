@@ -162,8 +162,8 @@ while [ $# -ne 0 ]; do
             ;;
         -u|--update)
             git submodule foreach "${SCRIPT}" -U
-            for fn in $(git status -s | grep tree-sitter | grep -v "build.sh" | sed -E 's/.*?tree-sitter-//g'); do
-                echo "FN: ${fn}"
+            for fn in $(git status -s | grep tree-sitter | awk '{print $2}' \
+                            | grep -v "build.sh" | sed -E 's/.*?tree-sitter-//g'); do
                 if [ "$fn" = "tree-sitter" ]; then
                     build-tree-sitter
                 else
