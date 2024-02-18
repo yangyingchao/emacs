@@ -16,8 +16,7 @@
 ###   https://github.com/tree-sitter/tree-sitter/blob/master/docs/index.md
 ###
 
-help()
-{
+help() {
     sed -rn 's/^### ?//;T;p' "$0"
 }
 
@@ -36,42 +35,37 @@ case $(uname) in
         ;;
 esac
 
-die ()
-{
+die() {
     set +xe
-    >&2 echo ""
-    >&2 echo "================================ DIE ==============================="
-
-    >&2 echo "$@"
-
-    >&2 echo "Call stack:"
-    local n=$((${#BASH_LINENO[@]}-1))
+    echo >&2 ""
+    echo >&2 "================================ DIE ==============================="
+    echo >&2 "$@"
+    echo >&2 "Call stack:"
+    local n=$((${#BASH_LINENO[@]} - 1))
     local i=0
     while [ $i -lt $n ]; do
         local line=${BASH_LINENO[i]}
-        local func=${FUNCNAME[i+1]}
+        local func=${FUNCNAME[i + 1]}
 
-        i=$((i+1))
+        i=$((i + 1))
 
-        >&2 echo "    [$i] -- line $line -- $func"
+        echo >&2 "    [$i] -- line $line -- $func"
     done
-    >&2  echo "================================ END ==============================="
+    echo >&2 "================================ END ==============================="
     exit 1
 }
 
-build-tree-sitter ()
-{
+build-tree-sitter() {
     echo "======================== Building tree-sitter ========================"
     pushd "${TOPDIR}"/tree-sitter || die "change dir"
     make -j8
     PREFIX=${HOME}/.local make install
     [ -f "${HOME}"/.local/lib/libtree-sitter.a ] && rm "${HOME}"/.local/lib/libtree-sitter.a
-    popd >/dev/null 2>&1  || die "change dir"
+    popd > /dev/null 2>&1 || die "change dir"
     echo ""
 }
 
-build-language ()
-{
+build-language() {
     [ $# -ne 1 ] && die "Usage: build-language language."
 
     pushd "${TOPDIR}" || die "change dir"
@@ -115,13 +109,12 @@ build-language ()
 
     # Copy out
     cp -aRfv "${libname}" "${targetname}"
-    popd >/dev/null 2>&1  || die "change dir"
+    popd > /dev/null 2>&1 || die "change dir"
 
     echo ""
 }
 
-build-all-langs ()
-{
+build-all-langs() {
     echo "Building all ..."
     pushd "${TOPDIR}" || die "change dir"
 
@@ -133,7 +126,7 @@ build-all-langs ()
 
         if [[ "$file" = "tree-sitter" ]]; then
             echo "Skipping directory: $file"
-            continue;
+            continue
         fi
 
         echo "Building ${file}"
@@ -141,8 +134,7 @@ build-all-langs ()
     done
 }
 
-update-to-lastest-tag ()
-{
+update-to-lastest-tag() {
     echo "======================== Updating: $(basename "${PWD}") ========================"
     git fetch origin
     local tag=$(git describe --tags "$(git rev-list --tags --max-count=1)")
@@ -152,19 +144,22 @@ update-to-lastest-tag ()
 
 while [ $# -ne 0 ]; do
     case "$1" in
-        -h|--help)  help; exit 0 ;;
-        -l|--lib)   build-tree-sitter || die "Failed to build tree-sitter library." ;;
-        -a|--all)   build-all-langs  || die "Failed to build tree-sitter library." ;;
-        -A|--ALL)
+        -h | --help)
+            help
+            exit 0
+            ;;
+        -l | --lib) build-tree-sitter || die "Failed to build tree-sitter library." ;;
+        -a | --all) build-all-langs  || die "Failed to build tree-sitter library." ;;
+        -A | --ALL)
             build-tree-sitter || die "Failed to build tree-sitter library."
             build-all-langs || die "Failed to build parser."
             exit $?
             ;;
-        -u|--update)
+        -u | --update)
             git submodule foreach "${SCRIPT}" -U
             for fn in $(git status -s | grep tree-sitter | awk '{print $2}' \
                             | grep -v "build.sh" | sed -E 's/.*?tree-sitter-//g'); do
-                if [ "$fn" = "tree-sitter" ]; then
+                if [ "$fn" = "tree-sitter/tree-sitter" ]; then
                     build-tree-sitter
                 else
                     build-language "$fn"
@@ -180,6 +175,7 @@ while [ $# -ne 0 ]; do
             else
                 break
             fi
+            ;;
     esac
 
     shift
