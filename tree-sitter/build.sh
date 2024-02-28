@@ -22,17 +22,12 @@ help() {
 
 SCRIPT=$(realpath "$0")
 TOPDIR=${SCRIPT%/*}
+C_ARGS=(-fPIC -c -I"${HOME}"/.local/include -I.)
 
 case $(uname) in
-    "Darwin")
-        soext="dylib"
-        ;;
-    *"MINGW"*)
-        soext="dll"
-        ;;
-    *)
-        soext="so"
-        ;;
+    "Darwin")	soext="dylib" ;;
+    *"MINGW"*)	soext="dll"   ;;
+    *) 		soext="so"    ;;
 esac
 
 die() {
@@ -98,12 +93,14 @@ build-language() {
     pushd "${sourcedir}" || die "Failed to change directory to ${sourcedir}"
 
     ### Build
-    cc -fPIC -c -I. parser.c  || die "Compile fail"
+    [[ -f parser.c ]] || die "parser.c is not found."
+    cc "${C_ARGS[@]}" parser.c  || die "Compile fail"
+
     if [ -f scanner.c ]; then
-        cc -fPIC -c -I. scanner.c || die "Compile fail"
+        cc "${C_ARGS[@]}" scanner.c || die "Compile fail"
         cc -fPIC -shared ./*.o -o "${libname}" || die "Link fail"
     elif [ -f scanner.cc ]; then
-        c++ -fPIC -I. -c scanner.cc || die "Compile fail"
+        c++ "${C_ARGS[@]}" -c scanner.cc || die "Compile fail"
         c++ -fPIC -shared ./*.o -o "${libname}" || die "Link fail"
     fi
 
