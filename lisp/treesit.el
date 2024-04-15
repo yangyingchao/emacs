@@ -2172,14 +2172,6 @@ function is called recursively."
         (pcase-let
             ((`(,prev ,next ,parent)
               (treesit--things-around pos regexp pred)))
-
-          ;; YYC: Special handling for static variable inside defun...
-          (when (and (equal (treesit-node-type prev)
-                            "storage_class_specifier")
-                     (equal (treesit-node-type (treesit-node-parent prev))
-                            "declaration"))
-            (setq prev nil))
-
           ;; When PARENT is nil, nested and top-level are the same, if
           ;; there is a PARENT, make PARENT to be the top-level parent
           ;; and pretend there is no nested PREV and NEXT.
