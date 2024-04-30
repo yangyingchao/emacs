@@ -6,13 +6,14 @@
 ###   build.sh [options] [languages]
 ###
 ### Options:
-###   -h, --help Show this message.
-###   -l, --lib  Build treesitter library only.
-###   -a, --all  Build all languages.
-###   -A, --ALL  Build library & all languages.
-###   -u, --update Update to latest tag
+###   -h, --help    Show this message.
+###   -d, --debug   Show debug messages.
+###   -c, --core    Build treesitter library only.
+###   -u, --update  Update to the latest tag
 ###
-### More parses can be found in:
+###  Without specifying any language, everything will be built.
+###
+### More parsers can be found in:
 ###   https://github.com/tree-sitter/tree-sitter/blob/master/docs/index.md
 ###
 
@@ -25,29 +26,40 @@ TOPDIR=${SCRIPT%/*}
 C_ARGS=(-fPIC -c -I"${HOME}"/.local/include -I.)
 
 case $(uname) in
-    "Darwin")	soext="dylib" ;;
-    *"MINGW"*)	soext="dll"   ;;
-    *) 		soext="so"    ;;
+    "Darwin") soext="dylib" ;;
+    *"MINGW"*) soext="dll"   ;;
+    *)   soext="so"    ;;
 esac
+
+__DEBUG_SH__=${__DEBUG_SH__:+${__DEBUG_SH__}}
+PDEBUG()
+{
+    if [ -n "$__DEBUG_SH__" ]; then
+        local line=${BASH_LINENO[0]}
+        local func=${FUNCNAME[1]}
+        >&2 echo "DEBUG: ($BASHPID) $(date '+%H:%M:%S:%3N'): $0:$line ($func) -- $*"
+    fi
+}
+
+pdebug_setup() {
+    set -x
+    export __DEBUG_SH__=1
+}
 
 die() {
     set +xe
-    echo >&2 ""
-    echo >&2 "================================ DIE ==============================="
-    echo >&2 "$@"
+    echo "================================ DIE ===============================" >&2
+    echo >&2 "$*"
     echo >&2 "Call stack:"
     local n=$((${#BASH_LINENO[@]} - 1))
     local i=0
     while [ $i -lt $n ]; do
-        local line=${BASH_LINENO[i]}
-        local func=${FUNCNAME[i + 1]}
-
+        echo >&2 "    [$i] -- line ${BASH_LINENO[i]} -- ${FUNCNAME[i + 1]}"
         i=$((i + 1))
-
-        echo >&2 "    [$i] -- line $line -- $func"
     done
     echo >&2 "================================ END ==============================="
-    exit 1
+
+    [[ $- == *i* ]] && return 1 || exit 1
 }
 
 build-tree-sitter() {
@@ -85,11 +97,7 @@ build-language() {
 
     echo "PWD: ${PWD}, repo: ${repo}"
     [ -d "${repo}" ] || die "Directory ${repo} does not exist"
-
     cp "${grammardir}"/grammar.js "${sourcedir}"
-
-    # We have to go into the source directory to compile, because some
-    # C files refer to files like "../../common/scanner.h".
     pushd "${sourcedir}" || die "Failed to change directory to ${sourcedir}"
 
     ### Build
@@ -104,10 +112,8 @@ build-language() {
         c++ -fPIC -shared ./*.o -o "${libname}" || die "Link fail"
     fi
 
-    # Copy out
     cp -aRfv "${libname}" "${targetname}"
     popd > /dev/null 2>&1 || die "change dir"
-
     echo ""
 }
 
@@ -136,33 +142,15 @@ update-to-lastest-tag() {
     git fetch origin
     local tag=$(git describe --tags "$(git rev-list --tags --max-count=1)")
     git checkout "${tag}"
-    echo ""
+    exit $?
 }
 
-while [ $# -ne 0 ]; do
+while [ $# -gt 0 ] && [[ "$1" = -* ]]; do
     case "$1" in
-        -h | --help)
-            help
-            exit 0
-            ;;
-        -l | --lib) build-tree-sitter || die "Failed to build tree-sitter library." ;;
-        -a | --all) build-all-langs  || die "Failed to build tree-sitter library." ;;
-        -A | --ALL)
-            build-tree-sitter || die "Failed to build tree-sitter library."
-            build-all-langs || die "Failed to build parser."
-            exit $?
-            ;;
-        -u | --update)
-            git submodule foreach "${SCRIPT}" -U
-            for fn in $(git status -s | grep tree-sitter | awk '{print $2}' \
-                            | grep -v "build.sh" | sed -E 's/.*?tree-sitter-//g'); do
-                if [ "$fn" = "tree-sitter/tree-sitter" ]; then
-                    build-tree-sitter
-                else
-                    build-language "$fn"
-                fi
-            done
-            ;;
+        -h | --help) help 1 ;;
+        -d | --debug) pdebug_setup ;;
+        -c | --core) build-tree-sitter || die "Failed to build tree-sitter library." ;;
+        -u | --update) git submodule foreach "${SCRIPT}" -U ;;
         -U) update-to-lastest-tag ;;
         *)
             if [[ $1 = -* ]]; then
@@ -179,6 +167,12 @@ while [ $# -ne 0 ]; do
 done
 
 pushd "${TOPDIR}" || die "change dir"
-for lang in "$@"; do
-    build-language "${lang}"
-done
+
+if [ $# -ne 0 ]; then
+    for lang in "$@"; do
+        build-language "${lang}"
+    done
+else
+    build-tree-sitter || die "Failed to build tree-sitter library."
+    build-all-langs || die "Failed to build parser."
+fi
