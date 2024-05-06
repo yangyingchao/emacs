@@ -19,6 +19,7 @@
 
 help() {
     sed -rn 's/^### ?//;T;p' "$0"
+    exit 0
 }
 
 SCRIPT=$(realpath "$0")
