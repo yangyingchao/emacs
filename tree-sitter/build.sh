@@ -28,24 +28,9 @@ C_ARGS=(-fPIC -c -I"${HOME}"/.local/include -I.)
 
 case $(uname) in
     "Darwin") soext="dylib" ;;
-    *"MINGW"*) soext="dll"   ;;
-    *)   soext="so"    ;;
+    *"MINGW"*) soext="dll" ;;
+    *) soext="so" ;;
 esac
-
-__DEBUG_SH__=${__DEBUG_SH__:+${__DEBUG_SH__}}
-PDEBUG()
-{
-    if [ -n "$__DEBUG_SH__" ]; then
-        local line=${BASH_LINENO[0]}
-        local func=${FUNCNAME[1]}
-        >&2 echo "DEBUG: ($BASHPID) $(date '+%H:%M:%S:%3N'): $0:$line ($func) -- $*"
-    fi
-}
-
-pdebug_setup() {
-    set -x
-    export __DEBUG_SH__=1
-}
 
 die() {
     set +xe
@@ -66,7 +51,8 @@ die() {
 build-tree-sitter() {
     echo "======================== Building tree-sitter ========================"
     pushd "${TOPDIR}"/tree-sitter || die "change dir"
-    make -j8
+    make clean
+    PREFIX=${HOME}/.local make -j8
     PREFIX=${HOME}/.local make install
     [ -f "${HOME}"/.local/lib/libtree-sitter.a ] && rm "${HOME}"/.local/lib/libtree-sitter.a
     popd > /dev/null 2>&1 || die "change dir"
@@ -103,7 +89,7 @@ build-language() {
 
     ### Build
     [[ -f parser.c ]] || die "parser.c is not found."
-    cc "${C_ARGS[@]}" parser.c  || die "Compile fail"
+    cc "${C_ARGS[@]}" parser.c || die "Compile fail"
 
     if [ -f scanner.c ]; then
         cc "${C_ARGS[@]}" scanner.c || die "Compile fail"
@@ -117,6 +103,8 @@ build-language() {
     popd > /dev/null 2>&1 || die "change dir"
     echo ""
 }
+
+CORE_ONLY=
 
 build-all-langs() {
     echo "Building all ..."
@@ -134,7 +122,7 @@ build-all-langs() {
         fi
 
         echo "Building ${file}"
-        build-language  "${file//tree-sitter-/}"
+        build-language "${file//tree-sitter-/}"
     done
 }
 
@@ -150,7 +138,7 @@ while [ $# -gt 0 ] && [[ "$1" = -* ]]; do
     case "$1" in
         -h | --help) help 1 ;;
         -d | --debug) pdebug_setup ;;
-        -c | --core) build-tree-sitter || die "Failed to build tree-sitter library." ;;
+        -c | --core) CORE_ONLY=1 ;;
         -u | --update) git submodule foreach "${SCRIPT}" -U ;;
         -U) update-to-lastest-tag ;;
         *)
@@ -168,6 +156,11 @@ while [ $# -gt 0 ] && [[ "$1" = -* ]]; do
 done
 
 pushd "${TOPDIR}" || die "change dir"
+
+if [[ -n "${CORE_ONLY}" ]]; then
+    build-tree-sitter
+    exit $?
+fi
 
 if [ $# -ne 0 ]; then
     for lang in "$@"; do
