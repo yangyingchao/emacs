@@ -72,7 +72,7 @@ build-language() {
     local targetname="${HOME}/.local/lib/${libname}"
 
     # emacs crashes when overwrite shared library script inside emacs..
-    if [[ -n "${INSIDE_EMACS}" ]]; then
+    if [[ -n "${INSIDE_EMACS}" ]] && [[ -f "${targetname}" ]]; then
         targetname=${targetname}_new
     fi
 
