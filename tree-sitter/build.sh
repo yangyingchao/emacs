@@ -143,8 +143,7 @@ while [ $# -gt 0 ] && [[ "$1" = -* ]]; do
         -U) update-to-lastest-tag ;;
         *)
             if [[ $1 = -* ]]; then
-                echo "Unrecognized opt: $1"
-                help
+                echo "Unrecognized opt: $1, pass '--help' to show help message."
                 exit 1
             else
                 break
