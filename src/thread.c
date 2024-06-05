@@ -77,7 +77,7 @@ extern volatile int interrupt_input_blocked;
 
 
 
-void
+static void
 release_global_lock (void)
 {
   sys_mutex_unlock (&global_lock);
@@ -142,7 +142,7 @@ post_acquire_global_lock (struct thread_state *self)
     }
 }
 
-void
+static void
 acquire_global_lock (struct thread_state *self)
 {
   sys_mutex_lock (&global_lock);
