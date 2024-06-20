@@ -7,8 +7,9 @@
 ###
 ### Options:
 ###   -h, --help    Show this message.
-###   -d, --debug   Show debug messages.
+###   -a, --add     Add one (and only one) new language.
 ###   -c, --core    Build treesitter library only.
+###   -d, --debug   Show debug messages.
 ###   -u, --update  Update to the latest tag
 ###
 ###  Without specifying any language, everything will be built.
@@ -59,33 +60,28 @@ build-tree-sitter() {
     echo ""
 }
 
-build-language() {
-    [ $# -ne 1 ] && die "Usage: build-language language."
+build-lang-in-dir() {
+    [ $# -ne 2 ] && die "Usage: build-lang-in-dir dir lang."
 
-    pushd "${TOPDIR}" || die "change dir"
+    pushd "$1" || die "change dir"
 
-    local lang=$1
-    local repo="tree-sitter-${lang}"
-    local sourcedir="${repo}/src"
-    local grammardir="${repo}"
+    local lang=$2
+
+    echo "======================== Building language $lang ========================"
+
+    local sourcedir="${PWD}/src"
     local libname="libtree-sitter-${lang}.${soext}"
     local targetname="${HOME}/.local/lib/${libname}"
-
     # emacs crashes when overwrite shared library script inside emacs..
     if [[ -n "${INSIDE_EMACS}" ]] && [[ -f "${targetname}" ]]; then
         targetname=${targetname}_new
     fi
 
-    echo "======================== Building language $lang ========================"
-
-    case "${lang}" in
-        "go-mod") lang="gomod" ;;
-    esac
-
-    echo "PWD: ${PWD}, repo: ${repo}"
-    [ -d "${repo}" ] || die "Directory ${repo} does not exist"
-    cp "${grammardir}"/grammar.js "${sourcedir}"
+    cp "${PWD}"/grammar.js "${sourcedir}"
     pushd "${sourcedir}" || die "Failed to change directory to ${sourcedir}"
+
+    # clean up old files.
+    rm ./*.o ./*."${soext}"*
 
     ### Build
     [[ -f parser.c ]] || die "parser.c is not found."
@@ -97,11 +93,31 @@ build-language() {
     elif [ -f scanner.cc ]; then
         c++ "${C_ARGS[@]}" -c scanner.cc || die "Compile fail"
         c++ -fPIC -shared ./*.o -o "${libname}" || die "Link fail"
+    else
+        cc -fPIC -shared ./*.o -o "${libname}" || die "Link fail"
     fi
 
     cp -aRfv "${libname}" "${targetname}"
-    popd > /dev/null 2>&1 || die "change dir"
+    popd && popd || die "change dir"
     echo ""
+}
+
+build-language() {
+    [ $# -ne 1 ] && die "Usage: build-language language."
+
+    pushd "${TOPDIR}" || die "change dir"
+
+    local lang=$1
+    local repo="${TOPDIR}/tree-sitter-${lang}"
+
+    case "${lang}" in
+        go-mod) build-lang-in-dir "${repo}" gomod ;;
+        typescript)
+            build-lang-in-dir "${repo}/typescript" typescript
+            build-lang-in-dir "${repo}/tsx" tsx
+            ;;
+        *) build-lang-in-dir "$repo" "$lang" ;;
+    esac
 }
 
 CORE_ONLY=
@@ -140,7 +156,19 @@ while [ $# -gt 0 ] && [[ "$1" = -* ]]; do
         -d | --debug) pdebug_setup ;;
         -c | --core) CORE_ONLY=1 ;;
         -u | --update) git submodule foreach "${SCRIPT}" -U ;;
-        -U) update-to-lastest-tag ;;
+        -U) update-to-lastest-tag ;; # internal use only
+        -a | --add)
+            [[ "$2" =~ ^(git@|https://) ]] || die "Bad address: $2"
+            url="$2" && shift
+            base=${url##*/}
+            repodir=tree-sitter/"${base%.*}"
+            pushd "${TOPDIR}"/.. > /dev/null
+            git submodule add "$url" "$repodir" || die "Submodule add"
+            cd "$repodir" && update-to-lastest-tag
+            popd > /dev/null
+            build-language "$(echo "$repodir" | sed -E 's#tree-sitter/tree-sitter-(.*?).git#\1#g')"
+            ;;
+
         *)
             if [[ $1 = -* ]]; then
                 echo "Unrecognized opt: $1, pass '--help' to show help message."
