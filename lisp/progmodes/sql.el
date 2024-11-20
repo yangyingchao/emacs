@@ -2113,10 +2113,12 @@ to add functions and PL/SQL keywords.")
 "xmlagg" "xmlbinary" "xmlcast" "xmlcomment" "xmldeclaration"
 "xmldocument" "xmlexists" "xmliterate" "xmlnamespaces" "xmlquery"
 "xmlschema" "xmltable" "xmltext" "xmlvalidate"
+
+"appendonly" "orientation" "round"
 )
 
      ;; Postgres non-reserved words
-     (sql-font-lock-keywords-builder 'font-lock-builtin-face nil
+     (sql-font-lock-keywords-builder 'font-lock-keyword-face nil
 "abort" "absolute" "access" "action" "add" "admin" "after" "aggregate"
 "also" "alter" "always" "assertion" "assignment" "at" "attribute" "backward"
 "before" "begin" "between" "by" "cache" "called" "cascade" "cascaded"
@@ -2158,6 +2160,7 @@ to add functions and PL/SQL keywords.")
 "view" "volatile" "whitespace" "without" "work" "wrapper" "write"
 "xmlattributes" "xmlconcat" "xmlelement" "xmlexists" "xmlforest" "xmlparse"
 "xmlpi" "xmlroot" "xmlserialize" "year" "yes" "zone"
+"policy"
 )
 
      ;; Postgres Reserved
