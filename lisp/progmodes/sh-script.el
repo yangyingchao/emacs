@@ -407,7 +407,7 @@ name symbol."
 	?\; "."
 	?| "."
 	?& "."
-	?< "."
+	;; ?< "."
 	?> ".")
   "The syntax table to use for Shell-Script mode.
 This is buffer-local in every such buffer.")
