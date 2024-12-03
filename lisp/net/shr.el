@@ -2335,7 +2335,12 @@ See `outline-search-function' for BOUND, MOVE, BACKWARD and LOOKING-AT."
   (shr-ensure-paragraph)
   (let* ((caption (dom-children (dom-child-by-tag dom 'caption)))
 	 (header (dom-non-text-children (dom-child-by-tag dom 'thead)))
-	 (footer (dom-non-text-children (dom-child-by-tag dom 'tfoot))))
+	 (footer (dom-non-text-children (dom-child-by-tag dom 'tfoot)))
+         (no-border (and (dom-attr dom 'summary) (string-match-p  "navigation" (dom-attr dom 'summary))))
+         (shr-table-horizontal-line (if no-border nil ?─ ))
+         (shr-table-vertical-line (if no-border ?\s ?│))
+         (shr-table-corner (if no-border ?\s ?┼)))
+
     (if (and (not caption)
 	     (not header)
 	     (not (dom-child-by-tag dom 'tbody))
@@ -2422,7 +2427,7 @@ flags that control whether to collect or render objects."
   (let* ((collapse (equal (cdr (assq 'border-collapse shr-stylesheet))
 			  "collapse"))
 	 (shr-table-separator-length (if collapse 0 1))
-	 (shr-table-vertical-line (if collapse "" shr-table-vertical-line))
+	 (vline (if (or collapse (length= widths 1 )) "" shr-table-vertical-line))
 	 (start (point)))
     (setq shr-table-id (1+ shr-table-id))
     (unless collapse
@@ -2438,7 +2443,7 @@ flags that control whether to collect or render objects."
 	(dotimes (_ (max height 1))
           (when (bolp)
 	    (shr-indent))
-	  (insert shr-table-vertical-line "\n"))
+	  (insert vline "\n"))
 	(dolist (column row)
 	  (when (> (nth 2 column) -1)
 	    (goto-char start)
@@ -2469,7 +2474,7 @@ flags that control whether to collect or render objects."
                               'shr-table-indent shr-table-id)))
                   (when background
                     (setq space (propertize space 'face background)))
-		  (insert line space shr-table-vertical-line)
+		  (insert line space vline)
 		  (shr-colorize-region
 		   start (1- (point)) (nth 5 column) (nth 6 column)))
 		(forward-line 1))
@@ -2481,7 +2486,7 @@ flags that control whether to collect or render objects."
 		  (insert (propertize " "
 				      'display `(space :align-to (,pixel-align))
 				      'shr-table-indent shr-table-id)
-			  shr-table-vertical-line)
+		    vline)
 		  (shr-colorize-region
 		   start (1- (point)) (nth 5 column) (nth 6 column)))
 		(forward-line 1))))))
@@ -2525,7 +2530,7 @@ flags that control whether to collect or render objects."
     (setq start (1+ start))))
 
 (defun shr-insert-table-ruler (widths)
-  (when shr-table-horizontal-line
+  (when (and shr-table-horizontal-line (length> widths 1))
     (when (and (bolp)
 	       (> shr-indentation 0))
       (shr-indent))
