@@ -1,6 +1,6 @@
 ;;; treesit.el --- tree-sitter utilities -*- lexical-binding: t -*-
 
-;; Copyright (C) 2021-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2025 Free Software Foundation, Inc.
 
 ;; Maintainer: 付禹安 (Yuan Fu) <casouri@gmail.com>
 ;; Keywords: treesit, tree-sitter, languages
@@ -3601,7 +3601,7 @@ window."
     ;; Turn off explore mode.
     (remove-hook 'post-command-hook
                  #'treesit--explorer-post-command t)
-    (remove-hook 'post-command-hook
+    (remove-hook 'kill-buffer-hook
                  #'treesit--explorer-kill-explorer-buffer t)
     (treesit--explorer-kill-explorer-buffer)))
 
