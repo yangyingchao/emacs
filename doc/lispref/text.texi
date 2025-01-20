@@ -1524,6 +1524,7 @@ This macro removes all the undo boundaries inserted during the
 execution of @var{body} so that it can be undone as a single step.
 @end defmac
 
+@cindex @code{undo-inhibit-region} (symbol property)
 Some commands leave the region active after execution in such a way that
 it interferes with selective undo of that command.  To make @code{undo}
 ignore the active region when invoked immediately after such a command,
@@ -6018,8 +6019,8 @@ a different underlying transport strategy (for details on how to
 subclass, see @ref{Inheritance,Inheritance,,eieio}.).  Users of the
 application-building interface can then instantiate objects of this
 concrete class (using the @code{make-instance} function) and connect
-to JSONRPC endpoints using that strategy.  See @ref{Process-based
-JSONRPC connections} for a built-in transport implementation.
+to JSONRPC endpoints using that strategy.  @xref{Process-based
+JSONRPC connections}, for a built-in transport implementation.
 
 This API has mandatory and optional parts.
 

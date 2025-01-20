@@ -1046,8 +1046,8 @@ When more than one minor mode keymap is active, the earlier one in
 minor modes so that they don't interfere with each other.  If you do
 this properly, the order will not matter.
 
-See @ref{Keymaps and Minor Modes}, for more information about minor
-modes.  See also @code{minor-mode-key-binding} (@pxref{Functions for Key
+@xref{Keymaps and Minor Modes}, for more information about minor modes.
+See also @code{minor-mode-key-binding} (@pxref{Functions for Key
 Lookup}).
 @end defvar
 
@@ -1204,7 +1204,7 @@ and @var{command} is its binding.  @xref{What Is a Function}.
 @cindex string in keymap
 The array (either a string or a vector) is a keyboard macro.  The events
 used so far in the lookup form a complete key, and the array is its
-binding.  See @ref{Keyboard Macros}, for more information.
+binding.  @xref{Keyboard Macros}, for more information.
 
 @item @var{keymap}
 @cindex keymap in keymap
@@ -2473,6 +2473,7 @@ is on that item in the same way as @code{help-echo} text properties
   If @var{real-binding} is @code{nil}, then @var{item-string} appears in
 the menu but cannot be selected.
 
+@cindex @code{menu-enable} (symbol property)
   If @var{real-binding} is a symbol and has a non-@code{nil}
 @code{menu-enable} property, that property is an expression that
 controls whether the menu item is enabled.  Every time the keymap is
@@ -2716,6 +2717,7 @@ items.  Here's an example that makes two aliases for
 (put 'make-writable 'menu-enable 'buffer-read-only)
 @end example
 
+@cindex @code{menu-alias} (symbol property)
 When using aliases in menus, often it is useful to display the
 equivalent key bindings for the real command name, not the aliases
 (which typically don't have any key bindings except for the menu

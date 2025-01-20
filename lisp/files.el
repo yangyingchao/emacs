@@ -1,4 +1,4 @@
-;;; files.el --- file input and output commands for Emacs  -*- lexical-binding:t -*-
+;;; files.el --- file input and output commands  -*- lexical-binding:t -*-
 
 ;; Copyright (C) 1985-1987, 1992-2025 Free Software Foundation, Inc.
 
@@ -22,9 +22,9 @@
 
 ;;; Commentary:
 
-;; Defines most of Emacs's file- and directory-handling functions,
-;; including basic file visiting, backup generation, link handling,
-;; ITS-id version control, load- and write-hook handling, and the like.
+;; Defines Emacs's basic file- and directory-handling functions,
+;; including file visiting, backup file generation and versioning,
+;; link handling, load- and write-hook handling, and the like.
 
 ;;; Code:
 
@@ -4490,15 +4490,15 @@ It is dangerous if either of these conditions are met:
                      (substitute-command-keys instead)
                    (format-message "use `%s' instead" instead)))))))
 
-(defvar hack-local-variables--inhibit nil
-  "List of file/dir local variables to ignore.")
+(defvar hack-local-variables--inhibit-eval nil
+  "List of `eval' forms to ignore in file/dir local variables.")
 
 (defun hack-one-local-variable (var val)
   "Set local variable VAR with value VAL.
 If VAR is `mode', call `VAL-mode' as a function unless it's
 already the major mode."
   (pcase var
-    ((guard (memq var hack-local-variables--inhibit)) nil)
+    ((and 'eval (guard (member val hack-local-variables--inhibit-eval))) nil)
     ('mode
      (let ((mode (intern (concat (downcase (symbol-name val))
                                  "-mode"))))
@@ -4506,8 +4506,8 @@ already the major mode."
     ('eval
      (pcase val
        (`(add-hook ',hook . ,_) (hack-one-local-variable--obsolete hook)))
-     (let ((hack-local-variables--inhibit ;; FIXME: Should be buffer-local!
-            (cons 'eval hack-local-variables--inhibit)))
+     (let ((hack-local-variables--inhibit-eval ;; FIXME: Should be buffer-local!
+            (cons val hack-local-variables--inhibit-eval)))
        (save-excursion (eval val t))))
     (_
      (hack-one-local-variable--obsolete var)

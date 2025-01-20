@@ -29,6 +29,28 @@
 ;; exposed C API of tree-sitter.  It also contains frameworks for
 ;; integrating tree-sitter with font-lock, indentation, activating and
 ;; deactivating tree-sitter, debugging tree-sitter, etc.
+;;
+;; Some conventions:
+;;
+;; 1. Whenever it makes sense, a function that takes a tree-sitter node
+;; as an argument should also accept nil (and return nil in that case).
+;; This is to help with function chaining.
+;;
+;; 2. In most cases, a function shouldn't implicitly create a parser.
+;; All parsers should be created explicitly by user.  Use
+;;
+;;     (car (treesit-parser-list nil LANG))
+;;
+;; to get a parser for a certain language.
+;;
+;; Initially in Emacs 29, the world is simple and each language has one
+;; parser in the buffer.  So if we need a parser for a language, we can
+;; just create it if it doesn't exist.  But now we have local parsers,
+;; so there will be more than one parser for each language in a buffer.
+;; We can also have local parser of the same language as the host
+;; parser.  All of which means we can't equalize language and parser,
+;; and create paresr for a language willy-nilly anymore.  Major mode
+;; will manage their parsers.
 
 ;;; Code:
 
@@ -299,15 +321,14 @@ If INCLUDE-NODE is non-nil, return NODE if it satisfies PRED."
 
 Use the first parser in the parser list if LANGUAGE is omitted.
 
-If LANGUAGE is non-nil, use the first parser for LANGUAGE with
-TAG in the parser list, or create one if none exists.  TAG
-defaults to nil."
-  (if-let* ((parser
-             (if language
-                 (treesit-parser-create language nil nil tag)
-               (or (car (treesit-parser-list))
-                   (signal 'treesit-no-parser (list (current-buffer)))))))
-      (treesit-parser-root-node parser)))
+If LANGUAGE is non-nil, use the first parser for LANGUAGE with TAG in
+the parser list.  If there's no such parser, return nil.  TAG defaults
+to nil."
+  (let ((parser
+         (or (car (treesit-parser-list nil language tag))
+             (signal 'treesit-no-parser (list language)))))
+    (when parser
+      (treesit-parser-root-node parser))))
 
 (defun treesit-filter-child (node pred &optional named)
   "Return children of NODE that satisfies predicate PRED.
@@ -504,6 +525,23 @@ that starts with an underscore are ignored."
              if (not (string-prefix-p "_" (symbol-name name)))
              collect (cons (+ (treesit-node-start node) offset-left)
                            (+ (treesit-node-end node) offset-right)))))
+
+(defun treesit-query-valid-p (language query)
+  "Return non-nil if QUERY is valid in LANGUAGE, nil otherwise."
+  (ignore-errors
+    (treesit-query-compile language query t)
+    t))
+
+(defun treesit-query-first-valid (language &rest queries)
+  "Return the first query in QUERIES that is valid in LANGUAGE.
+If none are valid, return nil."
+  (declare (indent 1))
+  (let (query)
+    (catch 'valid
+      (while (setq query (pop queries))
+        (ignore-errors
+          (treesit-query-compile language query t)
+          (throw 'valid query))))))
 
 ;;; Range API supplement
 
@@ -746,7 +784,7 @@ MODIFIED-TICK.  This will help Emacs garbage-collect overlays that
 aren't in use anymore."
   ;; Update range.
   (let* ((host-lang (treesit-query-language query))
-         (host-parser (treesit-parser-create host-lang))
+         (host-parser (car (treesit-parser-list nil host-lang)))
          (ranges (treesit-query-range host-parser query beg end)))
     (pcase-dolist (`(,beg . ,end) ranges)
       (let ((has-parser nil))
@@ -801,7 +839,7 @@ region."
            query language modified-tick beg end))
          (t
           (let* ((host-lang (treesit-query-language query))
-                 (parser (treesit-parser-create language))
+                 (parser (car (treesit-parser-list nil language)))
                  (old-ranges (treesit-parser-included-ranges parser))
                  (new-ranges (treesit-query-range
                               host-lang query beg end offset))
@@ -1629,11 +1667,17 @@ parses the entire buffer (as opposed to embedded parsers which only
 parses part of the buffer).  This function tries to find and return that
 parser."
   (if treesit-range-settings
-      (let ((query (car (car treesit-range-settings))))
+      (let* ((query (caar treesit-range-settings))
+             (lang (treesit-query-language query)))
+        ;; Major mode end-user won't see this signal since major mode
+        ;; author surely will see it and correct it.  Also, multi-lang
+        ;; major mode's author should've seen the notice and set the
+        ;; primary parser themselves.
         (if (treesit-query-p query)
-            (treesit-parser-create
-             (treesit-query-language query))
-          (car (treesit-parser-list))))
+            (or (car (treesit-parser-list nil lang))
+                (signal 'treesit-no-parser (list lang)))
+          (or (car (treesit-parser-list))
+              (signal 'treesit-no-parser nil))))
     (car (treesit-parser-list))))
 
 (defun treesit--pre-redisplay (&rest _)
@@ -2420,6 +2464,9 @@ delimits medium sized statements in the source code.  It is,
 however, smaller in scope than sentences.  This is used by
 `treesit-forward-sexp' and friends.")
 
+;; Avoid interpreting the symbol `list' as a function.
+(put 'list 'treesit-thing-symbol t)
+
 (defun treesit--scan-error (pred arg)
   (when-let* ((parent (treesit-thing-at (point) pred t))
               (boundary (treesit-node-child parent (if (> arg 0) -1 0))))
@@ -2443,7 +2490,7 @@ What constitutes as text and source code sexp is determined
 by `text' and `sexp' in `treesit-thing-settings'.
 
 There is an alternative implementation in `treesit-forward-sexp-list'
-that uses `sexp-list' in `treesit-thing-settings' to move only
+that uses `list' in `treesit-thing-settings' to move only
 across lists, whereas uses `forward-sexp-default-function' to move
 across atoms (such as symbols or words) inside the list."
   (interactive "^p")
@@ -2475,7 +2522,7 @@ Fall back to DEFAULT-FUNCTION as long as it doesn't cross
 the boundaries of the list.
 
 ARG is described in the docstring of `forward-list'."
-  (let* ((pred (or treesit-sexp-type-regexp 'sexp-list))
+  (let* ((pred (or treesit-sexp-type-regexp 'list))
          (arg (or arg 1))
          (cnt arg)
          (inc (if (> arg 0) 1 -1)))
@@ -2486,11 +2533,13 @@ ARG is described in the docstring of `forward-list'."
                     (funcall default-function inc)
                     (point))
                 (scan-error nil)))
+             (parent (treesit-thing-at (point) pred t))
              (sibling (if (> arg 0)
                           (treesit-thing-next (point) pred)
-                        (treesit-thing-prev (point) pred)))
-             (current (when default-pos
-                        (treesit-thing-at (point) pred t))))
+                        (treesit-thing-prev (point) pred))))
+        (when (and parent sibling
+                   (not (treesit-node-enclosed-p sibling parent)))
+          (setq sibling nil))
         ;; Use the default function only if it doesn't go
         ;; over the sibling and doesn't go out of the current group.
         (or (when (and default-pos
@@ -2498,10 +2547,10 @@ ARG is described in the docstring of `forward-list'."
                            (if (> arg 0)
                                (<= default-pos (treesit-node-start sibling))
                              (>= default-pos (treesit-node-end sibling))))
-                       (or (null current)
+                       (or (null parent)
                            (if (> arg 0)
-                               (<= default-pos (treesit-node-end current))
-                             (>= default-pos (treesit-node-start current)))))
+                               (< default-pos (treesit-node-end parent))
+                             (> default-pos (treesit-node-start parent)))))
               (goto-char default-pos))
             (when sibling
               (goto-char (if (> arg 0)
@@ -2515,7 +2564,7 @@ ARG is described in the docstring of `forward-list'."
 
 Whereas `treesit-forward-sexp' moves across both lists and atoms
 using `sexp' in `treesit-thing-settings', this function uses
-`sexp-list' in `treesit-thing-settings' to move only across lists.
+`list' in `treesit-thing-settings' to move only across lists.
 But to move across atoms (such as symbols or words) inside the list
 it uses `forward-sexp-default-function' as long as it doesn't go
 outside of the boundaries of the current list.
@@ -2526,7 +2575,7 @@ ARG is described in the docstring of `forward-sexp-function'."
 
 (defun treesit-forward-list (&optional arg)
   "Move forward across a list.
-What constitutes a list is determined by `sexp-list' in
+What constitutes a list is determined by `list' in
 `treesit-thing-settings' that usually defines
 parentheses-like expressions.
 
@@ -2543,7 +2592,7 @@ ARG is described in the docstring of `forward-list-function'."
 (defun treesit-down-list (&optional arg)
   "Move forward down one level of parentheses.
 What constitutes a level of parentheses is determined by
-`sexp-list' in `treesit-thing-settings' that usually defines
+`list' in `treesit-thing-settings' that usually defines
 parentheses-like expressions.
 
 This command is the tree-sitter variant of `down-list'
@@ -2551,7 +2600,7 @@ redefined by the variable `down-list-function'.
 
 ARG is described in the docstring of `down-list'."
   (interactive "^p")
-  (let* ((pred 'sexp-list)
+  (let* ((pred 'list)
          (arg (or arg 1))
          (cnt arg)
          (inc (if (> arg 0) 1 -1)))
@@ -2583,7 +2632,7 @@ ARG is described in the docstring of `down-list'."
 (defun treesit-up-list (&optional arg escape-strings no-syntax-crossing)
   "Move forward out of one level of parentheses.
 What constitutes a level of parentheses is determined by
-`sexp-list' in `treesit-thing-settings' that usually defines
+`list' in `treesit-thing-settings' that usually defines
 parentheses-like expressions.
 
 This command is the tree-sitter variant of `up-list'
@@ -2591,7 +2640,7 @@ redefined by the variable `up-list-function'.
 
 ARG is described in the docstring of `up-list'."
   (interactive "^p")
-  (let* ((pred 'sexp-list)
+  (let* ((pred 'list)
          (arg (or arg 1))
          (cnt arg)
          (inc (if (> arg 0) 1 -1)))
@@ -3075,9 +3124,7 @@ function is called recursively."
           (if (eq tactic 'restricted)
               (setq pos (funcall
                          advance
-                         (cond ((and (null next) (null prev)
-                                     (not (eq thing 'sexp-list)))
-                                parent)
+                         (cond ((and (null next) (null prev)) parent)
                                ((> arg 0) next)
                                (t prev))))
             ;; For `nested', it's a bit more work:
@@ -3286,7 +3333,9 @@ ENTRY.  MARKER marks the start of each tree-sitter node."
 
 ENTRIES is a list of (CATEGORY . SUB-ENTRIES...).  Merge them so there's
 no duplicate CATEGORY.  CATEGORY's are strings.  The merge is stable,
-meaning the order of elements are kept."
+meaning the order of elements are kept.
+
+This function is destructive, meaning ENTRIES will be modified."
   (let ((return-entries nil))
     (dolist (entry entries)
       (let* ((category (car entry))
@@ -3420,9 +3469,9 @@ For BOUND, MOVE, BACKWARD, LOOKING-AT, see the descriptions in
 ;;; Show paren mode
 
 (defun treesit-show-paren-data--categorize (pos &optional end-p)
-  (let* ((pred 'sexp-list)
+  (let* ((pred 'list)
          (parent (when (treesit-thing-defined-p
-                        'sexp-list (treesit-language-at pos))
+                        pred (treesit-language-at pos))
                    (treesit-parent-until
                     (treesit-node-at (if end-p (1- pos) pos)) pred)))
          (first (when parent (treesit-node-child parent 0)))
@@ -3590,11 +3639,12 @@ before calling this function."
     (setq-local add-log-current-defun-function
                 #'treesit-add-log-current-defun))
 
-  (when (treesit-thing-defined-p 'sexp nil)
-    (setq-local forward-sexp-function #'treesit-forward-sexp)
-    (setq-local transpose-sexps-function #'treesit-transpose-sexps))
+  (setq-local transpose-sexps-function #'treesit-transpose-sexps)
 
-  (when (treesit-thing-defined-p 'sexp-list nil)
+  (when (treesit-thing-defined-p 'sexp nil)
+    (setq-local forward-sexp-function #'treesit-forward-sexp))
+
+  (when (treesit-thing-defined-p 'list nil)
     (setq-local forward-sexp-function #'treesit-forward-sexp-list)
     (setq-local forward-list-function #'treesit-forward-list)
     (setq-local down-list-function #'treesit-down-list)
@@ -4042,11 +4092,6 @@ covers point.  PARSER-NAME are unique."
               res)))
     (nreverse res)))
 
-(define-derived-mode treesit--explorer-tree-mode special-mode
-  "TS Explorer"
-  "Mode for displaying syntax trees for `treesit-explore-mode'."
-  nil)
-
 (defvar-keymap treesit--explorer-tree-mode-map
   :doc "Keymap for the treesit tree explorer.
 
@@ -4056,6 +4101,11 @@ Navigates from button to button."
   "p" #'backward-button
   "TAB" #'forward-button
   "<backtab>" #'backward-button)
+
+(define-derived-mode treesit--explorer-tree-mode special-mode
+  "TS Explorer"
+  "Mode for displaying syntax trees for `treesit-explore-mode'."
+  nil)
 
 (defun treesit-explorer-switch-parser (parser)
   "Switch explorer to use PARSER."
@@ -4632,6 +4682,8 @@ If anything goes wrong, this function signals an `treesit-error'."
   (treesit-query-language
    :no-eval (treesit-query-language compiled-query)
    :eg-result c)
+  (treesit-query-valid-p)
+  (treesit-query-first-valid)
   (treesit-query-expand
    :eval (treesit-query-expand '((identifier) @id "return" @ret)))
   (treesit-pattern-expand

@@ -445,6 +445,18 @@ NODE and PARENT are the same as other indent rules."
         (cons (funcall parent-bol)
               c-ts-mode-indent-offset))))))
 
+(defun c-ts-mode--emacs-macro-rules (_ parent &rest _)
+  "Rules for indenting macros in Emacs C source.
+
+PARENT is the same as other simple-indent rules."
+  (cond
+   ((and (treesit-node-match-p parent "function_definition")
+         (equal (treesit-node-text
+                 (treesit-node-child-by-field-name parent "type"))
+                "FOR_EACH_TAIL"))
+    (cons (treesit-node-start parent)
+          c-ts-mode-indent-offset))))
+
 (defun c-ts-mode--simple-indent-rules (mode style)
   "Return the indent rules for MODE and STYLE.
 
@@ -466,6 +478,7 @@ MODE can be `c' or `cpp'.  STYLE can be `gnu', `k&r', `linux', `bsd'."
            c-ts-mode--label-indent-rules
            ,@c-ts-mode--preproc-indent-rules
            c-ts-mode--macro-heuristic-rules
+           c-ts-mode--emacs-macro-rules
 
            ;; Make sure type and function definition components align and
            ;; don't indent. Also takes care of GNU style opening braces.
@@ -474,7 +487,7 @@ MODE can be `c' or `cpp'.  STYLE can be `gnu', `k&r', `linux', `bsd'."
                                 "enum_specifier"
                                 "function_declarator"
                                 "template_declaration")))
-            parent 0)
+            standalone-parent 0)
            ;; This is for the trailing-star stype:  int *
            ;;                                       func()
            ((match "function_declarator" nil "declarator") parent-bol 0)
@@ -593,31 +606,34 @@ NODE, PARENT, BOL, ARGS are as usual."
     "#else" "#elif" "#endif" "#include")
   "C/C++ keywords for tree-sitter font-locking.")
 
-(defun c-ts-mode--keywords (mode)
-  "C/C++ keywords for tree-sitter font-locking.
-MODE is either `c' or `cpp'."
-  (let ((c-keywords
-         '("_Atomic" "break" "case" "const" "continue"
-           "default" "do" "else" "enum"
-           "extern" "for" "goto" "if" "inline"
-           "register" "restrict" "return"
-           "sizeof" "static" "struct"
-           "switch" "typedef" "union"
-           "volatile" "while")))
-    (if (eq mode 'cpp)
-        (append c-keywords
-                '("and" "and_eq" "bitand" "bitor"
-                  "catch" "class" "co_await" "co_return"
-                  "co_yield" "compl" "concept" "consteval"
-                  "constexpr" "constinit" "decltype" "delete"
-                  "explicit" "final" "friend"
-                  "mutable" "namespace" "new" "noexcept"
-                  "not" "not_eq" "operator" "or"
-                  "or_eq" "override" "private" "protected"
-                  "public" "requires" "template" "throw"
-                  "try" "typename" "using"
-                  "xor" "xor_eq" "thread_local"))
-      (append '("auto") c-keywords))))
+(defvar c-ts-mode--optional-c-keywords
+  ;; v0.20.4 actually contains all the new keywords I can find that
+  ;; aren't in c-ts-mode before.  The version doesn't really matter, we
+  ;; just want a rough grouping so that we can enable as much keywords
+  ;; as possible.
+  '(("v0.20.4" . ("_Generic"  "_Noreturn" "noreturn"
+                  "__attribute__" "__restrict__"
+                  "offsetof" "thread_local"))
+    ("v0.20.5" . ("__extension__" "__extension__"
+                  "__forceinline" "__inline" "__inline__"
+                  "__thread"
+                  "__alignof__" "__alignof" "alignof" "_Alignof"))
+    ("v0.20.7" . ("__try" "__except" "__finally" "__leave"))
+    ;; GitHub release jumped from v0.20.7 to v0.23.1.  There are
+    ;; intermediate git tags, but there aren't many keywords here, so I
+    ;; skipped intermediate versions too.
+    ("v0.23.1" ("_Nonnull" "__attribute"
+                "alignas" "_Alignas" "__asm" "__volatile__"))
+    ;; No changes to keywords in v0.23.2, v0.23.3, v0.23.4.
+    )
+  "Keywords added in each tree-sitter-c version.")
+
+(defvar c-ts-mode--ms-keywords
+  ;; For some reason, "__restrict" "__uptr" and "__sptr" are not
+  ;; recognized by the grammar, although being in grammar.js.
+  '("__declspec" "__based" "__cdecl" "__clrcall" "__stdcall"
+    "__fastcall" "__thiscall" "__vectorcall" "_unaligned" "__unaligned")
+  "MSVC keywords.")
 
 (defvar c-ts-mode--type-keywords
   '("long" "short" "signed" "unsigned")
@@ -629,6 +645,58 @@ MODE is either `c' or `cpp'."
     "+=" "*=" "/=" "%=" "|=" "&=" "^=" ">>=" "<<=" "--" "++")
   "C/C++ operators for tree-sitter font-locking.")
 
+(defvar c-ts-mode--c++-operators
+  '(".*" "->*" "<=>")
+  "C++ operators that aren't supported by C.")
+
+(defvar c-ts-mode--c++-operator-keywords
+  '("and" "and_eq" "bitand" "bitor" "compl" "not" "not_eq" "or" "or_eq"
+    "xor" "xor_eq")
+  "C++ operators that we fontify as keywords.")
+
+(defun c-ts-mode--compute-optional-keywords (mode)
+  "Return a list of keywords that are supported by the grammar.
+MODE should be either `c' or `cpp'."
+  (if (eq mode 'c)
+      (mapcan
+       (lambda (entry)
+         (let ((keywords (cdr entry)))
+           (if (ignore-errors
+                 (treesit-query-compile 'c `([,@keywords] @cap) t)
+                 t)
+               (copy-sequence keywords)
+             nil)))
+       c-ts-mode--optional-c-keywords)
+    ;; As for now, there aren't additional optional keywords for C++.
+    ()))
+
+(defun c-ts-mode--keywords (mode)
+  "C/C++ keywords for tree-sitter font-locking.
+MODE is either `c' or `cpp'."
+  (let ((c-keywords
+         `("_Atomic" "break" "case" "const" "continue"
+           "default" "do" "else" "enum"
+           "extern" "for" "goto" "if" "inline"
+           "register" "restrict" "return"
+           "sizeof" "static" "struct"
+           "switch" "typedef" "union"
+           "volatile" "while"
+           ,@c-ts-mode--ms-keywords
+           ,@(c-ts-mode--compute-optional-keywords mode))))
+    (if (eq mode 'cpp)
+        (append c-keywords
+                c-ts-mode--c++-operator-keywords
+                '("catch" "class" "co_await" "co_return"
+                  "co_yield" "concept" "consteval"
+                  "constexpr" "constinit" "decltype" "delete"
+                  "explicit" "final" "friend"
+                  "mutable" "namespace" "new" "noexcept"
+                  "operator" "override" "private" "protected"
+                  "public" "requires" "static_assert" "template" "throw"
+                  "try" "typename" "using"
+                  "thread_local"))
+      (append '("auto") c-keywords))))
+
 (defvar c-ts-mode--for-each-tail-regexp
   (rx "FOR_EACH_" (or "TAIL" "TAIL_SAFE" "ALIST_VALUE"
                       "LIVE_BUFFER" "FRAME"))
@@ -638,22 +706,16 @@ MODE is either `c' or `cpp'."
   (rx (| "/**" "/*!" "//!" "///"))
   "A regexp that matches all doxygen comment styles.")
 
-(defun c-ts-mode--test-virtual-named-p ()
-  "Return t if the virtual keyword is a namded node, nil otherwise."
-  (ignore-errors
-    (progn (treesit-query-compile 'cpp "(virtual)" t) t)))
-
 (defun c-ts-mode--font-lock-settings (mode)
   "Tree-sitter font-lock settings.
 MODE is either `c' or `cpp'."
   (treesit-font-lock-rules
-   :language mode
+   :default-language mode
    :feature 'comment
    `(((comment) @font-lock-doc-face
       (:match ,(rx bos "/**") @font-lock-doc-face))
      (comment) @font-lock-comment-face)
 
-   :language mode
    :feature 'preprocessor
    `((preproc_directive) @font-lock-preprocessor-face
 
@@ -676,43 +738,37 @@ MODE is either `c' or `cpp'."
       ")" @font-lock-preprocessor-face)
      [,@c-ts-mode--preproc-keywords] @font-lock-preprocessor-face)
 
-   :language mode
    :feature 'constant
    `((true) @font-lock-constant-face
      (false) @font-lock-constant-face
      (null) @font-lock-constant-face)
 
-   :language mode
    :feature 'keyword
    `([,@(c-ts-mode--keywords mode)] @font-lock-keyword-face
      ,@(when (eq mode 'cpp)
          '((auto) @font-lock-keyword-face
            (this) @font-lock-keyword-face))
-     ,@(when (and (eq mode 'cpp)
-                  (c-ts-mode--test-virtual-named-p))
-         '((virtual) @font-lock-keyword-face))
-     ,@(when (and (eq mode 'cpp)
-                  (not (c-ts-mode--test-virtual-named-p)))
-         '("virtual" @font-lock-keyword-face)))
+     ,@(when (eq mode 'cpp)
+         (treesit-query-first-valid 'cpp
+           '((virtual) @font-lock-keyword-face)
+           '("virtual" @font-lock-keyword-face))))
 
-   :language mode
    :feature 'operator
-   `([,@c-ts-mode--operators] @font-lock-operator-face
+   `([,@c-ts-mode--operators
+      ,@(when (eq mode 'cpp) c-ts-mode--c++-operators)]
+     @font-lock-operator-face
      "!" @font-lock-negation-char-face)
 
-   :language mode
    :feature 'string
    `((string_literal) @font-lock-string-face
      (system_lib_string) @font-lock-string-face
      ,@(when (eq mode 'cpp)
          '((raw_string_literal) @font-lock-string-face)))
 
-   :language mode
    :feature 'literal
    `((number_literal) @font-lock-number-face
      (char_literal) @font-lock-constant-face)
 
-   :language mode
    :feature 'type
    `((primitive_type) @font-lock-type-face
      (type_identifier) @font-lock-type-face
@@ -728,7 +784,6 @@ MODE is either `c' or `cpp'."
            (namespace_identifier) @font-lock-constant-face))
      [,@c-ts-mode--type-keywords] @font-lock-type-face)
 
-   :language mode
    :feature 'definition
    ;; Highlights identifiers in declarations.
    `(,@(when (eq mode 'cpp)
@@ -755,7 +810,6 @@ MODE is either `c' or `cpp'."
      (enumerator
       name: (identifier) @font-lock-property-name-face))
 
-   :language mode
    :feature 'assignment
    ;; TODO: Recursively highlight identifiers in parenthesized
    ;; expressions, see `c-ts-mode--fontify-declarator' for
@@ -772,44 +826,35 @@ MODE is either `c' or `cpp'."
              (identifier) @font-lock-variable-name-face))
      (init_declarator declarator: (_) @c-ts-mode--fontify-declarator))
 
-   :language mode
    :feature 'function
    '((call_expression
       function:
       [(identifier) @font-lock-function-call-face
        (field_expression field: (field_identifier) @font-lock-function-call-face)]))
 
-   :language mode
    :feature 'variable
    '((identifier) @c-ts-mode--fontify-variable)
 
-   :language mode
    :feature 'label
    '((labeled_statement
       label: (statement_identifier) @font-lock-constant-face))
 
-   :language mode
    :feature 'error
    '((ERROR) @c-ts-mode--fontify-error)
 
    :feature 'escape-sequence
-   :language mode
    :override t
    '((escape_sequence) @font-lock-escape-face)
 
-   :language mode
    :feature 'property
    '((field_identifier) @font-lock-property-use-face)
 
-   :language mode
    :feature 'bracket
    '((["(" ")" "[" "]" "{" "}"]) @font-lock-bracket-face)
 
-   :language mode
    :feature 'delimiter
    '((["," ":" ";"]) @font-lock-delimiter-face)
 
-   :language mode
    :feature 'emacs-devel
    :override t
    `(((call_expression
@@ -1151,8 +1196,16 @@ if `c-ts-mode-emacs-sources-support' is non-nil."
   `(;; It's more useful to include semicolons as sexp so
     ;; that users can move to the end of a statement.
     (sexp (not ,(rx (or "{" "}" "[" "]" "(" ")" ","))))
-    (sexp-list
+    (list
      ,(regexp-opt '("preproc_params"
+                    "preproc_if"
+                    "preproc_ifdef"
+                    "preproc_if_in_field_declaration_list"
+                    "preproc_ifdef_in_field_declaration_list"
+                    "preproc_if_in_enumerator_list"
+                    "preproc_ifdef_in_enumerator_list"
+                    "preproc_if_in_enumerator_list_no_comma"
+                    "preproc_ifdef_in_enumerator_list_no_comma"
                     "preproc_parenthesized_expression"
                     "preproc_argument_list"
                     "attribute_declaration"

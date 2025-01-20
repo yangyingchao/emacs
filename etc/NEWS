@@ -90,6 +90,16 @@ If you have been using these variables in Lisp code (for example, in
 font-lock rules), simply quote the symbol, to use the face directly
 instead of its now-obsolete variable.
 
+** Network Security Manager (NSM) is now more strict.
+
+*** NSM warns about TLS 1.1 by default.
+It has been deprecated by RFC8996, published in 2021.
+
+*** NSM warns about DHE and RSA key exchange by default.
+Emacs now warns about ephemeral Diffie-Hellman key exchange, and static
+RSA key exchange, also when 'network-security-level' is customized to
+its default 'medium' value.
+
 ** Etags
 
 +++
@@ -153,6 +163,16 @@ the "*Completions*" buffer is hidden.
 
 ** Windows
 
+*** New functions to modify window layout.
+Several functions to modify the window layout have been added:
+'rotate-window-layout-clockwise'
+'rotate-window-layout-anticlockwise'
+'flip-window-layout-vertically'
+'flip-window-layout-horizontally'
+'transpose-window-layout'
+'rotate-windows'
+'rotate-windows-back'
+
 +++
 *** New hook 'window-deletable-functions'.
 This abnormal hook gives its client a way to save a window from getting
@@ -163,6 +183,13 @@ deleted implicitly by functions like 'kill-buffer', 'bury-buffer' and
 *** New user option 'kill-buffer-quit-windows'.
 This option has 'kill-buffer' call 'quit-restore-window' to handle the
 further destiny of any window showing the buffer to be killed.
+
++++
+*** 'split-window' can optionally resurrect deleted windows.
+A new argument REFER of 'split-window' makes it possible to, instead of
+making a new window object, reuse an existing, deleted one.  This can be
+used to preserve the identity of windows when swapping or transposing
+them.
 
 +++
 *** New window parameter 'quit-restore-prev'.
@@ -260,12 +287,13 @@ The Tifinagh script is used to write the Berber languages.
 *** New input methods for Northern Iroquoian languages.
 Input methods are now implemented for Haudenosaunee languages in the
 Northern Iroquoian language family: 'mohawk-postfix' (Mohawk
-[Kanien’kéha / Onkwehonwehnéha]), 'oneida-postfix' (Oneida
-[Onʌyote’a·ká· / Ukwehuwehnéha]), 'cayuga-postfix' (Cayuga
-[Gayogo̱ho:nǫhnéha:ˀ]), 'onondaga-postfix' (Onondaga [Onųdaʔgegáʔ]), and
-'seneca-postfix' (Seneca [Onödowá’ga:’]).  Additionally, there is a
-general-purpose 'haudenosaunee-postfix' input method to facilitate
-writing in the orthographies of the five languages simultaneously.
+[Kanien’kéha / Kanyen’kéha / Onkwehonwehnéha]), 'oneida-postfix' (Oneida
+[Onʌyote’a·ká· / Onyota’a:ká: / Ukwehuwehnéha]), 'cayuga-postfix'
+(Cayuga [Gayogo̱ho:nǫhnéha:ˀ]), 'onondaga-postfix' (Onondaga
+[Onųdaʔgegáʔ]), and 'seneca-postfix' (Seneca [Onödowá’ga:’]).
+Additionally, there is a general-purpose 'haudenosaunee-postfix' input
+method to facilitate writing in the orthographies of the five languages
+simultaneously.
 
 ---
 ** 'visual-wrap-prefix-mode' now supports variable-pitch fonts.
@@ -315,6 +343,17 @@ modal editing packages.
 
 * Changes in Specialized Modes and Packages in Emacs 31.1
 
+---
+** ASM mode
+*** 'asm-mode-set-comment-hook' is obsolete.
+You can now set `asm-comment-char' from 'asm-mode-hook' instead.
+
+---
+** Ibuffer
+*** New column 'recency' in Ibuffer display.
+The variable 'ibuffer-formats' configures the Ibuffer formats.  Add
+'recency' to the format to display the column.
+
 ** Smerge
 *** New command 'smerge-extend' extends a conflict over surrounding lines.
 
@@ -353,6 +392,9 @@ Emacs 25.1), and gnudoit (obsolete since Emacs 25.1).
 +++
 *** 'cl-labels' now also accepts '(FUNC EXP)' bindings, like 'cl-flet'.
 Such bindings make it possible to compute which function to bind to FUNC.
+
+---
+*** 'cl-block' names are now lexically scoped, as documented.
 
 ** Whitespace
 
@@ -803,6 +845,11 @@ Use 'bibtex-aux-opt-alist' instead.
 *** New user option 'bibtex-entry-ask-for-key'.
 When enabled, 'bibtex-entry' asks for a key.
 
+---
+*** 'bibtex-string-file-path' and 'bibtex-file-path' are lists of directories.
+For backward compatibility, considered obsolete, these user options
+may still be strings with colon separated lists of directories.
+
 ** Midnight mode
 
 ---
@@ -1024,15 +1071,15 @@ override flag by 'treesit-font-lock-setting-query',
 'treesit-font-lock-setting-feature', 'treesit-font-lock-setting-enable',
 and 'treesit-font-lock-setting-override'.
 
-*** New treesit thing 'sexp-list'.
+*** New treesit thing 'list'.
 Unlike the existing thing 'sexp' that defines both lists and atoms,
-'sexp-list' defines only lists to be navigated by 'forward-sexp'.
-The new function 'treesit-forward-sexp-list' uses 'sexp-list'
+'list' defines only lists to be navigated by 'forward-sexp'.
+The new function 'treesit-forward-sexp-list' uses 'list'
 to move across lists.  But to move across atoms inside the list
 it uses 'forward-sexp-default-function'.
 
-*** New tree-sitter based functions for moving by sexp-lists.
-If a major mode defines 'sexp-list' in 'treesit-thing-settings',
+*** New tree-sitter based functions for moving by lists.
+If a major mode defines 'list' in 'treesit-thing-settings',
 tree-sitter setup for these modes sets 'forward-list-function' to
 'treesit-forward-list', 'up-list-function' to 'treesit-up-list', and
 'down-list-function' to 'treesit-down-list'.  This enables the
@@ -1136,6 +1183,16 @@ It offers a more concise way to create a completion table with metadata.
 
 +++
 ** 'all-completions' and 'unintern' no longer support old calling conventions.
+
++++
+** New symbol property 'find-function-type-alist' used by 'find-function' etc.
+Macros that define an object in a way that makes the object's name and
+the macro call site defining the object hard to associate can add an
+entry to the property 'find-function-type-alist' on the object's name to
+provide instructions for finding the definition.
+
+New convenience function 'find-function-update-type-alist' offers a
+concise way to update a symbol's 'find-function-type-alist' property.
 
 
 * Changes in Emacs 31.1 on Non-Free Operating Systems
