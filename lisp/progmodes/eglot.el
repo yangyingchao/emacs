@@ -271,6 +271,7 @@ automatically)."
      . ,(eglot-alternatives
          '("clangd" "ccls")))
     (((caml-mode :language-id "ocaml")
+      (ocaml-ts-mode :language-id "ocaml")
       (tuareg-mode :language-id "ocaml") reason-mode)
      . ("ocamllsp"))
     ((ruby-mode ruby-ts-mode)
@@ -284,7 +285,8 @@ automatically)."
      . ("gopls"))
     ((R-mode ess-r-mode) . ("R" "--slave" "-e"
                             "languageserver::run()"))
-    ((java-mode java-ts-mode) . ("jdtls"))
+    ((java-mode java-ts-mode)
+     . ,(eglot-alternatives '("jdtls" "java-language-server")))
     ((dart-mode dart-ts-mode)
      . ("dart" "language-server"
         "--client-id" "emacs.eglot-dart"))
