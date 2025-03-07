@@ -293,6 +293,7 @@ candidates or if there are multiple matching completions and
   ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   (let* ((pred (plist-get props :predicate))
          (string (buffer-substring beg end))
+         (completion-extra-properties props)
          (md (completion-metadata string table pred))
          (sort-fn (or (completion-metadata-get md 'cycle-sort-function)
                       (completion-metadata-get md 'display-sort-function)
@@ -520,6 +521,10 @@ completions list."
             ;; hook update the completion preview in case the candidate
             ;; can be completed further.
             (when (functionp efn)
+              ;; Remove stale preview since `efn' can make arbitrary
+              ;; text and point modifications that might interfere with
+              ;; a subsequent preview update.  See bug#76606.
+              (completion-preview-active-mode -1)
               (funcall efn (concat base com) (if (cdr all) 'exact 'finished)))
           ;; Otherwise, remove the common prefix from the preview.
           (completion-preview--inhibit-update)

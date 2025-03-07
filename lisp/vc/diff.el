@@ -203,21 +203,24 @@ returns the buffer used."
       (setq diff-default-directory default-directory)
       (let ((inhibit-read-only t))
 	(insert command "\n"))
-      (if (and (not no-async) (fboundp 'make-process))
-	  (let ((proc (start-process "Diff" buf shell-file-name
-                                     shell-command-switch command)))
-	    (set-process-filter proc #'diff-process-filter)
-            (set-process-sentinel
-             proc (lambda (proc _msg)
-                    (with-current-buffer (process-buffer proc)
-                      (diff-sentinel (process-exit-status proc)
-                                     old-alt new-alt)))))
-	;; Async processes aren't available.
-	(let ((inhibit-read-only t))
-	  (diff-sentinel
-	   (call-process shell-file-name nil buf nil
-			 shell-command-switch command)
-           old-alt new-alt))))
+      (with-file-modes #o600
+        (if (and (not no-async) (fboundp 'make-process))
+	    (let* ((default-directory temporary-file-directory)
+                   (proc (start-process "Diff" buf shell-file-name
+                                        shell-command-switch command)))
+	      (set-process-filter proc #'diff-process-filter)
+              (set-process-sentinel
+               proc (lambda (proc _msg)
+                      (with-current-buffer (process-buffer proc)
+                        (diff-sentinel (process-exit-status proc)
+                                       old-alt new-alt)))))
+	  ;; Async processes aren't available.
+	  (let* ((default-directory temporary-file-directory)
+                 (inhibit-read-only t))
+	    (diff-sentinel
+	     (call-process shell-file-name nil buf nil
+			   shell-command-switch command)
+             old-alt new-alt)))))
     buf))
 
 (defun diff-process-filter (proc string)
