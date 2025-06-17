@@ -430,7 +430,7 @@ checks in @code{network-security-protocol-checks}).
 The protocols older than @acronym{TLS1.0} are believed to be
 vulnerable to a variety of attacks, and you may want to avoid using
 these if what you're doing requires higher security.  (This is the
-@code{ssl} check in @code{network-security-protocol-checks}).
+@code{version} check in @code{network-security-protocol-checks}).
 
 @item Triple DES (or @acronym{3DES}) cipher
 The @acronym{3DES} stream cipher provides at most 112 bits of
@@ -955,6 +955,13 @@ at each prompt, for instance with the following command:
 printf "\e]7;file://%s%s\e\\" "$HOSTNAME" "$PWD"
 @end example
 
+@noindent
+Then tell Emacs to process the escape codes:
+
+@lisp
+(add-hook 'comint-output-filter-functions #'comint-osc-process-output)
+@end lisp
+
 @vindex explicit-shell-file-name
 @cindex environment variables for subshells
 @cindex @env{ESHELL} environment variable
@@ -1188,7 +1195,7 @@ supports some extend escape codes, like some of the @acronym{OSC}
 (Operating System Codes) if you put the following in your init file:
 
 @lisp
-(add-hook 'comint-output-filter-functions 'comint-osc-process-output)
+(add-hook 'comint-output-filter-functions #'comint-osc-process-output)
 @end lisp
 
 With this enabled, the output from, for instance, @code{ls
