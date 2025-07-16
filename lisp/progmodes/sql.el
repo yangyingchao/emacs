@@ -2113,8 +2113,6 @@ to add functions and PL/SQL keywords.")
 "xmlagg" "xmlbinary" "xmlcast" "xmlcomment" "xmldeclaration"
 "xmldocument" "xmlexists" "xmliterate" "xmlnamespaces" "xmlquery"
 "xmlschema" "xmltable" "xmltext" "xmlvalidate"
-
-"appendonly" "orientation" "round"
 )
 
      ;; Postgres non-reserved words
@@ -2163,6 +2161,24 @@ to add functions and PL/SQL keywords.")
 "policy"
 )
 
+     ;; GPDB keywords
+     (sql-font-lock-keywords-builder 'font-lock-keyword-face nil
+"appendonly" "active" "compartment" "contains" "coordinator" "cpuset"
+"cpu_percent_max" "cpu_percent_min" "cpu_rate_ceiling" "cpu_rate_limit"
+"connect_by_root" "sys_connect_by_path" "createexttable" "decode" "deny"
+"distributed" "dxl" "elsif" "errors" "every" "exception" "exchange"
+"executor" "executors" "expand" "expression" "fields" "fill" "format"
+"fullscan" "getclobval" "group_concat" "group_id" "grouping_id" "hash"
+"host" "ignore_p" "inclusive" "less_p" "list" "log_p" "loop" "mac"
+"masking" "master" "matched" "median" "merge" "missing" "modifies"
+"newline" "nocreateexttable" "noovercommit" "ordered" "order_columns"
+"orientation" "overcommit" "parent" "partitions" "percent"
+"persistently" "pivot""protocol" "randomly" "readable" "reads"
+"reject_p" "replicated" "resource" "rootpartition" "round" "scatter"
+"segment" "split" "sql" "subpartition" "than_p" "threshold" "triggers"
+"validation" "web" "writable" "xmlagg"
+
+)
      ;; Postgres Reserved
      (sql-font-lock-keywords-builder 'font-lock-keyword-face nil
 "all" "analyse" "analyze" "and" "array" "asc" "as" "asymmetric"
