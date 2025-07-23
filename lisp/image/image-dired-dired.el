@@ -62,8 +62,9 @@ Dired and you might want to turn it off."
 If no file is marked, toggle display of thumbnail on the current file's line.
 ARG, if non-nil (interactively, the prefix argument), specifies the files
 whose thumbnail display to toggle instead of the marked files: if ARG is an
-integer, use the next ARG (or previous -ARG, if ARG<0) files; any other
-value of ARG means toggle thumbnail display of the current line's file."
+integer, use the next ARG (or previous -ARG, if ARG<0) files; if ARG is
+the symbol `marked', use only the marked files, if any; any other value of
+ARG means toggle thumbnail display of the current line's file."
   (interactive "P" dired-mode)
   (setq image-dired--generate-thumbs-start  (current-time))
   (dired-map-over-marks
@@ -384,7 +385,7 @@ matching tag will be marked in the Dired buffer."
         (setq curr-file (file-name-nondirectory curr-file))
         (goto-char (point-min))
         (when (search-forward-regexp (format "\\s %s[*@]?$" (regexp-quote curr-file)) nil t)
-          (setq hits (+ hits 1))
+          (incf hits)
           (dired-mark 1))))
     (message "%d files with matching tag marked" hits)))
 

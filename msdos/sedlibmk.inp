@@ -153,7 +153,6 @@ s/@PACKAGE@/emacs/
 /^C_SWITCH_X_SITE *=/s/@C_SWITCH_X_SITE@//
 /^PROFILING_CFLAGS *=/s/@PROFILING_CFLAGS@//
 /^GNULIB_WARN_CFLAGS *=/s/@GNULIB_WARN_CFLAGS@//
-/^HYBRID_MALLOC *=/s/@HYBRID_MALLOC@//
 /^WARN_CFLAGS *=/s/@WARN_CFLAGS@//
 /^WERROR_CFLAGS *=/s/@WERROR_CFLAGS@//
 /^ANDROID_BUILD_CFLAGS *=/s/@ANDROID_BUILD_CFLAGS@//
@@ -209,6 +208,7 @@ s/@PACKAGE@/emacs/
 #
 # Edit the HAVE_foo variables
 /^HAVE_ATOLL *=/s/@HAVE_ATOLL@/0/
+/^HAVE_BLKCNT_T *=/s/@HAVE_BLKCNT_T@/1/
 /^HAVE_CHOWN *=/s/@HAVE_CHOWN@/1/
 /^HAVE_CLOSEDIR *=/s/@HAVE_CLOSEDIR@/1/
 /^HAVE_DECL_GETPAGESIZE *=/s/@HAVE_DECL_GETPAGESIZE@/1/
@@ -294,6 +294,7 @@ s/@PACKAGE@/emacs/
 /^NEXT_AS_FIRST_DIRECTIVE_GETOPT_H *=/s/@[^@\n]*@/<getopt.h>/
 /^NEXT_AS_FIRST_DIRECTIVE_LIMITS_H *=/s/@[^@\n]*@/<limits.h>/
 /^NEXT_AS_FIRST_DIRECTIVE_SIGNAL_H *=/s/@[^@\n]*@/<signal.h>/
+/^NEXT_AS_FIRST_DIRECTIVE_STDCKDINT_H *=/s/@[^@\n]*@/<stdckdint.h>/
 /^NEXT_AS_FIRST_DIRECTIVE_STDDEF_H *=/s/@[^@\n]*@/<stddef.h>/
 /^NEXT_AS_FIRST_DIRECTIVE_STDINT_H *=/s/@[^@\n]*@/<stdint.h>/
 /^NEXT_AS_FIRST_DIRECTIVE_STDIO_H *=/s/@[^@\n]*@/<stdio.h>/
@@ -315,6 +316,7 @@ s/@PACKAGE@/emacs/
 /^NEXT_LIMITS_H *=/s/@[^@\n]*@/<limits.h>/
 /^NEXT_MATH_H *=/s/@[^@\n]*@//
 /^NEXT_SIGNAL_H *=/s/@[^@\n]*@/<signal.h>/
+/^NEXT_STDCKDINT_H *=/s/@[^@\n]*@/<stdckdint.h>/
 /^NEXT_STDDEF_H *=/s/@[^@\n]*@/<stddef.h>/
 /^NEXT_STDIO_H *=/s/@[^@\n]*@/<stdio.h>/
 /^NEXT_STDINT_H *=/s/@[^@\n]*@/<stdint.h>/

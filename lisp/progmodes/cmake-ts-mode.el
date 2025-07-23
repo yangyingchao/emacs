@@ -24,11 +24,11 @@
 
 ;;; Tree-sitter language versions
 ;;
-;; cmake-ts-mode is known to work with the following languages and version:
+;; cmake-ts-mode has been tested with the following grammars and version:
 ;; - tree-sitter-cmake: v0.5.0-5-ge409ae3
 ;;
 ;; We try our best to make builtin modes work with latest grammar
-;; versions, so a more recent grammar version has a good chance to work.
+;; versions, so a more recent grammar has a good chance to work too.
 ;; Send us a bug report if it doesn't.
 
 ;;; Commentary:
@@ -39,6 +39,12 @@
 (require 'treesit)
 (eval-when-compile (require 'rx))
 (treesit-declare-unavailable-functions)
+
+(add-to-list
+ 'treesit-language-source-alist
+ '(cmake "https://github.com/uyha/tree-sitter-cmake"
+         :commit "e409ae33f00e04cde30f2bcffb979caf1a33562a")
+ t)
 
 (defcustom cmake-ts-mode-indent-offset 2
   "Number of spaces for each indentation step in `cmake-ts-mode'."
@@ -212,7 +218,7 @@ Return nil if there is no name or if NODE is not a defun node."
   :group 'cmake
   :syntax-table cmake-ts-mode--syntax-table
 
-  (when (treesit-ready-p 'cmake)
+  (when (treesit-ensure-installed 'cmake)
     (setq treesit-primary-parser (treesit-parser-create 'cmake))
 
     ;; Comments.

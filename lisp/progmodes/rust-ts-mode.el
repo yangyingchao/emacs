@@ -24,11 +24,11 @@
 
 ;;; Tree-sitter language versions
 ;;
-;; rust-ts-mode is known to work with the following languages and version:
-;; - tree-sitter-rust: v0.23.2-1-g1f63b33
+;; rust-ts-mode has been tested with the following grammars and version:
+;; - tree-sitter-rust: v0.24.0
 ;;
 ;; We try our best to make builtin modes work with latest grammar
-;; versions, so a more recent grammar version has a good chance to work.
+;; versions, so a more recent grammar has a good chance to work too.
 ;; Send us a bug report if it doesn't.
 
 ;;; Commentary:
@@ -40,6 +40,15 @@
 (eval-when-compile (require 'rx))
 (require 'c-ts-common) ; For comment indent and filling.
 (treesit-declare-unavailable-functions)
+
+(add-to-list
+ 'treesit-language-source-alist
+ `(rust "https://github.com/tree-sitter/tree-sitter-rust"
+        :commit ,(if (and (treesit-available-p)
+                          (< (treesit-library-abi-version) 15))
+                     "1f63b33efee17e833e0ea29266dd3d713e27e321"
+                   "18b0515fca567f5a10aee9978c6d2640e878671a"))
+ t)
 
 (defcustom rust-ts-mode-indent-offset 4
   "Number of spaces for each indentation step in `rust-ts-mode'."
@@ -545,7 +554,7 @@ See `prettify-symbols-compose-predicate'."
   :group 'rust
   :syntax-table rust-ts-mode--syntax-table
 
-  (when (treesit-ready-p 'rust)
+  (when (treesit-ensure-installed 'rust)
     (setq treesit-primary-parser (treesit-parser-create 'rust))
 
     ;; Syntax.
@@ -578,6 +587,16 @@ See `prettify-symbols-compose-predicate'."
                   ("Struct" "\\`struct_item\\'" nil nil)
                   ("Fn" "\\`function_item\\'" nil nil)))
 
+    ;; Outline.
+    (setq-local treesit-outline-predicate
+                (rx bos (or "mod_item"
+                            "enum_item"
+                            "impl_item"
+                            "type_item"
+                            "struct_item"
+                            "function_item"
+                            "trait_item")
+                    eos))
     ;; Indent.
     (setq-local indent-tabs-mode nil
                 treesit-simple-indent-rules rust-ts-mode--indent-rules)
@@ -596,6 +615,40 @@ See `prettify-symbols-compose-predicate'."
                               "impl_item"
                               "struct_item")))
     (setq-local treesit-defun-name-function #'rust-ts-mode--defun-name)
+
+    (setq-local treesit-thing-settings
+                `((rust
+                   (list
+                    ,(rx bos (or "token_tree_pattern"
+                                 "token_tree"
+                                 "attribute_item"
+                                 "inner_attribute_item"
+                                 "declaration_list"
+                                 "enum_variant_list"
+                                 "field_declaration_list"
+                                 "ordered_field_declaration_list"
+                                 "type_parameters"
+                                 "use_list"
+                                 "parameters"
+                                 "bracketed_type"
+                                 "array_type"
+                                 "for_lifetimes"
+                                 "tuple_type"
+                                 "unit_type"
+                                 "use_bounds"
+                                 "type_arguments"
+                                 "delim_token_tree"
+                                 "arguments"
+                                 "array_expression"
+                                 "parenthesized_expression"
+                                 "tuple_expression"
+                                 "unit_expression"
+                                 "field_initializer_list"
+                                 "match_block"
+                                 "block"
+                                 "tuple_pattern"
+                                 "slice_pattern")
+                         eos)))))
 
     (treesit-major-mode-setup)))
 

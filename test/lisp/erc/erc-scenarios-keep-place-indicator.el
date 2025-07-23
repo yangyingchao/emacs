@@ -31,10 +31,11 @@
 ;; away, the indicator is updated if it's earlier in the buffer.
 (ert-deftest erc-scenarios-keep-place-indicator--follow ()
   :tags `(:expensive-test
-          ,@(and (getenv "EMACS_EMBA_CI") '(:unstable))
+          ,@(and (getenv "CI") '(:unstable))
           ,@(and (getenv "ERC_TESTS_GRAPHICAL") '(:erc--graphical)))
-  (when (version< emacs-version "29") (ert-skip "Times out"))
-  ;; XXX verify that this continues to be the case ^.
+
+  (when (getenv "CI")
+    (ert-skip "Times out intermittently"))
 
   (should-not erc-scrolltobottom-all)
   (should-not erc-scrolltobottom-mode)

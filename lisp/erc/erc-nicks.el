@@ -541,7 +541,9 @@ Abandon search after examining LIMIT faces."
   nick-object)
 
 (define-erc-module nicks nil
-  "Uniquely colorize nicknames in target buffers."
+  "Uniquely colorize nicknames in target buffers.
+
+This module is local per connection."
   ((if erc--target
        (progn
          (erc-with-server-buffer
@@ -607,7 +609,7 @@ Abandon search after examining LIMIT faces."
          nil)
    (unless erc-button--nick-popup-alist
      (kill-local-variable 'erc-button--nick-popup-alist)))
-  'local)
+  localp)
 
 (defun erc-nicks-customize-face (nick)
   "Customize or create persistent face for NICK."

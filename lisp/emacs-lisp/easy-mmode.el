@@ -269,7 +269,7 @@ INIT-VALUE LIGHTER KEYMAP.
       (setq body (cdr body))
       (pcase keyw
 	(:init-value (setq init-value (pop body)))
-	(:lighter (setq lighter (purecopy (pop body))))
+        (:lighter (setq lighter (pop body)))
 	(:global (setq globalp (pop body))
                  (when (and globalp (symbolp mode))
                    (setq setter `(setq-default ,mode))
@@ -444,8 +444,6 @@ No problems result if this variable is not bound.
 ;;;
 
 ;;;###autoload
-(defalias 'define-global-minor-mode #'define-globalized-minor-mode)
-;;;###autoload
 (defmacro define-globalized-minor-mode (global-mode mode turn-on &rest body)
   "Make a global mode GLOBAL-MODE corresponding to buffer-local minor MODE.
 TURN-ON is a function that will be called with no args in every buffer
@@ -458,8 +456,8 @@ switch on the minor mode in all major modes), nil (meaning don't
 switch on in any major mode), a list of modes (meaning switch on only
 in those modes and their descendants), or a list (not MODES...),
 meaning switch on in any major mode except MODES.  The value can also
-mix all of these forms, see the info node `Defining Minor Modes' for
-details.  The :predicate key causes the macro to create a user option
+mix all of these forms, see the Info node `(elisp)Defining Minor Modes'
+for details.  The :predicate key causes the macro to create a user option
 named the same as MODE, but ending with \"-modes\" instead of \"-mode\".
 That user option can then be used to customize in which modes this
 globalized minor mode will be switched on.
@@ -531,7 +529,11 @@ on if the hook has explicitly disabled it.
          ,@(when predicate `((defvar ,MODE-predicate))))
        ;; The actual global minor-mode
        (define-minor-mode ,global-mode
-         ,(concat (format "Toggle %s in all buffers.\n" pretty-name)
+         ,(concat (format "Toggle %s in many buffers.\n" pretty-name)
+                  (internal--format-docstring-line
+                   "Specifically, %s is enabled in all buffers where `%s' would do it."
+                   pretty-name turn-on)
+                  "\n\n"
                   (internal--format-docstring-line
                    (concat "With prefix ARG, enable %s if ARG is positive; "
                            "otherwise, disable it.")
@@ -540,10 +542,6 @@ on if the hook has explicitly disabled it.
                   "If called from Lisp, toggle the mode if ARG is `toggle'.
 Enable the mode if ARG is nil, omitted, or is a positive number.
 Disable the mode if ARG is a negative number.\n\n"
-                  (internal--format-docstring-line
-                   "%s is enabled in all buffers where `%s' would do it."
-                   pretty-name turn-on)
-                  "\n\n"
                   (internal--format-docstring-line
                    "See `%s' for more information on %s."
                    mode pretty-name)
@@ -852,11 +850,14 @@ Interactively, COUNT is the prefix numeric argument, and defaults to 1." name)
          ,@body)
        (put ',prev-sym 'definition-name ',base))))
 
-;; When deleting these two, also delete them from loaddefs-gen.el.
+;; When deleting these, also delete them from loaddefs-gen.el.
 ;;;###autoload
 (define-obsolete-function-alias 'easy-mmode-define-minor-mode #'define-minor-mode "30.1")
 ;;;###autoload
 (define-obsolete-function-alias 'easy-mmode-define-global-mode #'define-globalized-minor-mode "30.1")
+;;;###autoload
+(define-obsolete-function-alias 'define-global-minor-mode
+  #'define-globalized-minor-mode "31.1")
 
 (provide 'easy-mmode)
 

@@ -186,8 +186,8 @@ This applies when its SETUP argument is non-nil."
 			   log-edit-insert-changelog
 			   log-edit-show-files)
   "Hook run at the end of `log-edit'."
-  ;; Added log-edit-insert-message-template, moved log-edit-show-files.
-  :version "24.4"
+  ;; Added `log-edit-maybe-show-diff'.
+  :version "31.1"
   :group 'log-edit
   :type '(hook :options (log-edit-insert-message-template
 			 log-edit-insert-cvs-rcstemplate
@@ -195,7 +195,8 @@ This applies when its SETUP argument is non-nil."
 			 log-edit-insert-changelog
 			 log-edit-insert-filenames
 			 log-edit-insert-filenames-without-changelog
-			 log-edit-show-files)))
+			 log-edit-show-files
+                         log-edit-maybe-show-diff)))
 
 (defcustom log-edit-mode-hook (if (boundp 'vc-log-mode-hook) vc-log-mode-hook)
   "Hook run when entering `log-edit-mode'."
@@ -210,7 +211,8 @@ such as a bug-tracking system.  The list of files about to be committed
 can be obtained from `log-edit-files'."
   :group 'log-edit
   :type '(hook :options (log-edit-set-common-indentation
-			 log-edit-add-to-changelog)))
+                         log-edit-add-to-changelog
+                         log-edit-done-strip-cvs-lines)))
 
 (defcustom log-edit-strip-single-file-name nil
   "If non-nil, remove file name from single-file log entries."
@@ -248,9 +250,9 @@ when this variable is set to nil.")
 (defvar log-edit-diff-function
   (lambda () (error "Diff functionality has not been set up"))
   "Function to display an appropriate `diff-mode' buffer for the change.
-Called by the `log-edit-show-diff' command.
-Should not leave the `diff-mode' buffer's window selected; that is, the
-Log Edit buffer's window should be selected when the function returns.")
+Called by `log-edit-show-diff' and `log-edit-maybe-show-diff'.
+The function should display the buffer in a window and leave that window
+selected when it returns, probably by calling `pop-to-buffer'.")
 (defvar log-edit-listfun nil)
 
 (defvar log-edit-parent-buffer nil)
@@ -398,7 +400,7 @@ automatically."
 
 (defvar log-edit-headers-alist '(("Summary" . log-edit-summary)
                                  ("Fixes") ("Author"))
-  "AList of known headers and the face to use to highlight them.")
+  "Alist of known headers and the face to use to highlight them.")
 
 (defconst log-edit-header-contents-regexp
   "[ \t]*\\(.*\\(\n[ \t].*\\)*\\)\n?"
@@ -457,9 +459,15 @@ The first subexpression is the actual text of the field.")
              'log-edit-header)
          nil lax))
      ("^\n"
-      (progn (goto-char (match-end 0)) (1+ (match-end 0))) nil
-      (0 '(face log-edit-headers-separator
-           display-line-numbers-disable t rear-nonsticky t))))
+      (and
+       ;; This fixes a bug with `git-commit-mode', a NonGNU ELPA package
+       ;; used by Magit.  Without this check, we get a wrong display
+       ;; when `git-commit-major-mode' is set to `log-edit-mode'.
+       (not (bound-and-true-p git-commit-mode))
+       (progn (goto-char (match-end 0)) (1+ (match-end 0))))
+      nil
+      (0 '( face log-edit-headers-separator
+            display-line-numbers-disable t rear-nonsticky t))))
     (log-edit--match-first-line (0 'log-edit-summary))))
 
 (defvar log-edit-font-lock-gnu-style nil
@@ -525,7 +533,9 @@ keys and associated values are:
     files that are concerned by the current operation (using relative names);
  `log-edit-diff-function' -- function taking no arguments that
     displays a diff of the files concerned by the current operation.
- `vc-log-fileset' -- the VC fileset to be committed (if any).
+ `vc-log-fileset' -- list of files to be committed, if any
+                     (not a true VC fileset structure as returned by
+                     `vc-deduce-fileset', but only the second element).
 
 If BUFFER is non-nil, `log-edit' will switch to that buffer, use it
 to edit the log message and go back to the current buffer when
@@ -565,10 +575,10 @@ the \\[vc-prefix-map] prefix for VC commands, for example).
 \\{log-edit-mode-map}"
   (setq-local font-lock-defaults '(log-edit-font-lock-keywords t))
   (make-local-variable 'font-lock-extra-managed-props)
-  (cl-pushnew 'rear-nonsticky font-lock-extra-managed-props)
   (cl-pushnew 'display-line-numbers-disable font-lock-extra-managed-props)
   (setq-local jit-lock-contextually t)  ;For the "first line is summary".
   (setq-local fill-paragraph-function #'log-edit-fill-entry)
+  (setq-local normal-auto-fill-function #'log-edit-do-auto-fill)
   (make-local-variable 'log-edit-comment-ring-index)
   (add-hook 'kill-buffer-hook 'log-edit-remember-comment nil t)
   (hack-dir-local-variables-non-file-buffer)
@@ -736,6 +746,12 @@ according to `fill-column'."
           nil)
         t))))
 
+(defun log-edit-do-auto-fill ()
+  "Like `do-auto-fill', but don't fill in Log Edit headers."
+  (unless (> (save-excursion (rfc822-goto-eoh) (point))
+             (point))
+    (do-auto-fill)))
+
 (defun log-edit-hide-buf (&optional buf where)
   (when (setq buf (get-buffer (or buf log-edit-files-buf)))
     ;; FIXME: Should use something like `quit-windows-on' here, but
@@ -851,12 +867,38 @@ comment history, see `log-edit-comment-ring', and hides `log-edit-files-buf'."
 (defun log-edit-diff-fileset ()
   "Display diffs for the files to be committed."
   (interactive)
-  (vc-diff nil nil (list log-edit-vc-backend vc-log-fileset)))
+  ;; Re NOT-ESSENTIAL non-nil: this function can get called from
+  ;; `log-edit-hook' and we don't want to abort the whole Log Edit setup
+  ;; because the user says no to saving a buffer.  The buffers will
+  ;; still actually get saved before committing, by the
+  ;; `vc-log-operation' anonymous function.  Possibly
+  ;; `log-edit-maybe-show-diff' should catch the error instead.
+  (vc-diff nil 'not-essential (list log-edit-vc-backend vc-log-fileset)))
 
 (defun log-edit-show-diff ()
-  "Show the diff for the files to be committed."
+  "Show diff for the changes to be committed."
   (interactive)
   (funcall log-edit-diff-function))
+
+(defun log-edit-maybe-show-diff ()
+  "Show diff for the changes to be committed without selecting its window.
+This function is intended to be added to `log-edit-hook'.
+It does nothing in the case that the commit was initiated from a
+`diff-mode' buffer, i.e., when you are committing a patch.  This is
+because in that case the existing `diff-mode' buffer normally remains
+visible when the *vc-log* buffer pops up."
+  ;; No (interactive) form because our use of `vc-parent-buffer'
+  ;; assumes we are being called during \\`C-x v v' or similar.
+  ;; If a user wants a version of `log-edit-show-diff' which doesn't
+  ;; select the window they can use a `post-command-select-window'
+  ;; display buffer action alist entry on `log-edit-show-diff'.
+  (unless (and (bound-and-true-p vc-parent-buffer)
+	       (with-current-buffer vc-parent-buffer
+		 (derived-mode-p 'diff-mode)))
+    (save-selected-window
+      (let ((display-buffer-overriding-action '(nil
+                                                . ((inhibit-same-window . t)))))
+       (funcall log-edit-diff-function)))))
 
 (defun log-edit-show-files ()
   "Show the list of files to be committed."
@@ -907,12 +949,16 @@ different header separator appropriate for `log-edit-mode'."
   (interactive)
   (when (or (called-interactively-p 'interactive)
             (log-edit-empty-buffer-p))
-    (dolist (header (append '("Summary") (and log-edit-setup-add-author
-                                              '("Author"))))
-
-      (insert (log-edit--make-header-line header)))
-    (insert "\n")
-    (message-position-point)))
+    ;; Put Author first because then the user can immediately yank in a
+    ;; multiline log message, or use \\`C-c C-w' (probably because they
+    ;; know it will generate exactly one line), without thereby pushing
+    ;; Author out of the header and into the log message body.
+    ;; (Also note that `log-edit-set-header' inserts all other headers
+    ;; before Summary.)
+    (when log-edit-setup-add-author
+      (insert (log-edit--make-header-line "Author")))
+    (insert (log-edit--make-header-line "Summary") "\n")
+    (end-of-line -1)))
 
 (defun log-edit-insert-cvs-template ()
   "Insert the commit log template specified by the CVS administrator, if any.
@@ -925,6 +971,20 @@ This simply uses the local CVS/Template file."
     (when (file-readable-p "CVS/Template")
       (goto-char (point-max))
       (insert-file-contents "CVS/Template"))))
+
+(defun log-edit-done-strip-cvs-lines (&optional interactive)
+  "Strip lines starting with \"CVS:\" from commit log message.
+When not called interactively do this only when the VC backend is CVS.
+This mimicks what CVS does when invoked as \\='cvs commit [files...]'."
+  (interactive "p")
+  (when (or interactive (eq log-edit-vc-backend 'CVS))
+    (let ((case-fold-search nil))
+      (goto-char (point-min))
+      ;; NB: While CVS defines CVSEDITPREFIX as "CVS: " it actually
+      ;; checks only the first four characters of af a line, i.e. "CVS:"
+      ;; to deal with editors that strip trailing whitespace.
+      ;; c.f. src/cvs.h and src/logmsg.c:do_editor()
+      (flush-lines "^CVS:"))))
 
 (defun log-edit-insert-cvs-rcstemplate ()
   "Insert the RCS commit log template from the CVS repository.

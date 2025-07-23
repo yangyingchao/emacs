@@ -45,8 +45,8 @@
 ;; might be too heavy.  Setting $REMOTE_PARALLEL_PROCESSES to a proper
 ;; value less than 10 could help.
 
-;; This test suite obeys the environment variables $EMACS_HYDRA_CI and
-;; $EMACS_EMBA_CI, used on the Emacs CI/CD platforms.
+;; This test suite obeys the environment variable $EMACS_EMBA_CI, used
+;; on the Emacs CI/CD platforms.
 
 ;; The following test tags are used: `:expensive-test',
 ;; `:tramp-asynchronous-processes' and `:unstable'.
@@ -60,6 +60,7 @@
 (require 'dired-aux)
 (require 'tramp)
 (require 'ert-x)
+(require 'filenotify)
 (require 'tar-mode)
 (require 'trace)
 (require 'vc)
@@ -67,6 +68,7 @@
 (require 'vc-git)
 (require 'vc-hg)
 
+(declare-function project-mode-line-format "project")
 (declare-function tramp-check-remote-uname "tramp-sh")
 (declare-function tramp-find-executable "tramp-sh")
 (declare-function tramp-get-remote-chmod-h "tramp-sh")
@@ -89,6 +91,7 @@
 (defvar tramp-use-connection-share)
 
 ;; Declared in Emacs 30.1.
+(defvar project-mode-line)
 (defvar remote-file-name-access-timeout)
 (defvar remote-file-name-inhibit-delete-by-moving-to-trash)
 
@@ -119,11 +122,7 @@
           (unless (and (null noninteractive) (file-directory-p "~/"))
             (setenv "HOME" temporary-file-directory))
           (format "/mock::%s" temporary-file-directory)))
-      "Temporary directory for remote file tests.")
-
-    ;; This should happen on hydra only.
-    (when (getenv "EMACS_HYDRA_CI")
-      (add-to-list 'tramp-remote-path 'tramp-own-remote-path))))
+      "Temporary directory for remote file tests.")))
 
 ;; Beautify batch mode.
 (when noninteractive
@@ -152,7 +151,8 @@
       tramp-copy-size-limit nil
       tramp-error-show-message-timeout nil
       tramp-persistency-file-name nil
-      tramp-verbose 0)
+      tramp-verbose 0
+      vc-handled-backends (unless noninteractive vc-handled-backends))
 
 (defconst tramp-test-name-prefix "tramp-test"
   "Prefix to use for temporary test files.")
@@ -251,20 +251,20 @@ being the result.")
 	   (file-writable-p ert-remote-temporary-file-directory))))))
 
   (when (cdr tramp--test-enabled-checked)
-    ;; Remove old test files.
-    (dolist (dir `(,temporary-file-directory
-		   ,tramp-compat-temporary-file-directory
-		   ,ert-remote-temporary-file-directory))
-      (dolist (file (directory-files
-		     dir 'full
-		     (rx-to-string
-		      `(: bos (? ".#")
-			  (| ,tramp-test-name-prefix
-			     ,(if (getenv "TRAMP_TEST_CLEANUP_TEMP_FILES")
-				  tramp-temp-name-prefix 'unmatchable))))))
+    (ignore-errors
+      ;; Remove old test files.
+      (dolist (dir `(,temporary-file-directory
+		     ,tramp-compat-temporary-file-directory
+		     ,ert-remote-temporary-file-directory))
+	(dolist (file (directory-files
+		       dir 'full
+		       (rx-to-string
+			`(: bos (? ".#")
+			    (| ,tramp-test-name-prefix
+			       ,(if (getenv "TRAMP_TEST_CLEANUP_TEMP_FILES")
+				    tramp-temp-name-prefix 'unmatchable))))))
 
-	;; Exclude sockets and FUSE mount points.
-	(ignore-errors
+	  ;; Exclude sockets and FUSE mount points.
 	  (unless
 	      (or (string-prefix-p
 		   "srw" (file-attribute-modes (file-attributes file)))
@@ -277,12 +277,12 @@ being the result.")
 		       (| "rclone" "sshfs") ".")
 		   (file-name-nondirectory file)))
 	    (tramp--test-message "Delete %s" file)
-	    (if (file-directory-p file)
-		(delete-directory file 'recursive)
-	      (delete-file file))))))
+	    (ignore-errors ;; Wrong permissions?
+	      (if (file-directory-p file)
+		  (delete-directory file 'recursive)
+		(delete-file file)))))))
     ;; Cleanup connection.
-    (ignore-errors
-      (tramp-cleanup-connection tramp-test-vec nil 'keep-password)))
+    (tramp-cleanup-connection tramp-test-vec nil 'keep-password))
 
   ;; Return result.
   (cdr tramp--test-enabled-checked))
@@ -2174,8 +2174,7 @@ being the result.")
   (dolist (m '("su" "sg" "sudo" "doas" "ksu"))
     (when (assoc m tramp-methods)
       (let (tramp-connection-properties tramp-default-proxies-alist)
-	(ignore-errors
-	  (tramp-cleanup-connection tramp-test-vec 'keep-debug 'keep-password))
+	(tramp-cleanup-connection tramp-test-vec 'keep-debug 'keep-password)
 	;; Single hop.  The host name must match `tramp-local-host-regexp'.
 	(should-error
 	 (find-file (format "/%s:foo:" m))
@@ -2434,8 +2433,7 @@ This checks also `file-name-as-directory', `file-name-directory',
   ;; Bug#10085.
   (when (tramp--test-enabled) ;; Packages like tramp-gvfs.el might be disabled.
     (dolist (non-essential '(nil t))
-      ;; We must clear `tramp-default-method'.  On hydra, it is "ftp",
-      ;; which ruins the tests.
+      ;; We must clear `tramp-default-method'.
       (let ((tramp-default-method
 	     (file-remote-p ert-remote-temporary-file-directory 'method))
 	    (host-port
@@ -2872,7 +2870,9 @@ This checks also `file-name-as-directory', `file-name-directory',
   (dolist (quoted (if (tramp--test-expensive-test-p) '(nil t) '(nil)))
     (let ((tmp-name1 (tramp--test-make-temp-name nil quoted))
 	  (tmp-name2 (tramp--test-make-temp-name nil quoted))
-	  (tmp-name3 (tramp--test-make-temp-name 'local quoted)))
+	  (tmp-name3 (tramp--test-make-temp-name 'local quoted))
+	  (tmp-name4
+	   (file-name-nondirectory (tramp--test-make-temp-name 'local quoted))))
       (dolist (source-target
 	       `(;; Copy on remote side.
 		 (,tmp-name1 . ,tmp-name2)
@@ -2880,8 +2880,12 @@ This checks also `file-name-as-directory', `file-name-directory',
 		 (,tmp-name1 . ,tmp-name3)
 		 ;; Copy from local side to remote side.
 		 (,tmp-name3 . ,tmp-name1)))
-	(let ((source (car source-target))
-	      (target (cdr source-target)))
+	(let* ((source (car source-target))
+	       (source-link
+		(expand-file-name tmp-name4 (file-name-directory source)))
+	       (target (cdr source-target))
+	       (target-link
+		(expand-file-name tmp-name4 (file-name-directory target))))
 
 	  ;; Copy simple file.
 	  (unwind-protect
@@ -2905,6 +2909,26 @@ This checks also `file-name-as-directory', `file-name-directory',
 	    ;; Cleanup.
 	    (ignore-errors (delete-file source))
 	    (ignore-errors (delete-file target)))
+
+	  ;; Copy symlinked file.
+	  (unwind-protect
+	      (tramp--test-ignore-make-symbolic-link-error
+	       (write-region "foo" nil source-link)
+	       (should (file-exists-p source-link))
+	       (make-symbolic-link tmp-name4 source)
+	       (should (file-exists-p source))
+	       (should (string-equal (file-symlink-p source) tmp-name4))
+	       (copy-file source target)
+	       ;; Some backends like tramp-gvfs.el do not create the
+	       ;; link on the target.
+	       (when (file-symlink-p target)
+		 (should (string-equal (file-symlink-p target) tmp-name4))))
+
+	    ;; Cleanup.
+	    (ignore-errors (delete-file source))
+	    (ignore-errors (delete-file source-link))
+	    (ignore-errors (delete-file target))
+	    (ignore-errors (delete-file target-link)))
 
 	  ;; Copy file to directory.
 	  (unwind-protect
@@ -2981,7 +3005,9 @@ This checks also `file-name-as-directory', `file-name-directory',
   (dolist (quoted  (if (tramp--test-expensive-test-p) '(nil t) '(nil)))
     (let ((tmp-name1 (tramp--test-make-temp-name nil quoted))
 	  (tmp-name2 (tramp--test-make-temp-name nil quoted))
-	  (tmp-name3 (tramp--test-make-temp-name 'local quoted)))
+	  (tmp-name3 (tramp--test-make-temp-name 'local quoted))
+	  (tmp-name4
+	   (file-name-nondirectory (tramp--test-make-temp-name 'local quoted))))
       (dolist (source-target
 	       `(;; Rename on remote side.
 		 (,tmp-name1 . ,tmp-name2)
@@ -2989,8 +3015,12 @@ This checks also `file-name-as-directory', `file-name-directory',
 		 (,tmp-name1 . ,tmp-name3)
 		 ;; Rename from local side to remote side.
 		 (,tmp-name3 . ,tmp-name1)))
-	(let ((source (car source-target))
-	      (target (cdr source-target)))
+	(let* ((source (car source-target))
+	       (source-link
+		(expand-file-name tmp-name4 (file-name-directory source)))
+	       (target (cdr source-target))
+	       (target-link
+		(expand-file-name tmp-name4 (file-name-directory target))))
 
 	  ;; Rename simple file.
 	  (unwind-protect
@@ -3018,6 +3048,27 @@ This checks also `file-name-as-directory', `file-name-directory',
 	    ;; Cleanup.
 	    (ignore-errors (delete-file source))
 	    (ignore-errors (delete-file target)))
+
+	  ;; Rename symlinked file.
+	  (unwind-protect
+	      (tramp--test-ignore-make-symbolic-link-error
+	       (write-region "foo" nil source-link)
+	       (should (file-exists-p source-link))
+	       (make-symbolic-link tmp-name4 source)
+	       (should (file-exists-p source))
+	       (should (string-equal (file-symlink-p source) tmp-name4))
+	       (rename-file source target)
+	       (should-not (file-exists-p source))
+	       ;; Some backends like tramp-gvfs.el do not create the
+	       ;; link on the target.
+	       (when (file-symlink-p target)
+		 (should (string-equal (file-symlink-p target) tmp-name4))))
+
+	    ;; Cleanup.
+	    (ignore-errors (delete-file source))
+	    (ignore-errors (delete-file source-link))
+	    (ignore-errors (delete-file target))
+	    (ignore-errors (delete-file target-link)))
 
 	  ;; Rename file to directory.
 	  (unwind-protect
@@ -3709,11 +3760,7 @@ This tests also `access-file', `file-readable-p',
 	   (tmp-name2 (tramp--test-make-temp-name nil quoted))
 	   ;; File name with "//".
 	   (tmp-name3
-	    (format
-	     "%s%s"
-	     (file-remote-p tmp-name1)
-	     (replace-regexp-in-string
-	      "/" "//" (file-remote-p tmp-name1 'localname))))
+	    (replace-regexp-in-string "/" "//" (file-local-name tmp-name1)))
 	   ;; `file-ownership-preserved-p' is implemented only in tramp-sh.el.
 	   (test-file-ownership-preserved-p (tramp--test-sh-p))
 	   attr)
@@ -3796,6 +3843,7 @@ This tests also `access-file', `file-readable-p',
 	    (should (stringp (file-attribute-user-id attr)))
 	    (should (stringp (file-attribute-group-id attr)))
 
+	    ;; Symbolic links.
 	    (tramp--test-ignore-make-symbolic-link-error
 	      (should-error
 	       (access-file tmp-name2 "error")
@@ -3815,28 +3863,32 @@ This tests also `access-file', `file-readable-p',
 		 (if quoted #'file-name-quote #'identity)
 		 (file-attribute-type attr))
 		(file-remote-p (file-truename tmp-name1) 'localname)))
-	      (delete-file tmp-name2))
+	      (delete-file tmp-name2)
 
-	    ;; Check, that "//" in symlinks are handled properly.
-	    (with-temp-buffer
-	      (let ((default-directory ert-remote-temporary-file-directory))
-		(shell-command
-		 (format
-		  "ln -s %s %s"
-		  (tramp-file-name-localname
-		   (tramp-dissect-file-name tmp-name3))
-		  (tramp-file-name-localname
-		   (tramp-dissect-file-name tmp-name2)))
-		 t)))
-	    (when (file-symlink-p tmp-name2)
+	      ;; A non-existent or cyclic link target makes the file
+	      ;; unaccessible.
+	      (dolist (target
+		       `("does-not-exist" ,(file-name-nondirectory tmp-name2)))
+		(make-symbolic-link target tmp-name2)
+		(should (file-symlink-p tmp-name2))
+		(should-not (file-exists-p tmp-name2))
+		(should-not (file-directory-p tmp-name2))
+		(should-error
+		 (access-file tmp-name2 "error")
+		 :type
+		 (if (string-equal target "does-not-exist")
+		     'file-missing 'file-error))
+		;; `file-ownership-preserved-p' should return t for
+		;; symlinked files to a non-existing or cyclic target.
+		(when test-file-ownership-preserved-p
+		  (should (file-ownership-preserved-p tmp-name2 'group)))
+		(delete-file tmp-name2))
+
+	      ;; Check, that "//" in symlinks are handled properly.
+	      (make-symbolic-link tmp-name3 tmp-name2)
+	      (should (file-symlink-p tmp-name2))
 	      (setq attr (file-attributes tmp-name2))
-	      (should
-	       (string-equal
-		(file-attribute-type attr)
-		(funcall
-		 (if (tramp--test-sshfs-p) #'file-name-nondirectory #'identity)
-		 (tramp-file-name-localname
-		  (tramp-dissect-file-name tmp-name3)))))
+	      (should (string-equal (file-attribute-type attr) tmp-name3))
 	      (delete-file tmp-name2))
 
 	    (when test-file-ownership-preserved-p
@@ -4183,6 +4235,8 @@ This tests also `file-executable-p', `file-writable-p' and `set-file-modes'."
 	  (ignore-errors (delete-file tmp-name1))
 	  (ignore-errors (delete-file tmp-name2)))))))
 
+(tramp--test-deftest-without-file-attributes tramp-test20-file-modes)
+
 ;; Method "smb" could run into "NT_STATUS_REVISION_MISMATCH" error.
 (defmacro tramp--test-ignore-add-name-to-file-error (&rest body)
   "Run BODY, ignoring \"error with add-name-to-file\" file error."
@@ -4465,13 +4519,7 @@ This tests also `make-symbolic-link', `file-truename' and `add-name-to-file'."
 	       (should (file-symlink-p tmp-name1))
 	       (should (file-symlink-p tmp-name2))
 	       (should-not (file-regular-p tmp-name1))
-	       (should-not (file-regular-p tmp-name2))
-	       (should-error
-		(file-truename tmp-name1)
-		:type 'file-error)
-	       (should-error
-		(file-truename tmp-name2)
-		:type 'file-error))))
+	       (should-not (file-regular-p tmp-name2)))))
 
 	;; Cleanup.
 	(ignore-errors
@@ -4487,6 +4535,8 @@ This tests also `make-symbolic-link', `file-truename' and `add-name-to-file'."
 	     (dir2 (file-name-as-directory dir1)))
 	(should (string-equal (file-truename dir1) (expand-file-name dir1)))
 	(should (string-equal (file-truename dir2) (expand-file-name dir2)))))))
+
+(tramp--test-deftest-without-file-attributes tramp-test21-file-links)
 
 (ert-deftest tramp-test22-file-times ()
   "Check `set-file-times' and `file-newer-than-file-p'."
@@ -4808,7 +4858,7 @@ This tests also `make-symbolic-link', `file-truename' and `add-name-to-file'."
           (tramp-change-syntax syntax)
 	  ;; This has cleaned up all connection data, which are used
 	  ;; for completion.  We must refill the cache.
-	  (tramp-set-connection-property tramp-test-vec "property" nil)
+	  (tramp-set-connection-property tramp-test-vec "completion-use-cache" t)
 
           (let (;; This is needed for the `separate' syntax.
                 (prefix-format (substring tramp-prefix-format 1))
@@ -4922,9 +4972,8 @@ This tests also `make-symbolic-link', `file-truename' and `add-name-to-file'."
 ;; and Bug#60505.
 (ert-deftest tramp-test26-interactive-file-name-completion ()
   "Check interactive completion with different `completion-styles'."
-  ;; Method, user and host name in completion mode.
-  (tramp-cleanup-connection tramp-test-vec 'keep-debug 'keep-password)
 
+  ;; Method, user and host name in completion mode.
   (let ((method (file-remote-p ert-remote-temporary-file-directory 'method))
 	(user (file-remote-p ert-remote-temporary-file-directory 'user))
 	(host (file-remote-p ert-remote-temporary-file-directory 'host))
@@ -4946,7 +4995,7 @@ This tests also `make-symbolic-link', `file-truename' and `add-name-to-file'."
           (tramp-change-syntax syntax)
 	  ;; This has cleaned up all connection data, which are used
 	  ;; for completion.  We must refill the cache.
-	  (tramp-set-connection-property tramp-test-vec "property" nil)
+	  (tramp-set-connection-property tramp-test-vec "completion-use-cache" t)
 
           (dolist
               (style
@@ -4985,14 +5034,20 @@ This tests also `make-symbolic-link', `file-truename' and `add-name-to-file'."
 			 ipv6-postfix tramp-postfix-host-format)))
 		     ;; The hop string fits only the initial syntax.
 		     (hop (and (eq tramp-syntax orig-syntax) hop))
+		     ;; Needed for host name completion.
+		     (default-user
+		      (file-remote-p
+		       (concat tramp-prefix-format hop method-string host-string)
+		       'user))
+		     (default-user-string
+		      (unless (tramp-string-empty-or-nil-p default-user)
+			(concat default-user tramp-postfix-user-format)))
                      test result completions)
 
 		(dolist
 		    (test-and-result
 		     ;; These are triples of strings (TEST-STRING
-		     ;; RESULT-CHECK COMPLETION-CHECK).  RESULT-CHECK
-		     ;; could be not unique, in this case it is a list
-		     ;; (RESULT1 RESULT2 ...).
+		     ;; RESULT-CHECK COMPLETION-CHECK).
 		     (append
 		      ;; Complete method name.
 		      (unless (string-empty-p tramp-method-regexp)
@@ -5018,11 +5073,9 @@ This tests also `make-symbolic-link', `file-truename' and `add-name-to-file'."
 			     ipv6-prefix
 			     (substring-no-properties
 			      host 0 (min 2 (length host))))
-			   (,(concat
-			      tramp-prefix-format hop method-string host-string)
-			    ,(concat
-			      tramp-prefix-format hop method-string
-			      user-string host-string))
+			   ,(concat
+			     tramp-prefix-format hop method-string
+			     default-user-string host-string)
 			   ,host-string)))
 		      ;; Complete user and host name.
 		      (unless (or (tramp-string-empty-or-nil-p user)
@@ -5063,14 +5116,7 @@ This tests also `make-symbolic-link', `file-truename' and `add-name-to-file'."
                         ;; (tramp--test-message
                         ;;  "syntax: %s style: %s test: %s result: %s"
                         ;;  syntax style test result)
-			(if (stringp (cadr test-and-result))
-			    (should
-			     (string-prefix-p (cadr test-and-result) result))
-			  (should
-			   (let (res)
-			     (dolist (elem (cadr test-and-result) res)
-			       (setq
-				res (or res (string-prefix-p elem result))))))))
+			(should (string-prefix-p (cadr test-and-result) result)))
 
                     (with-current-buffer "*Completions*"
 		      ;; We must remove leading `default-directory'.
@@ -5098,7 +5144,26 @@ This tests also `make-symbolic-link', `file-truename' and `add-name-to-file'."
       ;; (tramp--test-message "%s" (tramp-get-buffer-string trace-buffer))
       ;; (untrace-function #'tramp-completion-file-name-handler)
       ;; (untrace-function #'completion-file-name-table)
-      (tramp-change-syntax orig-syntax))))
+      (tramp-change-syntax orig-syntax)
+      (tramp-cleanup-connection tramp-test-vec 'keep-debug 'keep-password))))
+
+(defun tramp--test-split-on-boundary (s)
+  "Return completion boundaries for string S."
+  (let ((bounds (completion-boundaries s #'completion--file-name-table nil "")))
+    (cons (substring s nil (car bounds)) (substring s (car bounds)))))
+
+(ert-deftest tramp-test26-file-name-completion-boundaries ()
+  "Test file name completion boundaries are correct in various cases."
+  ;; `completion--file-name-table' was reworked in Emacs 31, the
+  ;; boundaries are always incorrect before that.
+  (skip-unless (tramp--test-emacs31-p))
+
+  (let ((remote (file-remote-p ert-remote-temporary-file-directory)))
+    (dolist
+	(file `(,remote ,(concat remote "/~/")
+		,(concat remote "/usr//usr/") ,(concat remote remote "//usr/")))
+      (should (equal (tramp--test-split-on-boundary (concat file "foo"))
+                     `(,file . "foo"))))))
 
 (ert-deftest tramp-test27-load ()
   "Check `load'."
@@ -5153,7 +5218,7 @@ This tests also `make-symbolic-link', `file-truename' and `add-name-to-file'."
       (unwind-protect
 	  (progn
 	    ;; We cannot use "/bin/true" and "/bin/false"; those paths
-	    ;; do not exist on hydra and on MS Windows.
+	    ;; do not exist on MS Windows.
 	    (should (zerop (process-file "true")))
 	    (should-not (zerop (process-file "false")))
 	    (should-not (zerop (process-file "binary-does-not-exist")))
@@ -5247,19 +5312,20 @@ This tests also `make-symbolic-link', `file-truename' and `add-name-to-file'."
 	    ;; 	(delete-file tmp-name)))
 
 	    ;; Check remote and local STDERR.
-	    (dolist (local '(nil t))
-	      (setq tmp-name (tramp--test-make-temp-name local quoted))
-	      (should-not
-	       (zerop
-		(process-file "cat" nil `(t ,tmp-name) nil "/does-not-exist")))
-	      (with-temp-buffer
-		(insert-file-contents tmp-name)
-		(should
-		 (string-match-p
-		  (rx "cat:" (* nonl) " No such file or directory")
-		  (buffer-string)))
-		(should-not (get-buffer-window (current-buffer) t))
-		(delete-file tmp-name))))
+	    (unless (tramp--test-sshfs-p)
+	      (dolist (local '(nil t))
+		(setq tmp-name (tramp--test-make-temp-name local quoted))
+		(should-not
+		 (zerop
+		  (process-file "cat" nil `(t ,tmp-name) nil "/does-not-exist")))
+		(with-temp-buffer
+		  (insert-file-contents tmp-name)
+		  (should
+		   (string-match-p
+		    (rx "cat:" (* nonl) " No such file or directory")
+		    (buffer-string)))
+		  (should-not (get-buffer-window (current-buffer) t))
+		  (delete-file tmp-name)))))
 
 	;; Cleanup.
 	(ignore-errors (kill-buffer buffer))
@@ -5302,6 +5368,12 @@ This tests also `make-symbolic-link', `file-truename' and `add-name-to-file'."
 	    (with-timeout (10 (tramp--test-timeout-handler))
 	      (while (< (- (point-max) (point-min)) (length "foo"))
 		(while (accept-process-output proc 0 nil t))))
+            ;; Some `cat' implementations do not support the `cat -'
+            ;; call.  We skip then.
+            (skip-unless
+             (not
+              (string-match-p (rx "cat: -: input file is output file\n")
+                              (buffer-string))))
 	    (should (string-match-p "foo" (buffer-string))))
 
 	;; Cleanup.
@@ -5496,6 +5568,12 @@ If UNSTABLE is non-nil, the test is tagged as `:unstable'."
 	    (with-timeout (10 (tramp--test-timeout-handler))
 	      (while (< (- (point-max) (point-min)) (length "foo"))
 		(while (accept-process-output proc 0 nil t))))
+            ;; Some `cat' implementations do not support the `cat -'
+            ;; call.  We skip then.
+            (skip-unless
+             (not
+              (string-match-p (rx "cat: -: input file is output file\n")
+                              (buffer-string))))
 	    (should (string-match-p "foo" (buffer-string))))
 
 	;; Cleanup.
@@ -6411,6 +6489,7 @@ INPUT, if non-nil, is a string sent to the process."
 	    (file-remote-p default-directory 'localname)))
 	  ;; The shell "sh" shall always exist.
 	  (should (executable-find "sh" 'remote))
+
 	  ;; Since the last element in `exec-path' is the current
 	  ;; directory, an executable file in that directory will be
 	  ;; found.
@@ -6439,19 +6518,19 @@ INPUT, if non-nil, is a string sent to the process."
   (skip-unless (tramp--test-sh-p))
   (skip-unless (not (tramp--test-crypt-p)))
 
-  (let* ((tmp-name (tramp--test-make-temp-name))
+  (let* ((tmp-name1 (tramp--test-make-temp-name))
 	 (default-directory ert-remote-temporary-file-directory)
          (orig-exec-path (exec-path))
          (tramp-remote-path tramp-remote-path)
 	 (orig-tramp-remote-path tramp-remote-path)
-	 path)
+	 tmp-name2 path)
     ;; The "flatpak" method modifies `tramp-remote-path'.
     (skip-unless (not (tramp-compat-connection-local-p tramp-remote-path)))
     (unwind-protect
 	(progn
           ;; Non existing directories are removed.
           (setq tramp-remote-path
-                (cons (file-remote-p tmp-name 'localname) tramp-remote-path))
+                (cons (file-remote-p tmp-name1 'localname) tramp-remote-path))
           (tramp-cleanup-connection tramp-test-vec 'keep-debug 'keep-password)
           (should (equal (exec-path) orig-exec-path))
           (setq tramp-remote-path orig-tramp-remote-path)
@@ -6464,11 +6543,11 @@ INPUT, if non-nil, is a string sent to the process."
 
           ;; We make a super long `tramp-remote-path'.
 	  (unless (tramp--test-container-oob-p)
-            (make-directory tmp-name)
-            (should (file-directory-p tmp-name))
+            (make-directory tmp-name1)
+            (should (file-directory-p tmp-name1))
             (while (length< (string-join orig-exec-path ":") 5000)
               (let ((dir (make-temp-file
-			  (file-name-as-directory tmp-name) 'dir)))
+			  (file-name-as-directory tmp-name1) 'dir)))
 		(should (file-directory-p dir))
 		(setq tramp-remote-path
                       (append
@@ -6491,12 +6570,33 @@ INPUT, if non-nil, is a string sent to the process."
               (should
 	       (string-equal path (string-join (butlast orig-exec-path) ":"))))
 	    ;; The shell "sh" shall always exist.
-	    (should (executable-find "sh" 'remote))))
+	    (should (executable-find "sh" 'remote))
+
+	    ;; Since the last element in `exec-path' is the current
+	    ;; directory, an executable file in that directory will be
+	    ;; found.
+	    (setq tmp-name2
+		  (expand-file-name
+		   "foo"
+		   (concat (file-remote-p default-directory)
+			   (car (last orig-exec-path 2)))))
+	    (write-region "foo" nil tmp-name2)
+	    (should (file-exists-p tmp-name2))
+
+	    (set-file-modes tmp-name2 #o777)
+	    (should (file-executable-p tmp-name2))
+	    (should
+	     (string-equal
+	      (executable-find (file-name-nondirectory tmp-name2) 'remote)
+	      (file-remote-p tmp-name2 'localname)))
+	    (should-not
+	     (executable-find
+	      (concat (file-name-nondirectory tmp-name2) "foo") 'remote))))
 
       ;; Cleanup.
+      (ignore-errors (delete-directory tmp-name1 'recursive))
       (tramp-cleanup-connection tramp-test-vec 'keep-debug 'keep-password)
-      (setq tramp-remote-path orig-tramp-remote-path)
-      (ignore-errors (delete-directory tmp-name 'recursive)))))
+      (setq tramp-remote-path orig-tramp-remote-path))))
 
 (tramp--test-deftest-direct-async-process tramp-test35-remote-path)
 
@@ -7112,6 +7212,12 @@ Some semantics has been changed for there, without new functions
 or variables, so we check the Emacs version directly."
   (>= emacs-major-version 29))
 
+(defun tramp--test-emacs31-p ()
+  "Check for Emacs version >= 31.1.
+Some semantics has been changed for there, without new functions
+or variables, so we check the Emacs version directly."
+  (>= emacs-major-version 31))
+
 (defun tramp--test-adb-p ()
   "Check, whether the remote host runs Android.
 This requires restrictions of file name syntax."
@@ -7239,7 +7345,7 @@ This does not support external Emacs calls."
   (tramp-method-out-of-band-p tramp-test-vec 1))
 
 (defun tramp--test-putty-p ()
-  "Check, whether the method method usaes PuTTY.
+  "Check, whether the method uses PuTTY.
 This does not support connection share for more than two connections."
   (member
    (file-remote-p ert-remote-temporary-file-directory 'method)
@@ -7255,6 +7361,15 @@ This requires restrictions of file name syntax."
 This does not support special file names."
   (string-equal
    "rsync" (file-remote-p ert-remote-temporary-file-directory 'method)))
+
+(defun tramp--test-scp-p ()
+  "Check, whether an scp method is used.
+This does not support quoted special characters in recent sshd
+implementations."
+  ;; Detected with OpenSSH_9.9p1.
+  (member
+   (file-remote-p ert-remote-temporary-file-directory 'method)
+   '("pscp" "scp" "scpx")))
 
 (defun tramp--test-sh-p ()
   "Check, whether the remote host runs a based method from tramp-sh.el."
@@ -7391,10 +7506,6 @@ This requires restrictions of file name syntax."
 		     (if quoted #'file-name-quote #'identity)
 		     (file-attribute-type (file-attributes file3)))
 		    (file-remote-p (file-truename file1) 'localname)))
-		  ;; Check file contents.
-		  (with-temp-buffer
-		    (insert-file-contents file3)
-		    (should (string-equal (buffer-string) elt)))
 		  (delete-file file3))))
 
 	    ;; Check file names.
@@ -7550,7 +7661,6 @@ This requires restrictions of file name syntax."
 (ert-deftest tramp-test41-special-characters ()
   "Check special characters in file names."
   (skip-unless (tramp--test-enabled))
-  (skip-unless (not (getenv "EMACS_HYDRA_CI"))) ; SLOW ~ 245s
   (skip-unless (not (tramp--test-rsync-p)))
   (skip-unless (not (tramp--test-rclone-p)))
   (skip-unless (not (or (eq system-type 'darwin) (tramp--test-macos-p))))
@@ -7629,9 +7739,9 @@ This requires restrictions of file name syntax."
 (ert-deftest tramp-test42-utf8 ()
   "Check UTF8 encoding in file names and file contents."
   (skip-unless (tramp--test-enabled))
-  (skip-unless (not (getenv "EMACS_HYDRA_CI"))) ; SLOW ~ 620s
   (skip-unless (not (tramp--test-container-p)))
   (skip-unless (not (tramp--test-rsync-p)))
+  (skip-unless (not (tramp--test-scp-p)))
   (skip-unless (not (tramp--test-windows-nt-and-out-of-band-p)))
   (skip-unless (not (tramp--test-ksh-p)))
   (skip-unless (not (tramp--test-gdrive-p)))
@@ -7786,17 +7896,12 @@ process sentinels.  They shall not disturb each other."
             (cond
              ((ignore-errors
                (string-to-number (getenv "REMOTE_PARALLEL_PROCESSES"))))
-	     ((getenv "EMACS_HYDRA_CI") 5)
              (t 10)))
 	   ;; PuTTY-based methods can only share up to 10 connections.
 	   (tramp-use-connection-share
 	    (if (and (tramp--test-putty-p) (>= number-proc 10))
 		'suppress (bound-and-true-p tramp-use-connection-share)))
-           ;; On hydra, timings are bad.
-           (timer-repeat
-            (cond
-             ((getenv "EMACS_HYDRA_CI") 10)
-             (t 1)))
+           (timer-repeat 1)
 	   ;; This is when all timers start.  We check inside the
 	   ;; timer function, that we don't exceed timeout.
 	   (timer-start (current-time))
@@ -7985,6 +8090,58 @@ process sentinels.  They shall not disturb each other."
     (should (string= tmp-name (dired-get-filename)))
     (delete-directory tmp-name)
     (delete-file (concat tmp-name ".tar.gz"))))
+
+;; More exhaustive tests are performed in filenotify-tests.el,
+;; selector "remote".
+(ert-deftest tramp-test46-file-notifications ()
+  "Check that Tramp handles file notifications."
+  (skip-unless (tramp--test-enabled))
+
+  (let* ((tmp-name (tramp--test-make-temp-name))
+	 ;(file-notify-debug t)
+	 (desc1
+	  (ignore-error file-notify-error
+	    (file-notify-add-watch
+	     tmp-name '(change attribute-change) #'ignore)))
+	 (desc2
+	  (ignore-error file-notify-error
+	    (file-notify-add-watch
+	     ert-remote-temporary-file-directory
+	     '(change attribute-change) #'ignore))))
+    (skip-unless (and desc1 desc2))
+
+    (unwind-protect
+	(progn
+	  (tramp--test-message "%S" desc1)
+	  (should-not (file-exists-p tmp-name))
+	  (should (file-notify-valid-p desc1))
+	  (should (file-notify-valid-p desc2))
+
+	  ;; Create the file.
+	  (write-region "foo" nil tmp-name)
+	  (should (file-exists-p tmp-name))
+	  ;; Modify.
+	  (write-region "foo" nil tmp-name)
+	  (should (file-exists-p tmp-name))
+	  ;; Delete.
+	  (delete-file tmp-name)
+	  (should-not (file-exists-p tmp-name))
+
+	  (while (read-event nil nil 0.1))
+	  ;; This has been stopped because the file was deleted.
+	  (should-not (file-notify-valid-p desc1))
+
+	  ;; This is still valid.
+	  (should (file-notify-valid-p desc2))
+	  (file-notify-rm-watch desc2)
+	  (should-not (file-notify-valid-p desc2)))
+
+      ;; Cleanup.
+      (ignore-errors (delete-file tmp-name))
+      ;; `file-notify-rm-all-watches' exists since Emacs 30.1.
+      ;; We don't want to see compiler warnings for older Emacsen.
+      (when (fboundp 'file-notify-rm-all-watches)
+	(with-no-warnings (file-notify-rm-all-watches))))))
 
 (ert-deftest tramp-test47-read-password ()
   "Check Tramp password handling."
@@ -8260,8 +8417,52 @@ process sentinels.  They shall not disturb each other."
   ;; Cleanup.
   (tramp-cleanup-connection tramp-test-vec 'keep-debug))
 
+;; This test is inspired by Bug#78572.
+(ert-deftest tramp-test48-session-timeout ()
+  "Check that Tramp handles a session timeout properly."
+  (skip-unless (tramp--test-enabled))
+  (skip-unless
+   (tramp-get-method-parameter tramp-test-vec 'tramp-session-timeout))
+
+  ;; We want to see the timeout message.
+  (tramp--test-instrument-test-case 3
+    (let ((remote-file-name-inhibit-cache t)
+	  (tmp-name (tramp--test-make-temp-name)))
+      (unwind-protect
+	  (progn
+	    (should-not (file-exists-p tmp-name))
+	    (write-region "foo" nil tmp-name)
+	    (should (file-exists-p tmp-name))
+
+	    (tramp-timeout-session tramp-test-vec)
+	    (should (file-exists-p tmp-name))
+	    (should (directory-files (file-name-directory tmp-name)))
+
+	    ;; `project-mode-line' was introduced in Emacs 30.1.
+	    (when (boundp 'project-mode-line)
+	      (require 'project)
+	      (ert-with-message-capture captured-messages
+		(let ((project-mode-line t))
+		  (with-temp-buffer
+		    (set-visited-file-name tmp-name)
+		    (insert "foo")
+		    (should (buffer-modified-p))
+		    (tramp-timeout-session tramp-test-vec)
+		    ;; This calls `file-directory-p' and
+		    ;; `directory-files'.  Shouldn't raise an error when
+		    ;; not connected.
+		    (project-mode-line-format)
+		    ;; Steal the file lock.
+		    (cl-letf (((symbol-function #'ask-user-about-lock) #'always))
+		      (save-buffer)))
+		  (should-not
+		   (string-match-p "File is missing:" captured-messages))))))
+
+	;; Cleanup.
+	(ignore-errors (delete-file tmp-name))))))
+
 ;; This test is inspired by Bug#29163.
-(ert-deftest tramp-test48-auto-load ()
+(ert-deftest tramp-test49-auto-load ()
   "Check that Tramp autoloads properly."
   ;; If we use another syntax but `default', Tramp is already loaded
   ;; due to the `tramp-change-syntax' call.
@@ -8286,7 +8487,7 @@ process sentinels.  They shall not disturb each other."
 	(mapconcat #'shell-quote-argument load-path " -L ")
 	(shell-quote-argument code)))))))
 
-(ert-deftest tramp-test48-delay-load ()
+(ert-deftest tramp-test49-delay-load ()
   "Check that Tramp is loaded lazily, only when needed."
   ;; Tramp is neither loaded at Emacs startup, nor when completing a
   ;; non-Tramp file name like "/foo".  Completing a Tramp-alike file
@@ -8316,7 +8517,7 @@ process sentinels.  They shall not disturb each other."
 	  (mapconcat #'shell-quote-argument load-path " -L ")
 	  (shell-quote-argument (format code tm)))))))))
 
-(ert-deftest tramp-test48-recursive-load ()
+(ert-deftest tramp-test49-recursive-load ()
   "Check that Tramp does not fail due to recursive load."
   (skip-unless (tramp--test-enabled))
 
@@ -8340,7 +8541,7 @@ process sentinels.  They shall not disturb each other."
 	  (mapconcat #'shell-quote-argument load-path " -L ")
 	  (shell-quote-argument code))))))))
 
-(ert-deftest tramp-test48-remote-load-path ()
+(ert-deftest tramp-test49-remote-load-path ()
   "Check that Tramp autoloads its packages with remote `load-path'."
   ;; `tramp-cleanup-all-connections' is autoloaded from tramp-cmds.el.
   ;; It shall still work, when a remote file name is in the
@@ -8365,7 +8566,7 @@ process sentinels.  They shall not disturb each other."
 	(mapconcat #'shell-quote-argument load-path " -L ")
 	(shell-quote-argument code)))))))
 
-(ert-deftest tramp-test49-without-remote-files ()
+(ert-deftest tramp-test50-without-remote-files ()
   "Check that Tramp can be suppressed."
   (skip-unless (tramp--test-enabled))
 
@@ -8380,7 +8581,7 @@ process sentinels.  They shall not disturb each other."
   (setq tramp-mode t)
   (should (file-remote-p ert-remote-temporary-file-directory)))
 
-(ert-deftest tramp-test50-unload ()
+(ert-deftest tramp-test51-unload ()
   "Check that Tramp and its subpackages unload completely.
 Since it unloads Tramp, it shall be the last test to run."
   :tags '(:expensive-test)
@@ -8495,6 +8696,9 @@ If INTERACTIVE is non-nil, the tests are run interactively."
 ;;   famous reentrant error?
 ;; * Check, why direct async processes do not work for
 ;;   `tramp-test45-asynchronous-requests'.
+
+;; Starting with Emacs 29, use `ert-with-temp-file' and
+;; `ert-with-temp-directory'.
 
 (provide 'tramp-tests)
 

@@ -167,13 +167,13 @@ The function's value is the number of actions taken."
 				     'quit))
 		     ;; Prompt in the echo area.
 		     (let ((cursor-in-echo-area (not no-cursor-in-echo-area)))
-                       (message (substitute-command-keys
-                                 (format
-                                  (apply #'propertize
-                                         "%s(\\`y', \\`n', \\`!', \\`.', \\`q', %sor \\`%s') "
-                                         minibuffer-prompt-properties)
-                                  prompt user-keys
-                                  (key-description (vector help-char)))))
+                       (message "%s" (substitute-command-keys
+                                     (format
+                                      (apply #'propertize
+                                             "%s(\\`y', \\`n', \\`!', \\`.', \\`q', %sor \\`%s') "
+                                             minibuffer-prompt-properties)
+                                      prompt user-keys
+                                      (help-key))))
 		       (if minibuffer-auto-raise
 			   (raise-frame (window-frame (minibuffer-window))))
                        (unwind-protect
@@ -185,18 +185,23 @@ The function's value is the number of actions taken."
                            (let ((overriding-text-conversion-style nil))
                              (when (fboundp 'set-text-conversion-style)
                                (set-text-conversion-style text-conversion-style))
-		             (setq char (read-event)))
+                             ;; Do NOT use read-event here.  That
+                             ;; function does not consult
+                             ;; input-decode-map (bug#75886).
+		             (setq char (read-key))
+                             (when (eq char ?\C-g)
+                               (signal 'quit nil)))
                          (when (fboundp 'set-text-conversion-style)
                            (set-text-conversion-style text-conversion-style)))
 		       ;; Show the answer to the question.
-                       (message (substitute-command-keys
-                                 (format
-                                  "%s(\\`y', \\`n', \\`!', \\`.', \\`q', %sor \\`%s') %s"
-                                  prompt user-keys
-                                  (key-description (vector help-char))
-                                  (if (equal char -1)
-                                      "[end-of-keyboard-macro]"
-                                    (single-key-description char))))))
+                       (message "%s" (substitute-command-keys
+                                      (format
+                                       "%s(\\`y', \\`n', \\`!', \\`.', \\`q', %sor \\`%s') %s"
+                                       prompt user-keys
+                                       (help-key)
+                                       (if (equal char -1)
+                                           "[end-of-keyboard-macro]"
+                                         (single-key-description char))))))
 		     (setq def (lookup-key map (vector char))))
 		   (cond ((eq def 'exit)
 			  (setq next (lambda () nil)))
@@ -271,10 +276,10 @@ Type \\`SPC' or \\`y' to %s the current %s;
 			  (funcall try-again))
 			 (t
 			  ;; Random char.
-                          (message (substitute-command-keys
-                                    (format
-                                     "Type \\`%s' for help"
-                                     (key-description (vector help-char)))))
+                          (message "%s" (substitute-command-keys
+                                         (format
+                                          "Type \\`%s' for help"
+                                          (help-key))))
 			  (beep)
 			  (sit-for 1)
 			  (funcall try-again))))
@@ -321,6 +326,7 @@ variable."
 (defun read-answer (question answers)
   "Read an answer either as a complete word or its character abbreviation.
 Ask user a question and accept an answer from the list of possible answers.
+Return the long answer even when accepting short ones.
 
 QUESTION should end in a space; this function adds a list of answers to it.
 
@@ -343,8 +349,6 @@ Example:
     (\"quit\" ?q \"exit\"))
 
 When `read-answer-short' is non-nil, accept short answers.
-
-Return a long answer even in case of accepting short ones.
 
 When `use-dialog-box' is t, pop up a dialog window to get user input."
   (let* ((short (if (eq read-answer-short 'auto)

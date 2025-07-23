@@ -66,10 +66,6 @@ static Lisp_Object tip_frame;
 /* The X and Y deltas of the last call to `x-show-tip'.  */
 static Lisp_Object tip_dx, tip_dy;
 
-/* The window-system window corresponding to the frame of the
-   currently visible tooltip.  */
-static NSWindow *tip_window;
-
 /* A timer that hides or deletes the currently visible tooltip when it
    fires.  */
 static Lisp_Object tip_timer;
@@ -1408,12 +1404,7 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
 #ifdef NS_IMPL_COCOA
   tem = gui_display_get_arg (dpyinfo, parms, Qns_appearance, NULL, NULL,
                              RES_TYPE_SYMBOL);
-  if (EQ (tem, Qdark))
-    FRAME_NS_APPEARANCE (f) = ns_appearance_vibrant_dark;
-  else if (EQ (tem, Qlight))
-    FRAME_NS_APPEARANCE (f) = ns_appearance_aqua;
-  else
-    FRAME_NS_APPEARANCE (f) = ns_appearance_system_default;
+  ns_set_appearance_1 (f, tem);
   store_frame_param (f, Qns_appearance,
                      (!NILP (tem) && !EQ (tem, Qunbound)) ? tem : Qnil);
 
@@ -2621,100 +2612,6 @@ DEFUN ("x-display-pixel-height", Fx_display_pixel_height,
   return make_fixnum (ns_display_pixel_height (dpyinfo));
 }
 
-#ifdef NS_IMPL_COCOA
-
-/* Returns the name for the screen that OBJ represents, or NULL.
-   Caller must free return value.
-*/
-
-static char *
-ns_get_name_from_ioreg (io_object_t obj)
-{
-  char *name = NULL;
-
-  NSDictionary *info = (NSDictionary *)
-    IODisplayCreateInfoDictionary (obj, kIODisplayOnlyPreferredName);
-  NSDictionary *names = [info objectForKey:
-                                [NSString stringWithUTF8String:
-                                            kDisplayProductName]];
-
-  if ([names count] > 0)
-    {
-      NSString *n = [names objectForKey: [[names allKeys]
-                                                 objectAtIndex:0]];
-      if (n != nil) name = xstrdup ([n UTF8String]);
-    }
-
-  [info release];
-
-  return name;
-}
-
-/* Returns the name for the screen that DID came from, or NULL.
-   Caller must free return value.
-*/
-
-static char *
-ns_screen_name (CGDirectDisplayID did)
-{
-  char *name = NULL;
-
-#if MAC_OS_X_VERSION_MAX_ALLOWED >= 1090
-#if MAC_OS_X_VERSION_MIN_REQUIRED < 1090
-  if (CGDisplayIOServicePort == NULL)
-#endif
-    {
-      mach_port_t masterPort;
-      io_iterator_t it;
-      io_object_t obj;
-
-      /* CGDisplayIOServicePort is deprecated.  Do it another (harder) way.
-
-         Is this code OK for macOS < 10.9, and GNUstep?  I suspect it is,
-         in which case is it worth keeping the other method in here?  */
-
-      if (IOMasterPort (MACH_PORT_NULL, &masterPort) != kIOReturnSuccess
-          || IOServiceGetMatchingServices (masterPort,
-                                           IOServiceMatching ("IONDRVDevice"),
-                                           &it) != kIOReturnSuccess)
-        return name;
-
-      /* Must loop until we find a name.  Many devices can have the same unit
-         number (represents different GPU parts), but only one has a name.  */
-      while (! name && (obj = IOIteratorNext (it)))
-        {
-          CFMutableDictionaryRef props;
-          const void *val;
-
-          if (IORegistryEntryCreateCFProperties (obj,
-                                                 &props,
-                                                 kCFAllocatorDefault,
-                                                 kNilOptions) == kIOReturnSuccess
-              && props != nil
-              && (val = CFDictionaryGetValue(props, @"IOFBDependentIndex")))
-            {
-              unsigned nr = [(NSNumber *)val unsignedIntegerValue];
-              if (nr == CGDisplayUnitNumber (did))
-                name = ns_get_name_from_ioreg (obj);
-            }
-
-          CFRelease (props);
-          IOObjectRelease (obj);
-        }
-
-      IOObjectRelease (it);
-    }
-#if MAC_OS_X_VERSION_MIN_REQUIRED < 1090
-  else
-#endif
-#endif /* #if MAC_OS_X_VERSION_MAX_ALLOWED >= 1090 */
-#if MAC_OS_X_VERSION_MIN_REQUIRED < 1090
-    name = ns_get_name_from_ioreg (CGDisplayIOServicePort (did));
-#endif
-  return name;
-}
-#endif /* NS_IMPL_COCOA */
-
 static Lisp_Object
 ns_make_monitor_attribute_list (struct MonitorInfo *monitors,
                                 int n_monitors,
@@ -2795,46 +2692,51 @@ Internal use only, use `display-monitor-attributes-list' instead.  */)
       struct MonitorInfo *m = &monitors[i];
       NSRect fr = [s frame];
       NSRect vfr = [s visibleFrame];
-      short y, vy;
 
 #ifdef NS_IMPL_COCOA
       NSDictionary *dict = [s deviceDescription];
       NSNumber *nid = [dict objectForKey:@"NSScreenNumber"];
       CGDirectDisplayID did = [nid unsignedIntValue];
 #endif
+
+      /* The primary display is always the first in the array.  */
       if (i == 0)
-        {
-          primary_display_height = fr.size.height;
-          y = (short) fr.origin.y;
-          vy = (short) vfr.origin.y;
-        }
-      else
-        {
-          /* Flip y coordinate as NS screen coordinates originate from
-	     the bottom.  */
-          y = (short) (primary_display_height - fr.size.height - fr.origin.y);
-          vy = (short) (primary_display_height -
-                        vfr.size.height - vfr.origin.y);
-        }
+	primary_display_height = fr.size.height;
+
+      /* Flip y coordinate as NS screen coordinates originate from
+	 the bottom.  */
 
       m->geom.x = (short) fr.origin.x;
-      m->geom.y = y;
+      m->geom.y = (short) (primary_display_height - NSMaxY(fr));
       m->geom.width = (unsigned short) fr.size.width;
       m->geom.height = (unsigned short) fr.size.height;
 
+      /* The work area excludes the menu bar and the dock.  */
       m->work.x = (short) vfr.origin.x;
-      /* y is flipped on NS, so vy - y are pixels missing at the
-	 bottom, and fr.size.height - vfr.size.height are pixels
-	 missing in total.
-
-	 Pixels missing at top are fr.size.height - vfr.size.height -
-	 vy + y.  work.y is then pixels missing at top + y.  */
-      m->work.y = (short) (fr.size.height - vfr.size.height) - vy + y + y;
+      m->work.y = (short) (primary_display_height - NSMaxY(vfr));
       m->work.width = (unsigned short) vfr.size.width;
       m->work.height = (unsigned short) vfr.size.height;
 
 #ifdef NS_IMPL_COCOA
-      m->name = ns_screen_name (did);
+      m->name = NULL;
+      if ([s respondsToSelector:@selector(localizedName)])
+        {
+	  NSString *name = [s valueForKey:@"localizedName"];
+	  if (name != NULL)
+	    {
+	      m->name = xmalloc ([name lengthOfBytesUsingEncoding: NSUTF8StringEncoding] + 1);
+	      strcpy(m->name, [name UTF8String]);
+	    }
+        }
+      /* If necessary, synthesize a name of the following form:
+	  %dx%d@%d,%d width height x y. */
+      if (m->name == NULL)
+	{
+	  char buf[25]; /* sufficient for 12345x78901@34567,90123 */
+	  snprintf (buf, sizeof(buf), "%ux%u@%d,%d",
+		    m->work.width, m->work.height, m->work.x, m->work.y);
+	  m->name = xstrdup (buf);
+	}
 
       {
         CGSize mms = CGDisplayScreenSize (did);
@@ -2959,10 +2861,7 @@ unwind_create_tip_frame (Lisp_Object frame)
 
   deleted = unwind_create_frame (frame);
   if (EQ (deleted, Qt))
-    {
-      tip_window = NULL;
-      tip_frame = Qnil;
-    }
+    tip_frame = Qnil;
 }
 
 /* Create a frame for a tooltip on the display described by DPYINFO.
@@ -3771,6 +3670,57 @@ DEFUN ("ns-show-character-palette",
   return Qnil;
 }
 
+#ifdef NS_IMPL_COCOA
+
+DEFUN ("ns-send-items",
+       Fns_send_items,
+       Sns_send_items, 1, 1, 0,
+       doc: /* Send a list of items to macOS applications or services. */)
+       (Lisp_Object items)
+{
+  CHECK_LIST (items);
+
+  NSMutableArray *sent = [NSMutableArray array];
+  for (Lisp_Object tail = items; CONSP (tail); tail = XCDR (tail))
+  {
+    Lisp_Object elt = XCAR (tail);
+    if (!(STRINGP (elt)))
+    {
+      signal_error ("Element not a string", elt);
+    }
+    BOOL isDir;
+    if ([[NSFileManager defaultManager] fileExistsAtPath:@(SSDATA(elt)) isDirectory:&isDir]) {
+      [sent addObject:[NSURL fileURLWithPath:@(SSDATA(elt))]];
+      continue;
+    }
+    [sent addObject:@(SSDATA(elt))];
+  }
+
+  struct frame *frame = SELECTED_FRAME ();
+  struct window *window = XWINDOW (selected_window);
+
+  int text_area_x, text_area_y, text_area_width, text_area_height;
+  window_box (window, TEXT_AREA, &text_area_x, &text_area_y,
+              &text_area_width, &text_area_height);
+
+  int x = text_area_x + window->phys_cursor.x;
+  int y = text_area_y + window->phys_cursor.y;
+
+  NSPoint point = NSMakePoint(x + FRAME_COLUMN_WIDTH (frame) / 2,
+			      y + FRAME_LINE_HEIGHT (frame) + 10);
+
+  EmacsView *view = FRAME_NS_VIEW (frame);
+  NSSharingServicePicker *picker = [[NSSharingServicePicker alloc] initWithItems:sent];
+  [picker showRelativeToRect:NSMakeRect(point.x - 1, point.y - 1, 2, 2)
+		      ofView:view
+	       preferredEdge:NSRectEdgeMaxY];
+
+  return Qnil;
+}
+
+
+#endif /* NS_IMPL_COCOA */
+
 /* ==========================================================================
 
     Class implementations
@@ -4003,6 +3953,9 @@ The default value is t.  */);
   defsubr (&Sns_set_mouse_absolute_pixel_position);
   defsubr (&Sns_mouse_absolute_pixel_position);
   defsubr (&Sns_show_character_palette);
+#ifdef NS_IMPL_COCOA
+  defsubr (&Sns_send_items);
+#endif
   defsubr (&Sx_display_mm_width);
   defsubr (&Sx_display_mm_height);
   defsubr (&Sx_display_screens);

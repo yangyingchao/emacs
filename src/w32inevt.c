@@ -72,6 +72,7 @@ w32_read_console_input (HANDLE h, INPUT_RECORD *rec, DWORD recsize,
 }
 
 /* Set by w32_console_toggle_lock_key.  */
+extern int faked_key;
 int faked_key;
 
 static int
@@ -467,7 +468,6 @@ do_mouse_event (MOUSE_EVENT_RECORD *event,
 		struct input_event *emacs_ev)
 {
   static DWORD button_state = 0;
-  static Lisp_Object last_mouse_window;
   DWORD but_change, mask, flags = event->dwEventFlags;
   int i;
 
@@ -813,7 +813,16 @@ w32_console_read_socket (struct terminal *terminal,
 		  add = 1;
 		}
 	      if (add)
-		kbd_buffer_store_event_hold (&inev, hold_quit);
+		{
+		  Mouse_HLInfo *hlinfo =
+		    &terminal->display_info.tty->mouse_highlight;
+		  if (!hlinfo->mouse_face_hidden && FIXNUMP (Vmouse_highlight))
+		    {
+		      clear_mouse_face (hlinfo);
+		      hlinfo->mouse_face_hidden = true;
+		    }
+		  kbd_buffer_store_event_hold (&inev, hold_quit);
+		}
 	      break;
 
             case MOUSE_EVENT:

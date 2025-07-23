@@ -233,8 +233,8 @@ Select buffer @var{bufname} in another window
 (@code{switch-to-buffer-other-window}).  @xref{Select Buffer}.
 
 @findex display-buffer @r{(command)}
-@item C-x 4 C-o @var{bufname} @key{RET}
 @kindex C-x 4 C-o
+@item C-x 4 C-o @var{bufname} @key{RET}
 Display buffer @var{bufname} in some window, without trying to select
 it (@code{display-buffer}).  @xref{Displaying Buffers}, for details
 about how the window is chosen.
@@ -263,10 +263,13 @@ Find the definition of an identifier, similar to @kbd{M-.}
 Visit file @var{filename} read-only, and select its buffer in another
 window (@code{find-file-read-only-other-window}).  @xref{Visiting}.
 
+@kindex C-x 4 4
+@findex other-window-prefix
 @item C-x 4 4
-A more general prefix command affects the buffer displayed by the next
-command invoked immediately after this prefix command.  It requests
-the buffer of the next command to be displayed in another window.
+A more general prefix command affects the buffer displayed by a
+subsequent command invoked after this prefix command
+(@code{other-window-prefix}).  It requests the buffer displayed by a
+subsequent command to be shown in another window.
 
 @item C-x 4 1
 This general prefix command requests the buffer of the next command
@@ -511,6 +514,7 @@ selected frame, and display the buffer in that new window.
 
 @vindex split-height-threshold
 @vindex split-width-threshold
+@vindex split-window-preferred-direction
 The split can be either vertical or horizontal, depending on the
 variables @code{split-height-threshold} and
 @code{split-width-threshold}.  These variables should have integer
@@ -519,7 +523,9 @@ window's height, the split puts the new window below.  Otherwise, if
 @code{split-width-threshold} is smaller than the window's width, the
 split puts the new window on the right.  If neither condition holds,
 Emacs tries to split so that the new window is below---but only if the
-window was not split before (to avoid excessive splitting).
+window was not split before (to avoid excessive splitting).  Whether
+Emacs tries first to split vertically or horizontally, is
+determined by the value of @code{split-window-preferred-direction}.
 
 @item
 Otherwise, display the buffer in a window previously showing it.
@@ -585,6 +591,16 @@ can be controlled by customizing the options
 (@pxref{Temporary Displays,,Temporary Displays, elisp, The Emacs Lisp
 Reference Manual}), and cannot exceed the size of the containing frame.
 
+@cindex warning buffer, display
+@vindex warning-display-at-bottom
+  Buffers showing warnings (such as byte-compilation warnings,
+@pxref{Compilation Functions,, Byte Compilation Functions, elisp, The
+Emacs Lisp Reference Manual}) are also by default shown in a window at
+the bottom of the selected frame.  You can control this using the
+variable @code{warning-display-at-bottom}: if set to @code{nil}, Emacs
+will use the normal logic of @code{display-buffer} (@pxref{Window
+Choice}) instead, and you can customize that via
+@code{display-buffer-alist}.
 
 @node Window Convenience
 @section Convenience Features for Window Handling
@@ -713,7 +729,7 @@ you customize the value of @code{tab-line-format} in Lisp to add
   The command @code{global-window-tool-bar-mode} toggles the display of
 a tool bar at the top of each window.  When enabled, multiple windows
 can display their own tool bar simultaneously.  To conserve space, a
-window tool bar is hidden if there are no buttons to show, i.e. if
+window tool bar is hidden if there are no buttons to show, i.e.@: if
 @code{tool-bar-map} is @code{nil}.
 
 @findex window-tool-bar-mode
@@ -727,6 +743,16 @@ a custom tool bar, you could add the following code to your init file
 @example
 (add-hook 'special-mode-hook 'window-tool-bar-mode)
 @end example
+
+@vindex window-tool-bar-style
+@cindex window tool bar style
+On graphical displays the window tool bar can be displayed in several
+different styles.  By default, the window tool bar displays items as
+just images.  To impose a specific style, customize the variable
+@code{window-tool-bar-style}.
+
+On text-only displays the window tool bar only shows text for each
+button even if another style is specified.
 
 Emacs can also display a single tool bar at the top of frames
 (@pxref{Tool Bars}).

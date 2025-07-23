@@ -67,22 +67,22 @@ Name: Lexical and variable declarations
 =-=
 const foo = () => {
   let x = 1,
-      yyyy: {
-        [k: string | number]: string,
-      } = {
-        "foo": "foo",
-        "bar": "bar",
-      };
+    yyyy: {
+      [k: string | number]: string,
+    } = {
+      "foo": "foo",
+      "bar": "bar",
+    };
   var obar = 1,
-      fo: { [x: any]: any } = {
-        "a": 1,
-        "b": 2,
-      };
+    fo: { [x: any]: any } = {
+      "a": 1,
+      "b": 2,
+    };
   const cccc = 1,
-        bbb = {
-          "x": 0
-        },
-        ddddd = 0;
+    bbb = {
+      "x": 0
+    },
+    ddddd = 0;
   // First decls with value starting on same line
   const a = (x: string): string => {
     return x + x;
@@ -93,11 +93,25 @@ const foo = () => {
 };
 =-=-=
 
+Name: Chained ternary expressions
+
+=-=
+const a = cond1 ? 1 :
+  cond2 ? 2 :
+  cond3 ? 3 :
+  cond 4: 5;
+
+const a = cond1 ? 1
+  : cond2 ? 2
+  : cond3 ? 3
+  : 4;
+=-=-=
+
 Code:
   (lambda ()
-    (setq indent-tabs-mode nil)
     (setq tsx-ts-mode-indent-offset 2)
     (tsx-ts-mode)
+    (setq indent-tabs-mode nil)
     (indent-region (point-min) (point-max)))
 
 Name: JSX indentation
@@ -111,8 +125,8 @@ return (
 <div>
 {
 props.foo
-? Hello, foo!
-: Hello, World!;
+? 'Hello, foo!'
+: 'Hello, World!'
 }
 </div>
 </div>
@@ -129,8 +143,8 @@ const foo = (props) => {
           <div>
             {
               props.foo
-                ? Hello, foo!
-                : Hello, World!;
+                ? 'Hello, foo!'
+                : 'Hello, World!'
             }
           </div>
         </div>
@@ -171,5 +185,30 @@ bar?: boolean;
 interface Foo {
   foo: string;
   bar?: boolean;
+}
+=-=-=
+
+Code:
+  (lambda ()
+    (setq tsx-ts-mode-indent-offset 2)
+    (tsx-ts-mode)
+    (setq indent-tabs-mode nil)
+    (indent-region (line-beginning-position 7) (point-max)))
+
+Name: Function body with params misindented (bug#78121)
+
+=-=
+const f1 = (a1: string,
+            a2: number) => {
+    const f2 = (a1: string,
+                a2: number) => {
+      const f3 = (a1: string,
+                  a2: number) =>
+        {
+          return;
+        }
+      return;
+    }
+  return;
 }
 =-=-=

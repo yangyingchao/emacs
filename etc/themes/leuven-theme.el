@@ -285,7 +285,7 @@ more..."
    `(gnus-picon-xbm ((,class (:foreground "yellow" :background "white"))))
    `(gnus-server-closed ((,class (:slant italic :foreground "blue" :background "white"))))
    `(gnus-server-denied ((,class (:weight bold :foreground "red" :background "white"))))
-   `(gnus-server-opened ((,class (:family "Sans Serif" :foreground "white" :foreground "#466BD7"))))
+   `(gnus-server-opened ((,class (:family "Sans Serif" :foreground "#466BD7"))))
    `(gnus-signature ((,class (:slant italic :foreground "#8B8D8E"))))
    `(gnus-splash ((,class (:foreground "#FF8C00"))))
    `(gnus-summary-cancelled ((,class ,cancel)))
@@ -359,7 +359,7 @@ more..."
    `(smerge-other ((,class ,diff-added)))
    `(smerge-base ((,class ,diff-removed)))
    `(smerge-markers ((,class (:background "#FFE5CC"))))
-   `(smerge-refined-change ((,class (:background "#AAAAFF"))))
+   `(smerge-refined-changed ((,class (:background "#AAAAFF"))))
 
    ;; Ediff.
    `(ediff-current-diff-A ((,class (:background "#FFDDDD"))))
@@ -737,7 +737,7 @@ more..."
    `(lsp-ui-doc-background ((,class (:background "#F6FECD"))))
    `(lsp-ui-sideline-code-action ((,class (:foreground "#000000" :background "#FFF68F"))))
    `(lui-button-face ((,class ,link)))
-   `(lui-highlight-face ((,class (:box '(:line-width 1 :color "#CC0000") :foreground "#CC0000" :background "#FFFF88")))) ; my nickname
+   `(lui-highlight-face ((,class (:box (:line-width 1 :color "#CC0000") :foreground "#CC0000" :background "#FFFF88")))) ; my nickname
    `(lui-time-stamp-face ((,class (:foreground "purple"))))
    `(magit-blame-header ((,class (:inherit magit-diff-file-header))))
    `(magit-blame-heading ((,class (:overline "#A7A7A7" :foreground "red" :background "#E6E6E6"))))

@@ -66,7 +66,7 @@
 ;; You can get the latest version of CC Mode, including PostScript
 ;; documentation and separate individual files from:
 ;;
-;;     https://cc-mode.sourceforge.net/
+;;     https://www.nongnu.org/cc-mode/
 ;;
 ;; You can join a moderated CC Mode announcement-only mailing list by
 ;; visiting
@@ -172,8 +172,8 @@
 ;; `c-font-lock-init' too to set up CC Mode's font lock support.
 ;;
 ;; See cc-langs.el for further info.  A small example of a derived mode
-;; is also available at <https://cc-mode.sourceforge.net/
-;; derived-mode-ex.el>.
+;; is also available at
+;; <https://www.nongnu.org/cc-mode/derived-mode-ex.el>.
 
 (defun c-leave-cc-mode-mode ()
   (when c-buffer-is-cc-mode
@@ -194,6 +194,8 @@
 	(c-clear-char-properties (point-min) (point-max) 'c-is-sws)
 	(c-clear-char-properties (point-min) (point-max) 'c-in-sws)
 	(c-clear-char-properties (point-min) (point-max) 'c-type)
+	(if c-has-quoted-numbers
+	    (c-clear-char-properties (point-min) (point-max) 'c-digit-separator))
 	(if (c-major-mode-is 'awk-mode)
 	    (c-clear-char-properties (point-min) (point-max) 'c-awk-NL-prop))))
     (setq c-buffer-is-cc-mode nil)))
@@ -1033,8 +1035,8 @@ Note that the style variables are always made local to the buffer."
       (setq m-beg (point))
       (c-end-of-macro)
       (when c-ml-string-opener-re
-	(save-excursion (c-depropertize-ml-strings-in-region m-beg (point)))
-	(c-clear-syntax-table-with-value-trim-caches m-beg (point) '(1))))
+	(save-excursion (c-depropertize-ml-strings-in-region m-beg (point))))
+      (c-clear-syntax-table-with-value-trim-caches m-beg (point) '(1)))
 
     (while (and (< (point) end)
 		(setq ss-found
@@ -2047,9 +2049,7 @@ This function is used solely as a member of
     (while (and (< (point) search-end)
 		(search-forward-regexp c-cpp-include-key search-end 'bound)
 		(setq hash-pos (match-beginning 0)))
-      (save-restriction
-	(narrow-to-region (point-min) (c-point 'eoll))
-	(c-forward-comments))
+      (c-forward-comments (c-point 'eoll))
       (when (and (< (point) search-end)
 		 (looking-at "\\s(")
 		 (looking-at "\\(<\\)[^>\n\r]*\\(>\\)?")
@@ -2081,9 +2081,7 @@ This function is used solely as a member of
     (while (and (< (point) search-end)
 		(search-forward-regexp c-cpp-include-key search-end 'bound)
 		(setq hash-pos (match-beginning 0)))
-      (save-restriction
-	(narrow-to-region (point-min) (c-point 'eoll))
-	(c-forward-comments))
+      (c-forward-comments (c-point 'eoll))
       (when (and (< (point) search-end)
 		 (looking-at "\\(<\\)[^>\n\r]*\\(>\\)")
 		 (not (cdr (c-semi-pp-to-literal (match-beginning 0)))))
@@ -2293,7 +2291,7 @@ with // and /*, not more generic line and block comments."
 		     (end1
 		      (or (and (eq (get-text-property end 'face)
 				   'font-lock-comment-face)
-			       (previous-single-property-change end 'face))
+			       (c-previous-single-property-change end 'face))
 			  end)))
 	     (when (>= end1 beg) ; Don't hassle about changes entirely in
 					; comments.
@@ -2313,8 +2311,8 @@ with // and /*, not more generic line and block comments."
 			  (setq type-pos
 				(if (get-text-property (1- end1) 'c-type)
 				    end1
-				  (previous-single-property-change end1 'c-type
-								   nil lim))))
+				  (c-previous-single-property-change end1 'c-type
+								     nil lim))))
 		 (setq type (get-text-property (max (1- type-pos) lim) 'c-type))
 
 		 (when (memq type '(c-decl-id-start c-decl-type-start))
@@ -2600,7 +2598,7 @@ with // and /*, not more generic line and block comments."
       (goto-char (car ml-delim)))
     (c-backward-syntactic-ws lim)
     (when (setq enclosing-attribute (c-enclosing-c++-attribute))
-      (goto-char (car enclosing-attribute)) ; Only happens in C++ Mode.
+      (goto-char (car enclosing-attribute)) ; Only happens in C or C++ Mode.
       (c-backward-syntactic-ws lim))
     (while (and (> (point) lim)
 		(memq (char-before) '(?\[ ?\()))

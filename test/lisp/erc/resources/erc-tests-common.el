@@ -75,7 +75,10 @@ Assign the result to `erc-server-process' in the current buffer."
 ;; `get-buffer-create' with INHIBIT-BUFFER-HOOKS.
 (defun erc-tests-common-kill-buffers (&rest extra-buffers)
   "Kill all ERC buffers and possibly EXTRA-BUFFERS."
-  (let (erc-kill-channel-hook erc-kill-server-hook erc-kill-buffer-hook)
+  (let (erc-kill-channel-hook erc-kill-server-hook erc-kill-buffer-hook
+        ;; To facilitate automatic testing when a fake-server has already
+	;; been created by an earlier ERT test.
+	(kill-buffer-query-functions nil))
     (dolist (buf (erc-buffer-list))
       (kill-buffer buf))
     (named-let doit ((buffers extra-buffers))
@@ -288,18 +291,13 @@ string."
          (got (erc--remove-text-properties
                (buffer-substring (point-min) erc-insert-marker)))
          (repr (funcall (or trans-fn #'identity) (prin1-to-string got)))
-         (xstr (read (with-temp-buffer
-                       (insert-file-contents-literally expect-file)
-                       (buffer-string)))))
+         ;;
+         xstr)
     (with-current-buffer (generate-new-buffer name)
       (with-silent-modifications
         (insert (setq got (read repr))))
       (when buf-init-fn (funcall buf-init-fn))
       (erc-mode))
-    (unless noninteractive
-      (with-current-buffer (generate-new-buffer (format "%s-xpt" name))
-        (insert xstr)
-        (erc-mode)))
     ;; LHS is a string, RHS is a symbol.
     (if (string= erc-tests-common-snapshot-save-p
                  (ert-test-name (ert-running-test)))
@@ -308,6 +306,13 @@ string."
             (insert repr))
           ;; Limit writing snapshots to one test at a time.
           (message "erc-tests-common-snapshot-compare: wrote %S" expect-file))
+      (setq xstr (read (with-temp-buffer
+                         (insert-file-contents-literally expect-file)
+                         (buffer-string))))
+      (unless noninteractive
+        (with-current-buffer (generate-new-buffer (format "%s-xpt" name))
+          (insert xstr)
+          (erc-mode)))
       (if (file-exists-p expect-file)
           ;; Ensure string-valued properties, like timestamps, aren't
           ;; recursive (signals `max-lisp-eval-depth' exceeded).
@@ -356,15 +361,17 @@ interspersing \"-l\" between members."
              (require 'erc)
              (cl-assert (equal erc-version ,erc-version) t)
              ,code))
-         (proc (apply #'start-process
-                      (symbol-name (ert-test-name (ert-running-test)))
-                      (current-buffer)
-                      (concat invocation-directory invocation-name)
-                      `(,@(or init '("-Q"))
-                        ,@switches
-                        ,@(mapcan (lambda (f) (list "-l" f)) libs)
-                        "-eval" ,(format "%S" prog)))))
-    (set-process-query-on-exit-flag proc t)
+         (proc (make-process
+                :name (symbol-name (ert-test-name (ert-running-test)))
+                :buffer (current-buffer)
+                :command `(,(concat invocation-directory invocation-name)
+                           ,@(or init '("-Q"))
+                           ,@switches
+                           ,@(mapcan (lambda (f) (list "-l" f)) libs)
+                           "-eval" ,(format "%S" prog))
+                :connection-type 'pipe
+                :stderr (messages-buffer)
+                :noquery t)))
     proc))
 
 (declare-function erc-track--setup "erc-track" ())

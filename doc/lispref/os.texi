@@ -94,6 +94,11 @@ if requested by environment variables such as @env{LANG}.
 It does some basic parsing of the command-line arguments.
 
 @item
+It loads the library @file{site-start}, if it exists.  This is not
+done if the options @samp{-Q} or @samp{--no-site-file} were specified.
+@cindex @file{site-start.el}
+
+@item
 It loads your early init file (@pxref{Early Init File,,, emacs, The
 GNU Emacs Manual}).  This is not done if the options @samp{-q},
 @samp{-Q}, or @samp{--batch} were specified.  If the @samp{-u} option
@@ -149,11 +154,6 @@ rather than build-time, context.
 
 @c @item
 @c It registers the colors available for tty frames.
-
-@item
-It loads the library @file{site-start}, if it exists.  This is not
-done if the options @samp{-Q} or @samp{--no-site-file} were specified.
-@cindex @file{site-start.el}
 
 @item
 It loads your init file (@pxref{Init File}).  This is not done if the
@@ -432,9 +432,9 @@ loading of this file with the option @samp{--no-site-file}.
 
 @defopt site-run-file
 This variable specifies the site-customization file to load before the
-user's init file.  Its normal value is @code{"site-start"}.  The only
-way you can change it with real effect is to do so before dumping
-Emacs.
+user's early init file and regular init file.  Its normal value is
+@code{"site-start"}.  The only way you can change it with real effect is
+to do so before dumping Emacs.
 @c So why even mention it here.  I imagine it is almost never changed.
 @end defopt
 
@@ -590,10 +590,10 @@ displays the startup messages.
 The value of this variable is @code{t} once the command line has been
 processed.
 
-If you redump Emacs by calling @code{dump-emacs} (@pxref{Building
-Emacs}), you may wish to set this variable to @code{nil} first in
-order to cause the new dumped Emacs to process its new command-line
-arguments.
+If you redump Emacs by calling @code{dump-emacs-portable}
+(@pxref{Building Emacs}), you may wish to set this variable to
+@code{nil} first in order to cause the new dumped Emacs to process its
+new command-line arguments.
 @end defvar
 
 @defvar command-switch-alist
@@ -1953,14 +1953,18 @@ This is a synonym for @samp{%H:%M:%S}.
 This stands for the numeric day of week (1--7).  Monday is day 1.
 @item %U
 This stands for the week of the year (01--52), assuming that weeks
-start on Sunday.
+start on Sunday.  If January 1 is not a Sunday, the first partial week
+is week zero.
 @item %V
-This stands for the week of the year according to ISO 8601.
+This stands for the week of the year according to ISO 8601.  Note that,
+unlike @samp{%U} and @samp{%W}, the week according to ISO 8601 does
+@emph{not} roll over to 1 on January 1, but keeps its last number.
 @item %w
 This stands for the numeric day of week (0--6).  Sunday is day 0.
 @item %W
-This stands for the week of the year (01--52), assuming that weeks
-start on Monday.
+This stands for the week of the year (01--52), assuming that weeks start
+on Monday.  If January 1 is not a Monday, the first partial week is week
+zero.
 @item %x
 This has a locale-specific meaning.  In the default locale (named
 @samp{C}), it is equivalent to @samp{%D}.

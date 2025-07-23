@@ -230,10 +230,11 @@ the associated section number."
   :type '(repeat (cons (string :tag "Bogus Section")
 		       (string :tag "Real Section"))))
 
-(defcustom Man-header-file-path (internal--c-header-file-path)
+(defcustom Man-header-file-path t
   "C Header file search path used in Man."
   :version "31.1"
-  :type '(repeat string))
+  :type '(choice (repeat string)
+                 (const :tag "Use 'ffap-c-path'" t)))
 
 (defcustom Man-name-local-regexp (concat "^" (regexp-opt '("NOM" "NAME")) "$")
   "Regexp that matches the text that precedes the command's name.
@@ -558,9 +559,9 @@ Otherwise, the value is whatever the function
 
 (defun Man-shell-file-name ()
   "Return a proper shell file name, respecting remote directories."
-  (or ; This works also in the local case.
+  (if (connection-local-p shell-file-name)
       (connection-local-value shell-file-name)
-      "/bin/sh"))
+    "/bin/sh"))
 
 (defun Man-header-file-path ()
   "Return the C header file search path that Man should use.
@@ -571,7 +572,11 @@ list of directories where the remote system has the C header files."
   (let ((remote-id (file-remote-p default-directory)))
     (if (null remote-id)
         ;; The local case.
-        Man-header-file-path
+        (if (not (eq t Man-header-file-path))
+            Man-header-file-path
+          (require 'ffap)
+          (defvar ffap-c-path)
+          ffap-c-path)
       ;; The remote case.  Use connection-local variables.
       (mapcar
        (lambda (elt) (concat remote-id elt))
@@ -630,9 +635,7 @@ This is necessary if one wants to dump man.el with Emacs."
 	     (if Man-sed-script
 		 (concat "-e '" Man-sed-script "'")
 	       "")
-             ;; Use octal numbers.  Otherwise, \032 (Ctrl-Z) would
-             ;; suspend remote connections.
-	     "-e '/^[\\o001-\\o032][\\o001-\\o032]*$/d'"
+	     "-e '/^[[:cntrl:]][[:cntrl:]]*$/d'"
 	     "-e '/\e[789]/s///g'"
 	     "-e '/Reformatting page.  Wait/d'"
 	     "-e '/Reformatting entry.  Wait/d'"
@@ -767,7 +770,7 @@ Different man programs support this feature in different ways.
 The default Debian man program (\"man-db\") has a `--local-file'
 \(or `-l') option for this purpose.  The default Red Hat man
 program has no such option, but interprets any name containing
-a \"/\" as a local filename.  The function returns either `man-db'
+a \"/\" as a local filename.  The function returns either `man-db',
 `man', or nil."
   (if (eq Man-support-local-filenames 'auto-detect)
       (with-connection-local-variables
@@ -1161,6 +1164,7 @@ for the current invocation."
 
 (defmacro Man-start-calling (&rest body)
   "Start the man command in `body' after setting up the environment."
+  (declare (debug t))
   `(let ((process-environment (copy-sequence process-environment))
 	;; The following is so Awk script gets \n intact
 	;; But don't prevent decoding of the outside.
@@ -1248,7 +1252,7 @@ Return the buffer in which the manpage will appear."
 				    exit-status)))
 		 (setq msg exit-status))
 	     (man--maybe-fontify-manpage)
-	     (Man-bgproc-sentinel bufname msg))))))
+	     (Man-bgproc-sentinel (cons buffer exit-status) msg))))))
     buffer))
 
 (defun Man-update-manpage ()
@@ -1375,17 +1379,24 @@ Same for the ANSI bold and normal escape sequences."
             (put-text-property (1- (point)) (point)
                                'font-lock-face 'Man-underline))))
     (goto-char (point-min))
-    (while (and (search-forward "_\b" nil t) (not (eobp)))
-      (delete-char -2)
-      (put-text-property (point) (1+ (point)) 'font-lock-face 'Man-underline))
-    (goto-char (point-min))
-    (while (search-forward "\b_" nil t)
-      (delete-char -2)
+    (while (and (re-search-forward "_\b\\([^_]\\)" nil t) (not (eobp)))
+      (replace-match "\\1")
       (put-text-property (1- (point)) (point) 'font-lock-face 'Man-underline))
     (goto-char (point-min))
-    (while (re-search-forward "\\(.\\)\\(\b+\\1\\)+" nil t)
+    (while (re-search-forward "\\([^_]\\)\b_" nil t)
+      (replace-match "\\1")
+      (put-text-property (1- (point)) (point) 'font-lock-face 'Man-underline))
+    (goto-char (point-min))
+    (while (re-search-forward "\\([^_]\\)\\(\b+\\1\\)+" nil t)
       (replace-match "\\1")
       (put-text-property (1- (point)) (point) 'font-lock-face 'Man-overstrike))
+    ;; Special case for "__": is it an underlined underscore or a bold
+    ;; underscore?  Look at the face after it to know.
+    (goto-char (point-min))
+    (while (search-forward "_\b_" nil t)
+      (delete-char -2)
+      (let ((face (get-text-property (point) 'font-lock-face)))
+        (put-text-property (1- (point)) (point) 'font-lock-face face)))
     (goto-char (point-min))
     (while (re-search-forward "o\b\\+\\|\\+\bo" nil t)
       (replace-match "o")
@@ -1536,17 +1547,26 @@ command is run.  Second argument STRING is the entire string of output."
   "Manpage background process sentinel.
 When manpage command is run asynchronously, PROCESS is the process
 object for the manpage command; when manpage command is run
-synchronously, PROCESS is the name of the buffer where the manpage
-command is run.  Second argument MSG is the exit message of the
-manpage command."
-  (let ((Man-buffer (if (stringp process) (get-buffer process)
-		      (process-buffer process)))
+synchronously, PROCESS is a cons (BUFFER . EXIT-STATUS) of the buffer
+where the manpage command has run and the exit status of the manpage
+command.  Second argument MSG is the exit message of the manpage
+command."
+  (let ((asynchronous (processp process))
+        Man-buffer process-status exit-status
 	(delete-buff nil)
 	message)
 
+    (if asynchronous
+        (setq Man-buffer     (process-buffer process)
+              process-status (process-status process)
+              exit-status    (process-exit-status process))
+      (setq Man-buffer     (car process)
+            process-status 'exit
+            exit-status    (cdr process)))
+
     (if (not (buffer-live-p Man-buffer)) ;; deleted buffer
-	(or (stringp process)
-	    (set-process-buffer process nil))
+	(and asynchronous
+	     (set-process-buffer process nil))
 
       (with-current-buffer Man-buffer
 	(save-excursion
@@ -1565,15 +1585,14 @@ manpage command."
 		  ;; `Man-highlight-references'.  The \\s- bits here are
 		  ;; meant to allow for multiple options with -k among them.
 		  ((and (string-match "\\(\\`\\|\\s-\\)-k\\s-" Man-arguments)
-			(eq (process-status process) 'exit)
-			(= (process-exit-status process) 0)
+			(eq process-status 'exit)
+			(= exit-status 0)
 			(= (point-min) (point-max)))
 		   (setq message (format "%s: no matches" Man-arguments)
 			 delete-buff t))
 
-		  ((or (stringp process)
-		       (not (and (eq (process-status process) 'exit)
-				 (= (process-exit-status process) 0))))
+		  ((not (and (eq process-status 'exit)
+			     (= exit-status 0)))
 		   (or (zerop (length msg))
 		       (progn
 			 (setq message
@@ -1625,10 +1644,13 @@ manpage command."
             (progn
               (quit-restore-window
                (get-buffer-window Man-buffer t) 'kill)
-              ;; Ensure that we end up in the correct window.
-              (let ((old-window (old-selected-window)))
-                (when (window-live-p old-window)
-                  (select-window old-window))))
+              ;; Ensure that we end up in the correct window.  Which is
+              ;; only relevant in rather special cases and if we have
+              ;; been called in an asynchronous fashion, see bug#38164.
+              (and asynchronous
+                   (let ((old-window (old-selected-window)))
+                     (when (window-live-p old-window)
+                       (select-window old-window)))))
           (kill-buffer Man-buffer)))
 
       (when message

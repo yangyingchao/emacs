@@ -244,9 +244,7 @@
 ;; will only work when there won't be a preceding " or / before the sought /
 ;; to foul things up.
 (defconst c-awk-pre-exp-alphanum-kwd-re
-  (concat "\\(^\\|\\=\\|[^_\n\r]\\)\\<"
-	  (regexp-opt '("print" "return" "case") t)
-	  "\\>\\([^_\n\r]\\|$\\)"))
+  (regexp-opt '("print" "return" "case") 'symbols))
 ;;   Matches all AWK keywords which can precede expressions (including
 ;; /regexp/).
 (defconst c-awk-kwd-regexp-sign-re
@@ -343,12 +341,12 @@
    (save-excursion
      (let ((par-pos (c-safe (scan-lists (point) -1 0))))
        (when par-pos
-         (goto-char par-pos)            ; back over "(...)"
-         (c-backward-token-1)           ; BOB isn't a problem.
-         (or (looking-at "\\(if\\|for\\)\\>\\([^_]\\|$\\)")
-             (and (looking-at "while\\>\\([^_]\\|$\\)") ; Ensure this isn't a do-while.
-                  (not (eq (c-beginning-of-statement-1 do-lim)
-                           'beginning)))))))))
+        (goto-char par-pos)            ; back over "(...)"
+        (c-backward-token-1)           ; BOB isn't a problem.
+	 (or (looking-at "\\(if\\|for\\)\\_>")
+	     (and (looking-at "while\\_>") ; Ensure this isn't a do-while.
+                 (not (eq (c-beginning-of-statement-1 do-lim)
+                          'beginning)))))))))
 
 (defun c-awk-after-function-decl-param-list ()
   ;; Are we just after the ) in "function foo (bar)" ?
@@ -360,9 +358,10 @@
            (when par-pos
              (goto-char par-pos)        ; back over "(...)"
              (c-backward-token-1)       ; BOB isn't a problem
-             (and (looking-at "[_a-zA-Z][_a-zA-Z0-9]*\\>")
+	     (and (looking-at "[_a-zA-Z][_a-zA-Z0-9]*\\_>"
+			      )
                   (progn (c-backward-token-1)
-                         (looking-at "func\\(tion\\)?\\>"))))))))
+			 (looking-at "func\\(tion\\)?\\_>"))))))))
 
 ;; 2002/11/8:  FIXME!  Check c-backward-token-1/2 for success (0 return code).
 (defun c-awk-after-continue-token ()
@@ -374,7 +373,7 @@
     (c-backward-token-1)              ; FIXME 2002/10/27.  What if this fails?
     (if (and (looking-at "[&|]") (not (bobp)))
         (backward-char)) ; c-backward-token-1 doesn't do this :-(
-    (looking-at "[,{?:]\\|&&\\|||\\|do\\>\\|else\\>")))
+    (looking-at "[,{?:]\\|&&\\|||\\|do\\_>\\|else\\_>")))
 
 (defun c-awk-after-rbrace-or-statement-semicolon ()
   ;; Are we just after a } or a ; which closes a statement?
@@ -390,7 +389,7 @@
              (goto-char par-pos) ; go back to containing (
              (not (and (looking-at "(")
                        (c-backward-token-1) ; BOB isn't a problem
-                       (looking-at "for\\>")))))))))
+		       (looking-at "for\\_>")))))))))
 
 (defun c-awk-back-to-contentful-text-or-NL-prop ()
   ;;  Move back to just after the first found of either (i) an EOL which has
@@ -962,9 +961,9 @@
 ;; in XEmacs 21.4.4.  acm 2002/9/19.
 (defconst awk-font-lock-keywords
   (eval-when-compile
-    (list
-     ;; Function declarations.
-     `(,(c-make-font-lock-search-function
+    `(
+      ;; Function declarations.
+      (,(c-make-font-lock-search-function
 	 "^\\s *\\(func\\(tion\\)?\\)\\s +\\(\\(\\sw+\\(::\\sw+\\)?\\)\\s *\\)?\\(([^()]*)\\)?"
 	 '(1 'font-lock-keyword-face t)
 	 ;; We can't use LAXMATCH in `c-make-font-lock-search-function', so....
@@ -982,18 +981,19 @@
 				       'font-lock-warning-face)))
 	     nil))))
 
-     ;; Variable names.
-     (cons
-      (concat "\\<"
-	      (regexp-opt
-	       '("ARGC" "ARGIND" "ARGV" "BINMODE" "CONVFMT" "ENVIRON"
-		 "ERRNO" "FIELDWIDTHS" "FILENAME" "FNR" "FPAT" "FS" "FUNCTAB"
-		 "IGNORECASE" "LINT" "NF" "NR" "OFMT" "OFS" "ORS" "PREC"
-		 "PROCINFO" "RLENGTH" "ROUNDMODE" "RS" "RSTART" "RT" "SUBSEP"
-		 "SYMTAB" "TEXTDOMAIN") t) "\\>")
-      'font-lock-variable-name-face)
 
-     ;; Special file names.  (acm, 2002/7/22)
+     ;; Variable names.
+     ,(cons
+	(regexp-opt
+	 '("ARGC" "ARGIND" "ARGV" "BINMODE" "CONVFMT" "ENVIRON"
+	   "ERRNO" "FIELDWIDTHS" "FILENAME" "FNR" "FPAT" "FS" "FUNCTAB"
+	   "IGNORECASE" "LINT" "NF" "NR" "OFMT" "OFS" "ORS" "PREC"
+	   "PROCINFO" "RLENGTH" "ROUNDMODE" "RS" "RSTART" "RT" "SUBSEP"
+	   "SYNTAB" "TEXTDOMAIN")
+	 'symbols)
+        'font-lock-variable-name-face)
+
+      ;; Special file names.  (acm, 2002/7/22)
      ;; The following regexp was created by first evaluating this in GNU Emacs 21.1:
      ;; (regexp-opt '("/dev/stdin" "/dev/stdout" "/dev/stderr" "/dev/fd/n" "/dev/pid"
      ;;                 "/dev/ppid" "/dev/pgrpid" "/dev/user") 'words)
@@ -1003,8 +1003,8 @@
      ;; regexp so that a " must come before, and either a " or heuristic stuff after.
      ;; The surrounding quotes are fontified along with the filename, since, semantically,
      ;; they are an indivisible unit.
-     '("\\(\"/dev/\\(fd/[0-9]+\\|p\\(\\(\\(gr\\)?p\\)?id\\)\\|\
-std\\(err\\|in\\|out\\)\\|user\\)\\)\\>\
+     ("\\(\"/dev/\\(fd/[0-9]+\\|p\\(\\(\\(gr\\)?p\\)?id\\)\\|\
+std\\(err\\|in\\|out\\)\\|user\\)\\)\\_>\
 \\(\\(\"\\)\\|\\([^\"/\n\r][^\"\n\r]*\\)?$\\)"
        (1 font-lock-variable-name-face t)
        (8 font-lock-variable-name-face t t))
@@ -1015,62 +1015,59 @@ std\\(err\\|in\\|out\\)\\|user\\)\\)\\>\
      ;; , replacing "lport", "rhost", and "rport" with "[[:alnum:]]+".
      ;; This cannot be combined with the above pattern, because the match number
      ;; for the (optional) closing \" would then exceed 9.
-     '("\\(\"/inet[46]?/\\(\\(raw\\|\\(tc\\|ud\\)p\\)/[[:alnum:]]+/[[:alnum:]]+/[[:alnum:]]+\\)\\)\\>\
+     ("\\(\"/inet[46]?/\\(\\(raw\\|\\(tc\\|ud\\)p\\)/[[:alnum:]]+/[[:alnum:]]+/[[:alnum:]]+\\)\\)\\_>\
 \\(\\(\"\\)\\|\\([^\"/\n\r][^\"\n\r]*\\)?$\\)"
        (1 font-lock-variable-name-face t)
        (6 font-lock-variable-name-face t t))
 
      ;; Keywords.
-     (concat "\\<"
-	     (regexp-opt
-	      '("BEGIN" "BEGINFILE" "END" "ENDFILE"
-		"break" "case" "continue" "default" "delete"
-		"do" "else" "exit" "for" "getline" "if" "in" "next"
-		"nextfile" "return" "switch" "while")
-	      t) "\\>")
+     ,(regexp-opt
+       '("BEGIN" "BEGINFILE" "END" "ENDFILE"
+	 "break" "case" "continue" "default" "delete"
+	 "do" "else" "exit" "for" "getline" "if" "in" "next"
+	 "nextfile" "return" "switch" "while")
+       'symbols)
 
      ;; Builtins.
-     `(eval . (list
-	       ,(concat
-		 "\\<"
-		 (regexp-opt
-		  '("adump" "and" "asort" "asorti" "atan2" "bindtextdomain" "close"
-		    "compl" "cos" "dcgettext" "dcngettext" "exp" "extension" "fflush"
-		    "gensub" "gsub" "index" "int" "isarray" "length" "log" "lshift"
-		    "match" "mkbool" "mktime" "or" "patsplit" "print" "printf" "rand"
-		    "rshift" "sin" "split" "sprintf" "sqrt" "srand" "stopme"
-		    "strftime" "strtonum" "sub" "substr"  "system"
-		    "systime" "tolower" "toupper" "typeof" "xor")
-		  t)
-		 "\\>")
+     (eval . (list
+	      ,(regexp-opt
+		'("adump" "and" "asort" "asorti" "atan2" "bindtextdomain" "close"
+		  "compl" "cos" "dcgettext" "dcngettext" "exp" "extension" "fflush"
+		  "gensub" "gsub" "index" "int" "isarray" "length" "log" "lshift"
+		  "match" "mkbool" "mktime" "or" "patsplit" "print" "printf" "rand"
+		  "rshift" "sin" "split" "sprintf" "sqrt" "srand" "stopme"
+		  "strftime" "strtonum" "sub" "substr"  "system"
+		  "systime" "tolower" "toupper" "typeof" "xor")
+		'symbols)
 	       0 c-preprocessor-face-name))
 
-     ;; Directives
-     `(eval . '("@\\(include\\|load\\|namespace\\)\\>" 0 ,c-preprocessor-face-name))
+      ;; Directives
+      (eval . '("@\\(include\\|load\\|namespace\\)\\_>" 0 ,c-preprocessor-face-name))
 
-     ;; gawk debugging keywords.  (acm, 2002/7/21)
-     ;; (Removed, 2003/6/6.  These functions are now fontified as built-ins)
-     ;;	(list (concat "\\<" (regexp-opt '("adump" "stopme") t) "\\>")
-     ;;	   0 'font-lock-warning-face)
+      ;; gawk debugging keywords.  (acm, 2002/7/21)
+      ;; (Removed, 2003/6/6.  These functions are now fontified as built-ins)
+      ;;	(list (concat "\\<" (regexp-opt '("adump" "stopme") t) "\\>")
+      ;;	   0 'font-lock-warning-face)
 
-     ;; User defined functions with an apparent spurious space before the
-     ;; opening parenthesis.  acm, 2002/5/30.
-     `(,(concat "\\(\\w\\|_\\)" c-awk-escaped-nls* "\\s "
+      ;; User defined functions with an apparent spurious space before the
+      ;; opening parenthesis.  acm, 2002/5/30.
+      (,(concat "\\(\\w\\|_\\)" c-awk-escaped-nls* "\\s "
 		c-awk-escaped-nls*-with-space* "(")
        (0 'font-lock-warning-face))
 
-     ;; Double :: tokens, or the same with space(s) around them.
-     #'c-awk-font-lock-invalid-namespace-separators
+      ;; Double :: tokens, or the same with space(s) around them.
+      c-awk-font-lock-invalid-namespace-separators
 
-     ;; Space after \ in what looks like an escaped newline.  2002/5/31
-     '("\\\\\\s +$" 0 font-lock-warning-face t)
+      ;; Space after \ in what looks like an escaped newline.  2002/5/31
+      ("\\\\\\s +$" 0 font-lock-warning-face t)
 
-     ;; Unbalanced string (") or regexp (/) delimiters.  2002/02/16.
-     '("\\s|" 0 font-lock-warning-face t nil)
-     ;; gawk 3.1 localizable strings ( _"translate me!").  2002/5/21
-     '("\\(_\\)\\s|" 1 font-lock-warning-face)
-     '("\\(_\\)\\s\"" 1 font-lock-string-face) ; FIXME! not for XEmacs. 2002/10/6
-     ))
+      ;; Unbalanced string (") or regexp (/) delimiters.  2002/02/16.
+      ("\\s|" 0 font-lock-warning-face t nil)
+      ;; gawk 3.1 localizable strings ( _"translate me!").  2002/5/21
+      ("\\(_\\)\\s|" 1 font-lock-warning-face)
+      ,@(unless (featurep 'xemacs)
+	  '(("\\(_\\)\\s\"" 1 font-lock-string-face)))
+      ))
   "Default expressions to highlight in AWK mode.")
 
 ;; ACM 2002/9/29.  Movement functions, e.g. for C-M-a and C-M-e

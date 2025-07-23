@@ -24,14 +24,14 @@
 
 ;;; Tree-sitter language versions
 ;;
-;; c-ts-mode is known to work with the following languages and version:
+;; c-ts-mode has been tested with the following grammars and version:
 ;; - tree-sitter-c: v0.23.4-1-g3aa2995
 ;;
-;; c++-ts-mode is known to work with the following languages and version:
+;; c++-ts-mode has been tested with the following grammars and version:
 ;; - tree-sitter-cpp: v0.23.4-1-gf41b4f6
 ;;
 ;; We try our best to make builtin modes work with latest grammar
-;; versions, so a more recent grammar version has a good chance to work.
+;; versions, so a more recent grammar has a good chance to work too.
 ;; Send us a bug report if it doesn't.
 
 ;;; Commentary:
@@ -85,6 +85,22 @@
 (require 'c-ts-common)
 (eval-when-compile (require 'rx))
 (treesit-declare-unavailable-functions)
+
+(add-to-list
+ 'treesit-language-source-alist
+ '(c "https://github.com/tree-sitter/tree-sitter-c"
+     :commit "3aa2995549d5d8b26928e8d3fa2770fd4327414e")
+ t)
+(add-to-list
+ 'treesit-language-source-alist
+ '(cpp "https://github.com/tree-sitter/tree-sitter-cpp"
+       :commit "f41b4f66a42100be405f96bdc4ebc4a61095d3e8")
+ t)
+(add-to-list
+ 'treesit-language-source-alist
+ '(doxygen "https://github.com/tree-sitter-grammars/tree-sitter-doxygen"
+           :commit "1e28054cb5be80d5febac082706225e42eff14e6")
+ t)
 
 ;;; Custom variables
 
@@ -147,10 +163,10 @@ This function takes no arguments and is expected to return a list of
 indent RULEs as described in `treesit-simple-indent-rules'.  Note that
 the list of RULEs doesn't need to contain the language symbol."
   :version "29.1"
-  :type '(choice (symbol :tag "Gnu" gnu)
-                 (symbol :tag "K&R" k&r)
-                 (symbol :tag "Linux" linux)
-                 (symbol :tag "BSD" bsd)
+  :type '(choice (const :tag "Gnu" gnu)
+                 (const :tag "K&R" k&r)
+                 (const :tag "Linux" linux)
+                 (const :tag "BSD" bsd)
                  (function :tag "A function for user customized style" ignore))
   :set #'c-ts-mode--indent-style-setter
   :safe 'c-ts-indent-style-safep
@@ -186,7 +202,7 @@ To set the default indent style globally, use
           (if (functionp style)
               (funcall style)
             (c-ts-mode--simple-indent-rules
-             (if (derived-mode-p 'c-ts-mode) 'c 'c++)
+             (if (derived-mode-p 'c-ts-mode) 'c 'cpp)
              style)))))
 
 (defcustom c-ts-mode-emacs-sources-support t
@@ -661,9 +677,7 @@ MODE should be either `c' or `cpp'."
       (mapcan
        (lambda (entry)
          (let ((keywords (cdr entry)))
-           (if (ignore-errors
-                 (treesit-query-compile 'c `([,@keywords] @cap) t)
-                 t)
+           (if (treesit-query-valid-p 'c `([,@keywords] @cap))
                (copy-sequence keywords)
              nil)))
        c-ts-mode--optional-c-keywords)
@@ -1041,17 +1055,16 @@ Return nil if NODE is not a defun node or doesn't have a name."
 
 (defun c-ts-mode--outline-predicate (node)
   "Match outlines on lines with function names."
-  (or (when-let* ((decl (treesit-node-child-by-field-name
-                         (treesit-node-parent node) "declarator"))
-                  (node-pos (treesit-node-start node))
-                  (decl-pos (treesit-node-start decl))
-                  (eol (save-excursion (goto-char node-pos) (line-end-position))))
-        (and (equal (treesit-node-type decl) "function_declarator")
-             (<= node-pos decl-pos)
-             (< decl-pos eol)))
+  (or (and (equal (treesit-node-type node) "function_declarator")
+           ;; Handle the case when "function_definition" is
+           ;; not an immediate parent of "function_declarator"
+           ;; but there is e.g. "pointer_declarator" between them.
+           (treesit-parent-until node "function_definition"))
       ;; DEFUNs in Emacs sources.
       (and c-ts-mode-emacs-sources-support
-           (c-ts-mode--emacs-defun-p node))))
+           (c-ts-mode--emacs-defun-p node))
+      (member (treesit-node-type node) '("namespace_definition"
+                                         "class_specifier"))))
 
 ;;; Defun navigation
 
@@ -1195,7 +1208,11 @@ if `c-ts-mode-emacs-sources-support' is non-nil."
 (defvar c-ts-mode--thing-settings
   `(;; It's more useful to include semicolons as sexp so
     ;; that users can move to the end of a statement.
-    (sexp (not ,(rx (or "{" "}" "[" "]" "(" ")" ","))))
+    (sexp (not (or (and named
+                        ,(rx bos (or "translation_unit" "comment") eos))
+                   (and anonymous
+                        ,(rx (or "{" "}" "[" "]"
+                                 "(" ")" ","))))))
     (list
      ,(regexp-opt '("preproc_params"
                     "preproc_if"
@@ -1457,7 +1474,7 @@ in your init files."
   :group 'c
   :after-hook (c-ts-mode-set-modeline)
 
-  (when (treesit-ready-p 'c)
+  (when (treesit-ensure-installed 'c)
     ;; Create an "for-each" parser, see `c-ts-mode--emacs-set-ranges'
     ;; for more.
     (when c-ts-mode-emacs-sources-support
@@ -1470,8 +1487,10 @@ in your init files."
       (setq-local comment-end " */")
       ;; Indent.
       (setq-local treesit-simple-indent-rules
-                  (c-ts-mode--simple-indent-rules
-                   'c c-ts-mode-indent-style))
+                  (if (functionp c-ts-mode-indent-style)
+                      (funcall c-ts-mode-indent-style)
+                    (c-ts-mode--simple-indent-rules
+                     'c c-ts-mode-indent-style)))
       ;; (setq-local treesit-simple-indent-rules
       ;;             `((c . ,(alist-get 'gnu (c-ts-mode--indent-styles 'c)))))
       ;; Font-lock.
@@ -1489,25 +1508,25 @@ in your init files."
         (setq-local treesit-range-settings
                     (treesit-range-rules 'c-ts-mode--emacs-set-ranges))
 
-        (setq-local treesit-language-at-point-function
-                    (lambda (_pos) 'c))
         (treesit-font-lock-recompute-features '(emacs-devel)))
 
       ;; Inject doxygen parser for comment.
-      (when (and c-ts-mode-enable-doxygen (treesit-ready-p 'doxygen t))
+      (when (and c-ts-mode-enable-doxygen
+                 (treesit-ensure-installed 'doxygen))
         (setq-local treesit-primary-parser primary-parser)
         (setq-local treesit-font-lock-settings
                     (append
                      treesit-font-lock-settings
                      c-ts-mode-doxygen-comment-font-lock-settings))
         (setq-local treesit-range-settings
-                    (treesit-range-rules
-                     :embed 'doxygen
-                     :host 'c
-                     :local t
-                     `(((comment) @cap
-                        (:match
-                         ,c-ts-mode--doxygen-comment-regex @cap)))))))))
+                    (append treesit-range-settings
+                            (treesit-range-rules
+                             :embed 'doxygen
+                             :host 'c
+                             :local t
+                             `(((comment) @cap
+                                (:match
+                                 ,c-ts-mode--doxygen-comment-regex @cap))))))))))
 
 (derived-mode-add-parents 'c-ts-mode '(c-mode))
 
@@ -1534,7 +1553,7 @@ recommended to enable `electric-pair-mode' with this mode."
   :group 'c++
   :after-hook (c-ts-mode-set-modeline)
 
-  (when (treesit-ready-p 'cpp)
+  (when (treesit-ensure-installed 'cpp)
     (let ((primary-parser (treesit-parser-create 'cpp)))
 
       ;; Syntax.
@@ -1543,8 +1562,10 @@ recommended to enable `electric-pair-mode' with this mode."
 
       ;; Indent.
       (setq-local treesit-simple-indent-rules
-                  (c-ts-mode--simple-indent-rules
-                   'cpp c-ts-mode-indent-style))
+                  (if (functionp c-ts-mode-indent-style)
+                      (funcall c-ts-mode-indent-style)
+                    (c-ts-mode--simple-indent-rules
+                     'cpp c-ts-mode-indent-style)))
 
       ;; Font-lock.
       (setq-local treesit-font-lock-settings
@@ -1556,7 +1577,8 @@ recommended to enable `electric-pair-mode' with this mode."
                     #'c-ts-mode--emacs-current-defun-name))
 
       ;; Inject doxygen parser for comment.
-      (when (and c-ts-mode-enable-doxygen (treesit-ready-p 'doxygen t))
+      (when (and c-ts-mode-enable-doxygen
+                 (treesit-ensure-installed 'doxygen))
         (setq-local treesit-primary-parser primary-parser)
         (setq-local treesit-font-lock-settings
                     (append
@@ -1603,7 +1625,7 @@ recommended to enable `electric-pair-mode' with this mode."
     "--"
     ("Toggle..."
      ["Subword Mode" subword-mode
-      :style toggle :selected subword-mode
+      :style toggle :selected (bound-and-true-p subword-mode)
       :help "Toggle subword movement and editing mode"])))
 
 ;; We could alternatively use parsers, but if this works well, I don't
@@ -1668,9 +1690,6 @@ the code is C or C++, and based on that chooses whether to enable
   (setq major-mode-remap-defaults
         (assq-delete-all 'c-or-c++-mode major-mode-remap-defaults))
   (add-to-list 'major-mode-remap-defaults '(c-or-c++-mode . c-or-c++-ts-mode)))
-
-(when (and c-ts-mode-enable-doxygen (not (treesit-ready-p 'doxygen t)))
-  (message "Doxygen syntax highlighting can't be enabled, please install the language grammar."))
 
 (provide 'c-ts-mode)
 (provide 'c++-ts-mode)

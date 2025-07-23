@@ -551,12 +551,14 @@ see its function help for a description of the format."
                 (tramp-login-args (("exec")
                                    ("-it")
                                    ("-u" "%u")
+				   ("-e" ,(format "TERM=%s" tramp-terminal-type))
                                    ("%h")
 			           ("%l")))
 		(tramp-direct-async (,tramp-default-remote-shell "-c"))
                 (tramp-remote-shell ,tramp-default-remote-shell)
                 (tramp-remote-shell-login ("-l"))
-                (tramp-remote-shell-args ("-i" "-c"))))
+                (tramp-remote-shell-args ("-i" "-c"))
+		(tramp-completion-use-cache nil)))
 
  (add-to-list 'tramp-methods
               `(,tramp-dockercp-method
@@ -564,6 +566,7 @@ see its function help for a description of the format."
                 (tramp-login-args (("exec")
                                    ("-it")
                                    ("-u" "%u")
+				   ("-e" ,(format "TERM=%s" tramp-terminal-type))
                                    ("%h")
 			           ("%l")))
 		(tramp-direct-async (,tramp-default-remote-shell "-c"))
@@ -573,7 +576,8 @@ see its function help for a description of the format."
 		(tramp-copy-program ,tramp-docker-program)
 		(tramp-copy-args (("cp")))
 		(tramp-copy-file-name (("%h" ":") ("%f")))
-                (tramp-copy-recursive t)))
+                (tramp-copy-recursive t)
+		(tramp-completion-use-cache nil)))
 
  (add-to-list 'tramp-methods
               `(,tramp-podman-method
@@ -581,12 +585,14 @@ see its function help for a description of the format."
                 (tramp-login-args (("exec")
                                    ("-it")
                                    ("-u" "%u")
+				   ("-e" ,(format "TERM=%s" tramp-terminal-type))
                                    ("%h")
 			           ("%l")))
 		(tramp-direct-async (,tramp-default-remote-shell "-c"))
                 (tramp-remote-shell ,tramp-default-remote-shell)
                 (tramp-remote-shell-login ("-l"))
-                (tramp-remote-shell-args ("-i" "-c"))))
+                (tramp-remote-shell-args ("-i" "-c"))
+		(tramp-completion-use-cache nil)))
 
  (add-to-list 'tramp-methods
               `(,tramp-podmancp-method
@@ -594,6 +600,7 @@ see its function help for a description of the format."
                 (tramp-login-args (("exec")
                                    ("-it")
                                    ("-u" "%u")
+				   ("-e" ,(format "TERM=%s" tramp-terminal-type))
                                    ("%h")
 			           ("%l")))
 		(tramp-direct-async (,tramp-default-remote-shell "-c"))
@@ -603,7 +610,8 @@ see its function help for a description of the format."
 		(tramp-copy-program ,tramp-podman-program)
 		(tramp-copy-args (("cp")))
 		(tramp-copy-file-name (("%h" ":") ("%f")))
-                (tramp-copy-recursive t)))
+                (tramp-copy-recursive t)
+		(tramp-completion-use-cache nil)))
 
  (add-to-list 'tramp-methods
               `(,tramp-kubernetes-method
@@ -618,7 +626,8 @@ see its function help for a description of the format."
 		(tramp-direct-async (,tramp-default-remote-shell "-c"))
                 (tramp-remote-shell ,tramp-default-remote-shell)
                 (tramp-remote-shell-login ("-l"))
-                (tramp-remote-shell-args ("-i" "-c"))))
+                (tramp-remote-shell-args ("-i" "-c"))
+		(tramp-completion-use-cache nil)))
 
  (add-to-list 'tramp-completion-multi-hop-methods tramp-docker-method)
  (add-to-list 'tramp-completion-multi-hop-methods tramp-podman-method)
@@ -674,7 +683,8 @@ see its function help for a description of the format."
 		 (tramp-direct-async (,tramp-default-remote-shell "-c"))
 		 (tramp-remote-shell ,tramp-default-remote-shell)
 		 (tramp-remote-shell-login ("-l"))
-		 (tramp-remote-shell-args ("-c"))))
+		 (tramp-remote-shell-args ("-c"))
+		 (tramp-completion-use-cache nil)))
 
   (add-to-list 'tramp-default-host-alist `(,tramp-toolbox-method nil ""))
   (add-to-list 'tramp-completion-multi-hop-methods tramp-toolbox-method)
@@ -695,7 +705,8 @@ see its function help for a description of the format."
 		 ;(tramp-direct-async (,tramp-default-remote-shell "-c"))
 		 (tramp-remote-shell ,tramp-default-remote-shell)
 		 (tramp-remote-shell-login ("-l"))
-		 (tramp-remote-shell-args ("-c"))))
+		 (tramp-remote-shell-args ("-c"))
+		 (tramp-completion-use-cache nil)))
 
   (add-to-list 'tramp-completion-multi-hop-methods tramp-distrobox-method)
 
@@ -719,7 +730,8 @@ see its function help for a description of the format."
 		 (tramp-direct-async (,tramp-default-remote-shell "-c"))
 		 (tramp-remote-shell ,tramp-default-remote-shell)
 		 (tramp-remote-shell-login ("-l"))
-		 (tramp-remote-shell-args ("-c"))))
+		 (tramp-remote-shell-args ("-c"))
+		 (tramp-completion-use-cache nil)))
 
   (add-to-list 'tramp-completion-multi-hop-methods tramp-flatpak-method)
 
@@ -746,11 +758,14 @@ see its function help for a description of the format."
 	       `(,tramp-apptainer-method
 		 (tramp-login-program ,tramp-apptainer-program)
 		 (tramp-login-args (("shell")
+				    ("--env"
+				     ,(format "TERM=%s" tramp-terminal-type))
 				    ("instance://%h")
 				    ("%h"))) ; Needed for multi-hop check.
 		 (tramp-remote-shell ,tramp-default-remote-shell)
 		 (tramp-remote-shell-login ("-l"))
-		 (tramp-remote-shell-args ("-c"))))
+		 (tramp-remote-shell-args ("-c"))
+		 (tramp-completion-use-cache nil)))
 
   (add-to-list 'tramp-completion-multi-hop-methods tramp-apptainer-method)
 
@@ -768,10 +783,13 @@ see its function help for a description of the format."
 		 (tramp-login-args (("shell")
 				    ("-q")
 				    ("--uid" "%u")
+				    ("-E"
+				     ,(format "TERM=%s" tramp-terminal-type))
 				    ("%h")))
 		 (tramp-remote-shell ,tramp-default-remote-shell)
 		 (tramp-remote-shell-login ("-l"))
-		 (tramp-remote-shell-args ("-i" "-c"))))
+		 (tramp-remote-shell-args ("-i" "-c"))
+		 (tramp-completion-use-cache nil)))
 
   (add-to-list 'tramp-default-host-alist `(,tramp-nspawn-method nil ".host"))
   (add-to-list 'tramp-completion-multi-hop-methods tramp-nspawn-method)

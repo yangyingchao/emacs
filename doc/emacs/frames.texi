@@ -469,15 +469,15 @@ frame is created on the current display terminal.
 buffer to select:
 
 @table @kbd
-@item C-x 5 2
 @kindex C-x 5 2
 @findex make-frame-command
+@item C-x 5 2
 Create a new frame using the default frame parameters
 (@code{make-frame-command}).
 
-@item C-x 5 c
 @kindex C-x 5 c
 @findex clone-frame
+@item C-x 5 c
 Create a new frame using the window configuration and frame parameters
 of the current frame (@code{clone-frame}).
 
@@ -503,18 +503,20 @@ Find the definition of an identifier in another frame.  This runs
 @code{xref-find-definitions-other-frame}, the multiple-frame variant
 of @kbd{M-.}.  @xref{Xref}.
 
-@item C-x 5 r @var{filename} @key{RET}
 @kindex C-x 5 r
 @findex find-file-read-only-other-frame
+@item C-x 5 r @var{filename} @key{RET}
 Visit file @var{filename} read-only, and select its buffer in another
 frame.  This runs @code{find-file-read-only-other-frame}.
 @xref{Visiting}.
 
+@kindex C-x 5 5
+@findex other-frame-prefix
 @item C-x 5 5
-A more general prefix command that affects the buffer displayed by the
-next command invoked immediately after this prefix command
-(@code{other-frame-prefix}).  It requests the buffer of the next
-command to be displayed in another frame.
+A more general prefix command that affects the buffer displayed by a
+subsequent command invoked after this prefix command
+(@code{other-frame-prefix}).  It requests the buffer to be displayed by
+a subsequent command to be shown in another frame.
 @end table
 
   You can control the appearance and behavior of the newly-created
@@ -964,6 +966,9 @@ select.  For example, in Rmail mode, the speedbar shows a list of Rmail
 files, and lets you move the current message to another Rmail file by
 clicking on its @samp{<M>} box.
 
+The speedbar can optionally be displayed as a window rather than a
+separate frame, in both terminal and graphics mode.
+
   For more details on using and programming the speedbar, @xref{Top,
 Speedbar,,speedbar, Speedbar Manual}.
 
@@ -1233,7 +1238,7 @@ or bottom of the window during drag.
   Emacs can also optionally drag the region with the mouse into
 another portion of this or another buffer.  To enable that, customize
 the variable @code{mouse-drag-and-drop-region} to a non-@code{nil}
-value.  Normally, the text is moved, i.e. cut and pasted, when the
+value.  Normally, the text is moved, i.e.@: cut and pasted, when the
 destination is the same buffer as the origin; dropping the region on
 another buffer copies the text instead.  If the value of this variable
 names a modifier key, such as @samp{shift}, @samp{control} or
@@ -1296,7 +1301,7 @@ menus' visual appearance.
 @section Tool Bars
 @cindex tool bar mode
 @cindex tool bar, attached to frame
-@cindex mode, Tool Bar
+@cindex mode, tool bar
 @cindex icons, toolbar
 
   On graphical displays, Emacs puts a @dfn{tool bar} at the top of each
@@ -1320,14 +1325,14 @@ control the use of tool bars at startup, customize the variable
 @code{tool-bar-mode}.
 
 @vindex tool-bar-style
-@cindex Tool Bar style
+@cindex tool bar style
   When Emacs is compiled with GTK+ support, each tool bar item can
 consist of an image, or a text label, or both.  By default, Emacs
 follows the Gnome desktop's tool bar style setting; if none is
 defined, it displays tool bar items as just images.  To impose a
 specific tool bar style, customize the variable @code{tool-bar-style}.
 
-@cindex Tool Bar position
+@cindex tool bar position
   You can also control the placement of the tool bar for the GTK+ tool
 bar with the frame parameter @code{tool-bar-position}.  @xref{Frame
 Parameters,,, elisp, The Emacs Lisp Reference Manual}.
@@ -1343,15 +1348,18 @@ displayed by moving the mouse pointer to the top of the screen.
 @cindex displaying modifier keys in the tool bar
 @cindex mode, Modifier Bar
 @cindex Modifier Bar
-  Keyboards often lack one or more of the modifier keys that Emacs
-might want to use, making it difficult or impossible to input key
-sequences that contain them.  Emacs can optionally display a list of
-buttons that act as substitutes for modifier keys within the tool bar;
-these buttons are also referred to as the ``modifier bar''.  Clicking
-an icon within the modifier bar will cause a modifier key to be
-applied to the next keyboard event that is read.  The modifier bar is
-displayed when the global minor mode @code{modifier-bar-mode} is
-enabled; to do so, type @kbd{M-x modifier-bar-mode}.
+  Keyboards often lack one or more of the modifier keys (@pxref{Modifier
+Keys}) that Emacs users might want to use, making it difficult or
+impossible to input key sequences with these modifiers.  For example,
+many keyboards lack the Hyper and Super modifiers, and smartphones
+usually also lack Ctrl and Alt modifiers.  Emacs can optionally display
+a tool bar of buttons that can substitute the modifier keys; this
+additional tool bar is known as the @dfn{modifier bar}.  Clicking a
+button within the modifier bar will cause the modifier key shown on the
+button to be applied to the next keyboard event that Emacs reads.  The
+modifier bar is displayed when the global minor mode
+@code{modifier-bar-mode} is enabled; to do so, type @kbd{M-x
+modifier-bar-mode}.
 
 @node Tab Bars
 @section Tab Bars

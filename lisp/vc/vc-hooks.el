@@ -121,12 +121,14 @@ An empty list disables VC altogether."
 ;; Note: we don't actually have a darcs back end yet.  Also, Arch and
 ;; Repo are unsupported, and the Meta-CVS back end has been removed.
 ;; The Arch back end will be retrieved and fixed if it is ever required.
-(defcustom vc-directory-exclusion-list (purecopy '("SCCS" "RCS" "CVS" "MCVS"
+(defcustom vc-directory-exclusion-list '("SCCS" "RCS" "CVS" "MCVS"
 					 ".src" ".svn" ".git" ".hg" ".bzr"
-                                         "_MTN" "_darcs" "{arch}" ".repo"))
+                                         "_MTN" "_darcs" "{arch}" ".repo"
+                                         ".jj")
   "List of directory names to be ignored when walking directory trees."
   :type '(repeat string)
-  :group 'vc)
+  :group 'vc
+  :version "31.1")
 
 (defcustom vc-make-backup-files nil
   "If non-nil, backups of registered files are made as with other files.
@@ -166,6 +168,21 @@ revision number and lock status."
   :type 'boolean
   :group 'vc)
 
+(defcustom vc-resolve-conflicts t
+  "Whether to mark conflicted file as resolved upon saving.
+
+If this is non-nil and there are no more conflict markers in the file,
+VC will mark the conflicts in the saved file as resolved.  This is
+only meaningful for VCS that handle conflicts by inserting conflict
+markers in a conflicted file.
+
+When saving a conflicted file, VC first tries to use the value
+of `vc-BACKEND-resolve-conflicts', for handling backend-specific
+settings.  It defaults to this option if that option has the special
+value `default'."
+  :type 'boolean
+  :version "31.1")
+
 ;;; This is handled specially now.
 ;; Tell Emacs about this new kind of minor mode
 ;; (add-to-list 'minor-mode-alist '(vc-mode vc-mode))
@@ -188,6 +205,20 @@ control of one of the revision control systems in `vc-handled-backends'.
 VC commands are globally reachable under the prefix \\[vc-prefix-map]:
 \\{vc-prefix-map}"
   nil)
+
+(defvar auto-revert-mode)
+(define-globalized-minor-mode vc-auto-revert-mode auto-revert-mode
+  vc-turn-on-auto-revert-mode-for-tracked-files
+  :group 'vc
+  :version "31.1")
+
+(defun vc-turn-on-auto-revert-mode-for-tracked-files ()
+  "Turn on Auto Revert mode in buffers visiting VCS-tracked files."
+  ;; This should turn on Auto Revert mode whenever `vc-mode' is non-nil.
+  ;; We can't just check that variable directly because `vc-mode-line'
+  ;; may not have been called yet.
+  (when (vc-backend buffer-file-name)
+    (auto-revert-mode 1)))
 
 (defmacro vc-error-occurred (&rest body)
   `(condition-case nil (progn ,@body nil) (error t)))
@@ -253,7 +284,7 @@ and else calls
 
     (apply #\\='vc-default-FUN BACKEND ARGS)
 
-It is usually called via the `vc-call' macro."
+See also the `vc-call' macro."
   (let ((f (assoc function-name (get backend 'vc-functions))))
     (if f (setq f (cdr f))
       (setq f (vc-find-backend-function backend function-name))
@@ -293,7 +324,7 @@ non-nil if FILE exists and its contents were successfully inserted."
       (let ((filepos 0))
         (while
 	    (and (< 0 (cadr (insert-file-contents
-			     file nil filepos (cl-incf filepos blocksize))))
+                             file nil filepos (incf filepos blocksize))))
 		 (progn (beginning-of-line)
                         (let ((pos (re-search-forward limit nil 'move)))
                           (when pos (delete-region (match-beginning 0)
@@ -360,7 +391,10 @@ backend is tried first."
 
 (defun vc-backend (file-or-list)
   "Return the version control type of FILE-OR-LIST, nil if it's not registered.
-If the argument is a list, the files must all have the same back end."
+If the argument is a list, the files must all have the same back end.
+
+This function returns cached information.  To query the VCS regarding
+whether FILE-OR-LIST is registered or unregistered, use `vc-registered'."
   ;; `file' can be nil in several places (typically due to the use of
   ;; code like (vc-backend buffer-file-name)).
   (cond ((stringp file-or-list)
@@ -683,7 +717,7 @@ Before doing that, check if there are any old backups and get rid of them."
       (vc-dir-resynch-file file))))
 
 (defvar vc-menu-entry
-  `(menu-item ,(purecopy "Version Control") vc-menu-map
+  '(menu-item "Version Control" vc-menu-map
     :filter vc-menu-map-filter))
 
 (when (boundp 'menu-bar-tools-menu)
@@ -692,10 +726,8 @@ Before doing that, check if there are any old backups and get rid of them."
   ;; and this will simply use it.
   (define-key menu-bar-tools-menu [vc] vc-menu-entry))
 
-(defconst vc-mode-line-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map [mode-line down-mouse-1] vc-menu-entry)
-    map))
+(defvar-keymap vc-mode-line-map
+  "<mode-line> <down-mouse-1>" vc-menu-entry)
 
 (defun vc-mode-line (file &optional backend)
   "Set `vc-mode' to display type of version control for FILE.
@@ -936,80 +968,109 @@ In the latter case, VC mode is deactivated for this buffer."
 (fset 'vc-prefix-map vc-prefix-map)
 (define-key ctl-x-map "v" 'vc-prefix-map)
 
+(defvar-keymap vc-incoming-prefix-map
+  "L" #'vc-log-incoming
+  "D" #'vc-root-diff-incoming)
+(defvar-keymap vc-outgoing-prefix-map
+  "L" #'vc-log-outgoing
+  "D" #'vc-root-diff-outgoing)
+
+(defcustom vc-use-incoming-outgoing-prefixes nil
+  "Whether \\`C-x v I' and \\`C-x v O' are prefix commands.
+Historically Emacs bound \\`C-x v I' and \\`C-x v O' directly to
+commands.  That is still the default.  If this option is customized to
+non-nil, these key sequences becomes prefix commands.  `vc-log-incoming'
+moves to \\`C-x v I L', `vc-log-outgoing' moves to \\`C-x v O L', and
+other commands receive global bindings where they had none before."
+  :type 'boolean
+  :version "31.1"
+  :set (lambda (symbol value)
+         (let ((maps (list vc-prefix-map)))
+           (when (boundp 'vc-dir-mode-map)
+             (push vc-dir-mode-map maps))
+           (if value
+               (dolist (map maps)
+                 (keymap-set map "I" vc-incoming-prefix-map)
+                 (keymap-set map "O" vc-outgoing-prefix-map))
+             (dolist (map maps)
+               (keymap-set map "I" #'vc-log-incoming)
+               (keymap-set map "O" #'vc-log-outgoing))))
+         (set-default symbol value)))
+
 (defvar vc-menu-map
   (let ((map (make-sparse-keymap "Version Control")))
     ;;(define-key map [show-files]
     ;;  '("Show Files under VC" . (vc-directory t)))
-    (bindings--define-key map [vc-retrieve-tag]
+    (define-key map [vc-retrieve-tag]
       '(menu-item "Retrieve Tag" vc-retrieve-tag
 		  :help "Retrieve tagged version or branch"))
-    (bindings--define-key map [vc-create-tag]
+    (define-key map [vc-create-tag]
       '(menu-item "Create Tag" vc-create-tag
 		  :help "Create version tag"))
-    (bindings--define-key map [vc-print-branch-log]
+    (define-key map [vc-print-branch-log]
       '(menu-item "Show Branch History..." vc-print-branch-log
 		  :help "List the change log for another branch"))
-    (bindings--define-key map [vc-switch-branch]
+    (define-key map [vc-switch-branch]
       '(menu-item "Switch Branch..." vc-switch-branch
 		  :help "Switch to another branch"))
-    (bindings--define-key map [vc-create-branch]
+    (define-key map [vc-create-branch]
       '(menu-item "Create Branch..." vc-create-branch
 		  :help "Make a new branch"))
-    (bindings--define-key map [separator1] menu-bar-separator)
-    (bindings--define-key map [vc-annotate]
+    (define-key map [separator1] menu-bar-separator)
+    (define-key map [vc-annotate]
       '(menu-item "Annotate" vc-annotate
 		  :help "Display the edit history of the current file using colors"))
-    (bindings--define-key map [vc-rename-file]
+    (define-key map [vc-rename-file]
       '(menu-item "Rename File" vc-rename-file
 		  :help "Rename file"))
-    (bindings--define-key map [vc-revision-other-window]
+    (define-key map [vc-revision-other-window]
       '(menu-item "Show Other Version" vc-revision-other-window
 		  :help "Visit another version of the current file in another window"))
-    (bindings--define-key map [vc-diff]
+    (define-key map [vc-diff]
       '(menu-item "Compare with Base Version" vc-diff
 		  :help "Compare file set with the base version"))
-    (bindings--define-key map [vc-root-diff]
+    (define-key map [vc-root-diff]
       '(menu-item "Compare Tree with Base Version" vc-root-diff
 		  :help "Compare current tree with the base version"))
-    (bindings--define-key map [vc-update-change-log]
+    (define-key map [vc-update-change-log]
       '(menu-item "Update ChangeLog" vc-update-change-log
 		  :help "Find change log file and add entries from recent version control logs"))
-    (bindings--define-key map [vc-log-out]
+    (define-key map [vc-log-out]
       '(menu-item "Show Outgoing Log" vc-log-outgoing
 		  :help "Show a log of changes that will be sent with a push operation"))
-    (bindings--define-key map [vc-log-in]
+    (define-key map [vc-log-in]
       '(menu-item "Show Incoming Log" vc-log-incoming
 		  :help "Show a log of changes that will be received with a pull operation"))
-    (bindings--define-key map [vc-print-log]
+    (define-key map [vc-print-log]
       '(menu-item "Show History" vc-print-log
 		  :help "List the change log of the current file set in a window"))
-    (bindings--define-key map [vc-print-root-log]
+    (define-key map [vc-print-root-log]
       '(menu-item "Show Top of the Tree History " vc-print-root-log
 		  :help "List the change log for the current tree in a window"))
-    (bindings--define-key map [separator2] menu-bar-separator)
-    (bindings--define-key map [vc-insert-header]
+    (define-key map [separator2] menu-bar-separator)
+    (define-key map [vc-insert-header]
       '(menu-item "Insert Header" vc-insert-headers
 		  :help "Insert headers into a file for use with a version control system."))
-    (bindings--define-key map [vc-revert]
+    (define-key map [vc-revert]
       '(menu-item "Revert to Base Version" vc-revert
 		  :help "Revert working copies of the selected file set to their repository contents"))
     ;; TODO Only :enable if (vc-find-backend-function backend 'push)
-    (bindings--define-key map [vc-push]
+    (define-key map [vc-push]
       '(menu-item "Push Changes" vc-push
 		  :help "Push the current branch's changes"))
-    (bindings--define-key map [vc-update]
+    (define-key map [vc-update]
       '(menu-item "Update to Latest Version" vc-update
 		  :help "Update the current fileset's files to their tip revisions"))
-    (bindings--define-key map [vc-next-action]
+    (define-key map [vc-next-action]
       '(menu-item "Check In/Out" vc-next-action
 		  :help "Do the next logical version control operation on the current fileset"))
-    (bindings--define-key map [vc-register]
+    (define-key map [vc-register]
       '(menu-item "Register" vc-register
 		  :help "Register file set into a version control system"))
-    (bindings--define-key map [vc-ignore]
+    (define-key map [vc-ignore]
       '(menu-item "Ignore File..." vc-ignore
 		  :help "Ignore a file under current version control system"))
-    (bindings--define-key map [vc-dir-root]
+    (define-key map [vc-dir-root]
       '(menu-item "VC Dir"  vc-dir-root
                   :help "Show the VC status of the repository"))
     map))

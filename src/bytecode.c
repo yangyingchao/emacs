@@ -27,7 +27,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "keyboard.h"
 #include "syntax.h"
 #include "window.h"
-#include "puresize.h"
 
 /* Define BYTE_CODE_SAFE true to enable some minor sanity checking,
    useful for debugging the byte compiler.  It defaults to false.  */
@@ -698,10 +697,7 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 	  {
 	    Lisp_Object sym = vectorp[op];
 	    Lisp_Object val = POP;
-
-	    /* Inline the most common case.  */
-	    if (!BASE_EQ (val, Qunbound)
-		&& XBARE_SYMBOL (sym)->u.s.redirect == SYMBOL_PLAINVAL
+	    if (XBARE_SYMBOL (sym)->u.s.redirect == SYMBOL_PLAINVAL
 		&& !XBARE_SYMBOL (sym)->u.s.trapped_write)
 	      SET_SYMBOL_VAL (XBARE_SYMBOL (sym), val);
 	    else
@@ -1639,7 +1635,6 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 		record_in_backtrace (Qsetcar, &TOP, 2);
 		wrong_type_argument (Qconsp, cell);
 	      }
-	    CHECK_IMPURE (cell, XCONS (cell));
 	    XSETCAR (cell, newval);
 	    TOP = newval;
 	    NEXT;
@@ -1654,7 +1649,6 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
 		record_in_backtrace (Qsetcdr, &TOP, 2);
 		wrong_type_argument (Qconsp, cell);
 	      }
-	    CHECK_IMPURE (cell, XCONS (cell));
 	    XSETCDR (cell, newval);
 	    TOP = newval;
 	    NEXT;
@@ -1766,7 +1760,7 @@ exec_byte_code (Lisp_Object fun, ptrdiff_t args_template,
               }
             else
 	      {
-		ptrdiff_t i = hash_lookup (h, v1);
+		ptrdiff_t i = hash_find (h, v1);
 		if (i >= 0)
 		  {
 		    op = XFIXNUM (HASH_VALUE (h, i));

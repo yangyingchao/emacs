@@ -50,6 +50,11 @@ import android.view.WindowInsetsController;
 
 import android.widget.FrameLayout;
 
+import android.window.BackEvent;
+import android.window.OnBackAnimationCallback;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
+
 public class EmacsActivity extends Activity
   implements EmacsWindowManager.WindowConsumer,
   ViewTreeObserver.OnGlobalLayoutListener
@@ -179,6 +184,8 @@ public class EmacsActivity extends Activity
   public final void
   attachWindow (EmacsWindow child)
   {
+    FrameLayout.LayoutParams defaultParams;
+
     if (window != null)
       throw new IllegalStateException ("trying to attach window when one"
 				       + " already exists");
@@ -187,8 +194,15 @@ public class EmacsActivity extends Activity
 
     /* Record and attach the view.  */
 
+    /* Reset residual LayoutParams that might remain in effect on this
+       window, or some distributions of Android (e.g. Huawei HarmonyOS
+       4.2) will retain the size of this window as a child frame.  */
+    defaultParams
+      = new FrameLayout.LayoutParams (FrameLayout.LayoutParams.MATCH_PARENT,
+				      FrameLayout.LayoutParams.MATCH_PARENT);
+    syncFullscreenWith (child);
     window = child;
-    layout.addView (window.view);
+    layout.addView (window.view, defaultParams);
     child.setConsumer (this);
 
     /* If the window isn't no-focus-on-map, focus its view.  */
@@ -243,6 +257,59 @@ public class EmacsActivity extends Activity
     return window;
   }
 
+  private void
+  interceptBackGesture ()
+  {
+    OnBackInvokedDispatcher dispatcher;
+    int priority = OnBackInvokedDispatcher.PRIORITY_DEFAULT;
+    OnBackInvokedCallback callback;
+
+    dispatcher = getOnBackInvokedDispatcher ();
+    callback = new OnBackAnimationCallback () {
+	@Override
+	public void
+	onBackInvoked ()
+	{
+	  View view = EmacsActivity.this.getCurrentFocus ();
+	  EmacsWindow window;
+
+	  if (view instanceof EmacsView)
+	    {
+	      window = ((EmacsView) view).window;
+	      window.onBackInvoked ();
+	    }
+	}
+
+	/* The three functions are overridden to prevent a misleading
+	   back animation from being displayed, as Emacs intercepts all
+	   back gestures and will not return to the home screen.  */
+
+	@Override
+	public void
+	onBackCancelled ()
+	{
+
+	}
+
+	@Override
+	public void
+	onBackProgressed (BackEvent gestureEvent)
+	{
+
+	}
+
+	@Override
+	public void
+	onBackStarted (BackEvent gestureEvent)
+	{
+
+	}
+    };
+    dispatcher.registerOnBackInvokedCallback (priority, callback);
+  }
+
+
+
   @Override
   public void
   onCreate (Bundle savedInstanceState)
@@ -276,6 +343,11 @@ public class EmacsActivity extends Activity
        behavior.  */
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM)
       layout.setFitsSystemWindows (true);
+
+    /* Android 16 replaces KEYCODE_BACK with a callback registered at
+       the window level.  */
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA)
+      interceptBackGesture ();
 
     /* Maybe start the Emacs service if necessary.  */
     EmacsService.startEmacsService (this);

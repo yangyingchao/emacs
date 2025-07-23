@@ -184,8 +184,8 @@ this is exactly representable and is greater than
     (let ((i 0))
       (dolist (n (nreverse nibbles))
         (dotimes (_ 4)
-          (aset bv i (> (logand 1 n) 0))
-          (cl-incf i)
+          (aset bv i (oddp n))
+          (incf i)
           (setf n (ash n -1)))))
     bv))
 
@@ -354,6 +354,19 @@ comparing the subr with a much slower Lisp implementation."
       (setq-default binding-test-some-local 'new-default))
     (should (eq binding-test-some-local 'some))))
 
+(defvar c-e-x)
+(ert-deftest binding-test-defvar-in-let ()
+  "Test some core Elisp rules."
+  (with-temp-buffer
+    ;; Check that when defvar is run within a let-binding, the toplevel default
+    ;; is properly initialized.
+    (should (equal (list (let ((c-e-x 1)) (defvar c-e-x 2) c-e-x) c-e-x)
+                   '(1 2)))
+    (should (equal (list (let ((c-e-x 1))
+                           (defcustom c-e-x 2 "doc" :group 'blah :type 'integer) c-e-x)
+                         c-e-x)
+                   '(1 2)))))
+
 (ert-deftest data-tests--let-buffer-local ()
   (let ((blvar (make-symbol "blvar")))
     (set-default blvar nil)
@@ -395,6 +408,38 @@ comparing the subr with a much slower Lisp implementation."
             (should (equal (symbol-value var) 123))
             (should (equal (default-value var) def)))
           )))))
+
+(defvar-local c-e-l 'foo)
+(ert-deftest binding-test-toplevel-values ()
+  (setq-default c-e-l 'foo)
+  (let ((c-e-l 'bar))
+    (let ((c-e-l 'baz))
+      (setq-default c-e-l 'bar)
+      (should (eq c-e-l 'bar))
+      (should (eq (default-toplevel-value 'c-e-l) 'foo))
+      (set-default-toplevel-value 'c-e-l 'baz)
+      (should (eq c-e-l 'bar))
+      (should (eq (default-toplevel-value 'c-e-l) 'baz))))
+  (let ((c-e-u 'foo))
+    (ignore c-e-u)   ; hush unused-variable warning
+    (should (condition-case _
+                (default-toplevel-value 'c-e-u)
+              (void-variable t))))
+  (with-temp-buffer
+    (setq-local c-e-l 'bar)
+    (should (eq (buffer-local-toplevel-value 'c-e-l) 'bar))
+    (let ((c-e-l 'baz))
+      (let ((c-e-l 'quux))
+        (setq-local c-e-l 'baz)
+        (should (eq c-e-l 'baz))
+        (should (eq (buffer-local-toplevel-value 'c-e-l) 'bar))
+        (set-buffer-local-toplevel-value 'c-e-l 'foo)
+        (should (eq c-e-l 'baz))
+        (should (eq (buffer-local-toplevel-value 'c-e-l) 'foo)))))
+  (with-temp-buffer
+    (should (condition-case _
+                (buffer-local-toplevel-value 'c-e-l)
+              (void-variable t)))))
 
 (ert-deftest binding-test-makunbound ()
   "Tests of makunbound, from the manual."

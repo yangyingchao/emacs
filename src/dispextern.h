@@ -3482,13 +3482,16 @@ enum tool_bar_item_image
    capabilities being queried for when calling `tty_capable_p' (which
    returns true if the terminal supports all of them).  */
 
-#define TTY_CAP_INVERSE		0x01
-#define TTY_CAP_UNDERLINE	0x02
-#define TTY_CAP_BOLD		0x04
-#define TTY_CAP_DIM		0x08
-#define TTY_CAP_ITALIC  	0x10
-#define TTY_CAP_STRIKE_THROUGH	0x20
-#define TTY_CAP_UNDERLINE_STYLED	(0x32 & TTY_CAP_UNDERLINE)
+enum
+{
+  TTY_CAP_INVERSE = 1 << 1,
+  TTY_CAP_UNDERLINE = 1 << 2,
+  TTY_CAP_BOLD = 1 << 3,
+  TTY_CAP_DIM = 1 << 4,
+  TTY_CAP_ITALIC = 1 << 5,
+  TTY_CAP_STRIKE_THROUGH = 1 << 6,
+  TTY_CAP_UNDERLINE_STYLED = 1 << 7
+};
 
 
 /***********************************************************************
@@ -3556,6 +3559,7 @@ int partial_line_height (struct it *it_origin);
 bool in_display_vector_p (struct it *);
 int frame_mode_line_height (struct frame *);
 extern bool redisplaying_p;
+extern unsigned int redisplay_counter;
 extern bool display_working_on_window_p;
 extern void unwind_display_working_on_window (void);
 extern bool help_echo_showing_p;
@@ -3953,10 +3957,13 @@ Lisp_Object frames_in_reverse_z_order (struct frame *f, bool visible);
 bool is_tty_frame (struct frame *f);
 bool is_tty_child_frame (struct frame *f);
 bool is_tty_root_frame (struct frame *f);
+bool is_tty_root_frame_with_visible_child (struct frame *f);
 void combine_updates (Lisp_Object root_frames);
 void combine_updates_for_frame (struct frame *f, bool inhibit_id_p);
 void tty_raise_lower_frame (struct frame *f, bool raise);
 int max_child_z_order (struct frame *parent);
+void root_xy (struct frame *f, int x, int y, int *rx, int *ry);
+void child_xy (struct frame *f, int x, int y, int *cx, int *cy);
 
 INLINE_HEADER_END
 

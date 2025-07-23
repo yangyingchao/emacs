@@ -165,9 +165,7 @@ maybe_disable_address_randomization (int argc, char **argv)
 
   if (argc < 2 || strcmp (argv[1], aslr_disabled_option) != 0)
     {
-      /* If dumping via unexec, ASLR must be disabled, as otherwise
-	 data may be scattered and undumpable as a simple executable.
-	 If pdumping, disabling ASLR lessens differences in the .pdmp file.  */
+      /* If pdumping, disabling ASLR lessens differences in the .pdmp file.  */
       bool disable_aslr = will_dump_p ();
 # ifdef __PPC64__
       disable_aslr = true;
@@ -289,11 +287,7 @@ get_current_dir_name_or_unreachable (void)
 #endif
 
 # if HAVE_GET_CURRENT_DIR_NAME && !BROKEN_GET_CURRENT_DIR_NAME
-#  ifdef HYBRID_MALLOC
-  bool use_libc = will_dump_with_unexec_p ();
-#  else
   bool use_libc = true;
-#  endif
   if (use_libc)
     {
       /* For an unreachable directory, this returns a string that starts
@@ -2036,12 +2030,6 @@ init_signals (void)
   main_thread_id = pthread_self ();
 #endif
 
-  /* Don't alter signal handlers if dumping with unexec.  On some
-     machines, changing signal handlers sets static data that would make
-     signals fail to work right when the dumped Emacs is run.  */
-  if (will_dump_with_unexec_p ())
-    return;
-
   sigfillset (&process_fatal_action.sa_mask);
   process_fatal_action.sa_handler = deliver_fatal_signal;
   process_fatal_action.sa_flags = emacs_sigaction_flags ();
@@ -2726,17 +2714,6 @@ emacs_fchmodat (int fd, const char *path, mode_t mode, int flags)
 #endif /* !(defined HAVE_ANDROID && !defined ANDROID_STUBIFY) */
 }
 
-/* Maximum number of bytes to read or write in a single system call.
-   This works around a serious bug in Linux kernels before 2.6.16; see
-   <https://bugzilla.redhat.com/show_bug.cgi?format=multiple&id=612839>.
-   It's likely to work around similar bugs in other operating systems, so do it
-   on all platforms.  Round INT_MAX down to a page size, with the conservative
-   assumption that page sizes are at most 2**18 bytes (any kernel with a
-   page size larger than that shouldn't have the bug).  */
-#ifndef MAX_RW_COUNT
-#define MAX_RW_COUNT (INT_MAX >> 18 << 18)
-#endif
-
 /* Verify that MAX_RW_COUNT fits in the relevant standard types.  */
 #ifndef SSIZE_MAX
 # define SSIZE_MAX TYPE_MAXIMUM (ssize_t)
@@ -2866,8 +2843,7 @@ emacs_perror (char const *message)
 {
   int err = errno;
   char const *error_string = emacs_strerror (err);
-  char const *command = (initial_argv && initial_argv[0]
-			 ? initial_argv[0] : "emacs");
+  char const *command = (initial_argv0 ? initial_argv0 : "emacs");
   /* Write it out all at once, if it's short; this is less likely to
      be interleaved with other output.  */
   char buf[min (PIPE_BUF, MAX_ALLOCA)];
@@ -3466,37 +3442,19 @@ put_jiffies (Lisp_Object attrs, Lisp_Object propname,
   return Fcons (Fcons (propname, time_from_jiffies (ticks, hz, Qnil)), attrs);
 }
 
+/* Return the host uptime with resolution HZ if successful, otherwise nil.
+   Do not use get_boot_time, which returns a container's
+   boot time instead of the underlying host's boot time.  */
 static Lisp_Object
-get_up_time (void)
+get_host_uptime (Lisp_Object hz)
 {
-  FILE *fup;
-  Lisp_Object up = Qnil;
-
-  block_input ();
-  fup = emacs_fopen ("/proc/uptime", "r");
-
-  if (fup)
-    {
-      unsigned long long upsec;
-      EMACS_UINT upfrac;
-      int upfrac_start, upfrac_end;
-
-      if (fscanf (fup, "%llu.%n%"pI"u%n",
-		  &upsec, &upfrac_start, &upfrac, &upfrac_end)
-	  == 2)
-	{
-	  EMACS_INT hz = 1;
-	  for (int i = upfrac_start; i < upfrac_end; i++)
-	    hz *= 10;
-	  Lisp_Object sec = make_uint (upsec);
-	  Lisp_Object subsec = Fcons (make_fixnum (upfrac), make_fixnum (hz));
-	  up = Ftime_add (sec, subsec);
-	}
-      emacs_fclose (fup);
-    }
-  unblock_input ();
-
-  return up;
+  /* clock_gettime is available in glibc 2.14+, Android, and musl libc.  */
+# if !defined __GLIBC__ || 2 < __GLIBC__ + (14 <= __GLIBC_MINOR__)
+  struct timespec upt;
+  if (0 <= clock_gettime (CLOCK_BOOTTIME, &upt))
+    return Ftime_convert (timespec_to_lisp (upt), hz);
+#endif
+  return Qnil;
 }
 
 # if defined GNU_LINUX || defined __ANDROID__
@@ -3715,7 +3673,7 @@ system_process_attributes (Lisp_Object pid)
 	      attrs = put_jiffies (attrs, Qcstime, cstime, hz);
 	      attrs = put_jiffies (attrs, Qctime, cstime + cutime, hz);
 
-	      Lisp_Object uptime = get_up_time ();
+	      Lisp_Object uptime = get_host_uptime (hz);
 	      if (!NILP (uptime))
 		{
 		  Lisp_Object now = Ftime_convert (Qnil, hz);

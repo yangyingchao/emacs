@@ -24,8 +24,11 @@
 (require 'ert)
 (require 'repeat)
 
-;; Key mnemonics: a - Activate (enter, also b, s), c - Continue (also d, t),
-;;                o - continue-Only (not activate, also u), q - Quit (exit)
+;; Key mnemonics: a - activate (enter, also b, s),
+;;                c - continue (also d, t, also o, u),
+;;                e - continue-only (not activate),
+;;                g - global continue,
+;;                q - quit (exit)
 
 (defvar repeat-tests-calls nil)
 
@@ -44,6 +47,14 @@
 (defun repeat-tests-call-d (&optional arg)
   (interactive "p")
   (push `(,arg d) repeat-tests-calls))
+
+(defun repeat-tests-call-e (&optional arg)
+  (interactive "p")
+  (push `(,arg e) repeat-tests-calls))
+
+(defun repeat-tests-call-g (&optional arg)
+  (interactive "p")
+  (push `(,arg g) repeat-tests-calls))
 
 (defun repeat-tests-call-o (&optional arg)
   (interactive "p")
@@ -71,6 +82,8 @@
   "C-x w a" 'repeat-tests-call-a
   "C-M-a"   'repeat-tests-call-a
   "C-M-b"   'repeat-tests-call-b
+  "C-M-e"   'repeat-tests-call-e
+  "C-M-g"   'repeat-tests-call-g
   "C-M-o"   'repeat-tests-call-o
   "C-M-s"   'repeat-tests-call-s
   "C-M-u"   'repeat-tests-call-u)
@@ -78,8 +91,11 @@
 (defvar-keymap repeat-tests-another-repeat-map
   :doc "Keymap for repeating other sequences."
   :repeat ( :enter    (repeat-tests-call-s)
-            :continue (repeat-tests-call-o
-                       repeat-tests-call-u))
+            :continue (repeat-tests-call-e
+                       repeat-tests-call-o
+                       repeat-tests-call-u)
+            :hints    ((repeat-tests-call-t . "test")
+                       (repeat-tests-call-o . "another test")))
   "s"     'ignore ;; for non-nil repeat-check-key only
   "t"     'repeat-tests-call-t
   "C-M-o" 'repeat-tests-call-o
@@ -88,7 +104,8 @@
 (defvar-keymap repeat-tests-repeat-map
   :doc "Keymap for repeating sequences."
   :repeat ( :enter    (repeat-tests-call-a)
-            :continue (repeat-tests-call-o)
+            :continue (repeat-tests-call-e
+                       repeat-tests-call-o)
             :exit     (repeat-tests-call-q))
   "a"     'ignore ;; for non-nil repeat-check-key only
   "c"     'repeat-tests-call-c
@@ -98,6 +115,8 @@
 
 ;; Test using a variable instead of the symbol:
 (put 'repeat-tests-call-b 'repeat-map repeat-tests-repeat-map)
+
+(put 'repeat-tests-call-g 'repeat-continue t)
 
 (defmacro with-repeat-mode (map &rest body)
   "Create environment for testing `repeat-mode'."
@@ -206,14 +225,22 @@
   (with-repeat-mode repeat-tests-global-map
     (let ((repeat-echo-function 'ignore)
           (repeat-check-key nil))
-      ;; 'C-M-o' used as continue
+      ;; Global 'C-M-g' used as continue
       (repeat-tests--check
-       "C-M-a c C-M-o c z"
-       '((1 a) (1 c) (1 o) (1 c)) "z")
-      ;; 'C-M-o' should not activate
+       "C-M-a c C-M-g c z"
+       '((1 a) (1 c) (1 g) (1 c)) "z")
+      ;; 'C-M-e' and 'C-M-o' used as continue
+      (repeat-tests--check
+       "C-M-a c C-M-e C-M-o c z"
+       '((1 a) (1 c) (1 e) (1 o) (1 c)) "z")
+      ;; 'C-M-e' should not activate
+      (repeat-tests--check
+       "C-M-e c z"
+       '((1 e)) "cz")
+      ;; 'C-M-o' should also activate
       (repeat-tests--check
        "C-M-o c z"
-       '((1 o)) "cz"))))
+       '((1 o) (1 c)) "z"))))
 
 (ert-deftest repeat-tests-continue-another ()
   (with-repeat-mode repeat-tests-global-map
@@ -223,14 +250,18 @@
       (repeat-tests--check
        "C-M-s t t z"
        '((1 s) (1 t) (1 t)) "z")
-      ;; 'C-M-u' used as continue
+      ;; 'C-M-e' and 'C-M-u' used as continue
       (repeat-tests--check
-       "C-M-s t C-M-u t z"
-       '((1 s) (1 t) (1 u) (1 t)) "z")
-      ;; 'C-M-u' should not activate
+       "C-M-s t C-M-e C-M-u t z"
+       '((1 s) (1 t) (1 e) (1 u) (1 t)) "z")
+      ;; 'C-M-e' should not activate
+      (repeat-tests--check
+       "C-M-e t z"
+       '((1 e)) "tz")
+      ;; 'C-M-u' should also activate
       (repeat-tests--check
        "C-M-u t z"
-       '((1 u)) "tz")
+       '((1 u) (1 t)) "z")
       ;; 'C-M-o' shared with another map should continue current map
       (repeat-tests--check
        "C-M-s t C-M-o C-M-o t z"
@@ -238,6 +269,20 @@
       (repeat-tests--check
        "C-M-a c C-M-o C-M-o c z"
        '((1 a) (1 c) (1 o) (1 o) (1 c)) "z"))))
+
+(ert-deftest repeat-tests-hints ()
+  (with-repeat-mode repeat-tests-global-map
+    (let ((repeat-echo-function 'ignore)
+          (repeat-check-key nil))
+      (execute-kbd-macro (kbd "C-M-s"))
+      (should (equal (repeat-echo-message-string (repeat-get-map repeat-in-progress))
+                     #("Repeat with s, [T]est, C-M-o (an[O]ther test), C-M-u"
+                       12 13
+                       (face read-multiple-choice-face)
+                       23 28
+                       (face read-multiple-choice-face)
+                       47 52
+                       (face read-multiple-choice-face)))))))
 
 
 (require 'use-package)
@@ -269,7 +314,7 @@
    ("C-M-a" . repeat-tests-bind-call-a)
    ("C-M-o" . repeat-tests-bind-call-o)
    :repeat-map repeat-tests-bind-keys-repeat-map
-   :continue
+   :continue-only
    ("c"     . repeat-tests-bind-call-c)
    ;; :continue
    ("C-M-o" . repeat-tests-bind-call-o)
@@ -287,9 +332,9 @@
        "C-M-a c C-M-o c z"
        '((1 a) (1 c) (1 o) (1 c)) "z")
       ;; 'C-M-o' should not activate
-      ;; (repeat-tests--check
-      ;;  "C-M-o c z"
-      ;;  '((1 o)) "cz")
+      (repeat-tests--check
+       "C-M-o c z"
+       '((1 o)) "cz")
       ;; 'q' should exit
       (repeat-tests--check
        "C-M-a c q c"

@@ -2,7 +2,7 @@
 
 ;; Copyright (C) 1997-2025 Free Software Foundation, Inc.
 
-;; Author: Carsten Dominik <dominik@science.uva.nl>
+;; Author: Carsten Dominik <carsten.dominik@gmail.com>
 ;; Maintainer: auctex-devel@gnu.org
 
 ;; This file is part of GNU Emacs.
@@ -98,6 +98,12 @@ During a selection process, these are the local bindings.
 
 \\{reftex-select-label-mode-map}"
   (setq-local reftex-select-marked nil)
+  (setq truncate-lines t)
+  (setq mode-line-format
+        (list "----  " 'mode-line-buffer-identification
+              "  " 'global-mode-string "   (" mode-name ")"
+              "  S<" 'reftex-refstyle ">"
+              " -%-"))
   (when (syntax-table-p reftex-latex-syntax-table)
     (set-syntax-table reftex-latex-syntax-table))
   ;; We do not set a local map - reftex-select-item does this.
@@ -234,7 +240,7 @@ During a selection process, these are the local bindings.
             reftex-active-toc nil
             master-dir-re
             (concat "\\`" (regexp-quote
-                           (file-name-directory (reftex-TeX-master-file))))))
+                           (reftex--get-directory (reftex-TeX-master-file))))))
 
     (setq-local reftex-docstruct-symbol docstruct-symbol)
     (setq-local reftex-prefix
@@ -244,7 +250,7 @@ During a selection process, these are the local bindings.
     ;; Walk the docstruct and insert the appropriate stuff
     (while (setq cell (pop all))
 
-      (cl-incf index)
+      (incf index)
       (setq from (point))
 
       (cond
@@ -314,7 +320,7 @@ During a selection process, these are the local bindings.
                    (or show-commented (null comment)))
 
           ;; Yes we want this one
-          (cl-incf cnt)
+          (incf cnt)
           (setq prev-inserted cell)
 ;         (if (eq offset 'attention) (setq offset cell))
 
@@ -705,8 +711,8 @@ Cycle in reverse order if optional argument REVERSE is non-nil."
             (setq sep (nth 2 c))
             (overlay-put (nth 1 c) 'before-string
                          (if sep
-                             (format "*%c%d* " sep (cl-decf cnt))
-                           (format "*%d*  " (cl-decf cnt)))))
+                             (format "*%c%d* " sep (decf cnt))
+                           (format "*%d*  " (decf cnt)))))
           reftex-select-marked)
     (message "Entry no longer marked")))
 

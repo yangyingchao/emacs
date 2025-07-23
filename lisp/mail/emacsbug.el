@@ -36,6 +36,7 @@
 
 (require 'sendmail)
 (require 'message)
+(require 'lisp-mnt)
 
 (defgroup emacsbug nil
   "Sending Emacs bug reports."
@@ -423,6 +424,20 @@ copy text to your preferred mail program.\n"
 	    system-configuration-options "'\n\n")
     (fill-region (line-beginning-position -1) (point))))
 
+(defun report-emacs-bug-check-org ()
+  "Warn the user if the bug report mentions org-mode."
+  (unless report-emacs-bug-no-confirmation
+    (goto-char (point-max))
+    (skip-chars-backward " \t\n")
+    (let* ((text (buffer-substring-no-properties (point-min) (point)))
+           (l (length report-emacs-bug-orig-text))
+           (text (substring text 0 l))
+           (org-regex "\\b[Oo]rg\\(-mode\\)?\\b"))
+      (when (string-match-p org-regex text)
+        (when (yes-or-no-p "Is this bug about org-mode?")
+          (error (substitute-command-keys "\
+Not sending, use \\[org-submit-bug-report] to report an Org-mode bug.")))))))
+
 (defun report-emacs-bug-hook ()
   "Do some checking before sending a bug report."
   (goto-char (point-max))
@@ -492,10 +507,15 @@ and send the mail again%s."
           (goto-char (point-min))
           (re-search-forward "^From: " nil t)
 	  (error "Please edit the From address and try again"))))
+  (report-emacs-bug-check-org)
   ;; Bury the help buffer (if it's shown).
   (when-let* ((help (get-buffer "*Bug Help*")))
     (when (get-buffer-window help)
       (quit-window nil (get-buffer-window help)))))
+
+(defconst submit-emacs-patch-excluded-maintainers
+  '("emacs-devel@gnu.org")
+  "List of maintainer addresses for `submit-emacs-patch' to ignore.")
 
 ;;;###autoload
 (defun submit-emacs-patch (subject file)
@@ -533,7 +553,34 @@ Message buffer where you can explain more about the patch."
     (button-mode 1))
   (compose-mail-other-window report-emacs-bug-address subject)
   (rfc822-goto-eoh)
-  (insert "X-Debbugs-Cc: \n")
+  (insert "X-Debbugs-Cc: ")
+  (let ((maint (let (files)
+                 (with-temp-buffer
+                   (insert-file-contents file)
+                   (while (search-forward-regexp "^\\+\\{3\\} ./\\(.*\\)" nil t)
+                     (let ((file (expand-file-name
+                                  (match-string-no-properties 1)
+                                  source-directory)))
+                       (when (file-readable-p file)
+                         (push file files)))))
+                 (mapcan
+                  (lambda (patch)
+                    (seq-remove
+                     (pcase-lambda (`(,_name . ,addr))
+                       (member addr submit-emacs-patch-excluded-maintainers))
+                     ;; TODO: Consult admin/MAINTAINERS for additional
+                     ;; information.  This either requires some
+                     ;; heuristics to parse the existing file or to
+                     ;; adjust the file format to make it more machine
+                     ;; readable (bug#69646).
+                     (lm-maintainers patch)))
+                  files))))
+    (when maint
+      (insert (mapconcat
+               (pcase-lambda (`(,name . ,addr))
+                 (format "%s <%s>" name addr))
+               maint ", "))))
+  (insert "\n")
   (message-goto-body)
   (insert "\n\n\n")
   (emacs-build-description)

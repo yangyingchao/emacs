@@ -71,9 +71,9 @@ Lisp syntax."
           (const :tag "Emacs<29 algorithm, fast and good enough" pp-28)
           (const :tag "Work hard for code (slow on large inputs)"
                  pp-emacs-lisp-code)
-          (const :tag "`pp-emacs-lisp-code' if `pp-use-max-width' else `pp-28'"
+          (const :tag "Work hard for code if `pp-use-max-width' non-nil, else as in Emacs<29"
                  pp-29)
-          function)
+          (function :tag "Custom function"))
   :version "30.1")
 
 (defvar pp--inhibit-function-formatting nil)
@@ -123,7 +123,7 @@ and should pretty print it at point into the current buffer."
 
 (defun pp-29 (beg-or-sexp &optional end) ;FIXME: Better name?
   "Prettify the current region with printed representation of a Lisp object.
-Uses the pretty-printing algorithm that was standard in Emacs-29,
+Uses the pretty-printing algorithm that was standard in Emacs 29,
 which, depending on `pp-use-max-width', will either use `pp-28'
 or `pp-emacs-lisp-code'."
   (if pp-use-max-width
@@ -208,7 +208,14 @@ it inserts and pretty-prints that arg at point."
                       (while
                           (progn
                             (funcall avoid-unbreakable)
-                            (not (zerop (skip-chars-backward " \t({[',.")))))
+                            (let ((pos (point)))
+                              (skip-chars-backward " \t({[',.")
+                              (while (and (memq (char-after) '(?\. ?\{))
+                                          (not (memq (char-before)
+                                                     '(nil ?\n ?\) \" ?\]))))
+                                ;; `.' and `{' within symbols?  (Bug#76715)
+                                (forward-char 1))
+                              (not (eql pos (point))))))
                       (if (bolp)
                           ;; The sexp already starts on its own line.
                           (progn (goto-char beg) nil)
@@ -271,7 +278,7 @@ it inserts and pretty-prints that arg at point."
 
 (defun pp-28 (beg &optional end)        ;FIXME: Better name?
   "Prettify the current region with printed representation of a Lisp object.
-Uses the pretty-printing algorithm that was standard before Emacs-30.
+Uses the pretty-printing algorithm that was standard before Emacs 30.
 Non-interactively can also be called with a single argument, in which
 case that argument will be inserted pretty-printed at point."
   (interactive "r")
@@ -577,7 +584,7 @@ the bounds of a region containing Lisp code to pretty-print."
     (insert ")")))
 
 (defun pp--format-definition (sexp indent edebug)
-  (while (and (cl-plusp indent)
+  (while (and (plusp indent)
               sexp)
     (insert " ")
     ;; We don't understand all the edebug specs.
@@ -592,7 +599,7 @@ the bounds of a region containing Lisp code to pretty-print."
         (pp--insert-lisp (car sexp)))
       (pop sexp))
     (pop edebug)
-    (cl-decf indent))
+    (decf indent))
   (when (stringp (car sexp))
     (insert "\n")
     (prin1 (pop sexp) (current-buffer)))

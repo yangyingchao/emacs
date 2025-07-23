@@ -72,7 +72,7 @@
 ;; M-x browse-url
 
 ;; To display a URL by shift-clicking on it, put this in your init file:
-;;      (global-set-key [S-mouse-2] 'browse-url-at-mouse)
+;;      (keymap-global-set "S-<mouse-2>" 'browse-url-at-mouse)
 ;; (Note that using Shift-mouse-1 is not desirable because
 ;; that event has a standard meaning in Emacs.)
 
@@ -713,8 +713,7 @@ This function returns a list (URL NEW-WINDOW-FLAG) for use in
 `interactive'.  NEW-WINDOW-FLAG is the prefix arg; if
 `browse-url-new-window-flag' is non-nil, invert the prefix arg
 instead."
-  (let ((event (elt (this-command-keys) 0)))
-    (mouse-set-point event))
+  (mouse-set-point last-nonmenu-event)
   (list (read-string prompt (or (and transient-mark-mode mark-active
 				     ;; rfc2396 Appendix E.
 				     (replace-regexp-in-string
@@ -738,6 +737,7 @@ instead."
 (defmacro browse-url--temp-file-setup (&rest body)
   (declare (indent defun))
   `(progn
+     (add-hook 'write-file-functions #'browse-url-delete-temp-file nil t)
      (add-hook 'kill-buffer-hook #'browse-url-delete-temp-file nil t)
      (with-file-modes #o600
        ,@body)))
@@ -759,11 +759,11 @@ interactively.  Turn the filename into a URL with function
 	  (cond ((not (buffer-modified-p)))
 		(browse-url-save-file (save-buffer))
 		(t (message "%s modified since last save" file))))))
-  (when (and (file-remote-p file)
-             (not browse-url-temp-file-name))
+  (when (file-remote-p file)
     (browse-url--temp-file-setup
-      (setq browse-url-temp-file-name (file-local-copy file)
-            file browse-url-temp-file-name)))
+      (unless browse-url-temp-file-name
+        (setq browse-url-temp-file-name (file-local-copy file)))
+      (setq file browse-url-temp-file-name)))
   (browse-url (browse-url-file-url file))
   (run-hooks 'browse-url-of-file-hook))
 
@@ -840,7 +840,8 @@ narrowed."
   (declare (advertised-calling-convention () "31.1"))
   (let ((file-name (or temp-file-name browse-url-temp-file-name)))
     (if (and file-name (file-exists-p file-name))
-	(delete-file file-name))))
+	(delete-file file-name))
+    (unless temp-file-name (setq browse-url-temp-file-name nil))))
 
 (declare-function dired-get-filename "dired"
 		  (&optional localp no-error-if-not-filep))

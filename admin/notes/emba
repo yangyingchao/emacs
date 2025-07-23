@@ -66,7 +66,11 @@ jobs run scheduled in a pipeline every 8 hours.
 The log files for every test job are kept on the server for a week.
 They can be downloaded from the server, visiting the URL
 <https://emba.gnu.org/emacs/emacs/-/pipelines>, and selecting the job
-in question.
+in question.  Browse the job artifacts.
+
+Additionally, the artifacts of the 'test-tree-sitter' job contain the
+file 'compatibility-report.html', which reports tree-sitter grammars
+compatibility status.
 
 Every pipeline generates a JUnit test report for the respective test
 jobs, which can be inspected on the pipeline web page.  This test
@@ -91,7 +95,7 @@ emba.gnu.org:5050, is not accessible publicly.  Instead, the container
 images must be build locally.  Change the current directory to a
 recent Emacs branch (not a worktree), and apply the command
 
-  docker build --target emacs-inotify --tag emacs-inotify \
+  docker buildx build --target emacs-inotify --tag emacs-inotify \
     -f test/infra/Dockerfile.emba .
 
 This creates the Debian-based image emacs-inotify, based on the

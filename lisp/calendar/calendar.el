@@ -102,7 +102,7 @@
 ;; the absolute format (see e.g. `calendar-iso-from-absolute' in
 ;; cal-iso.el).  This representation is also useful for certain
 ;; calculations; e.g. `calendar-day-of-week' is simply the absolute
-;; represention modulo 7, because December 31, 1BC is a Sunday.
+;; representation modulo 7, because December 31, 1BC is a Sunday.
 
 ;; A note on free variables:
 
@@ -813,8 +813,8 @@ but `diary-date-forms' (which see)."
 (defcustom diary-european-date-forms
   '((day "/" month "[^/0-9]")
     (day "/" month "/" year "[^0-9]")
-    (backup day " *" monthname "\\W+\\<\\([^*0-9]\\|\\([0-9]+[:aApP]\\)\\)")
-    (day " *" monthname " *" year "[^0-9:aApP]")
+    (backup day " *" monthname "\\W+\\<\\([^*0-9]\\|\\([0-9]+[:.aApP]\\)\\)")
+    (day " *" monthname " *" year "[^0-9:.aApP]")
     (dayname "\\W"))
   "List of pseudo-patterns describing the European style of dates.
 The defaults are: DAY/MONTH; DAY/MONTH/YEAR; DAY MONTHNAME;
@@ -829,7 +829,8 @@ DAY MONTHNAME YEAR; DAYNAME.  Normally you should not customize this, but
                          (repeat (list :inline t :format "%v"
                                        (symbol :tag "Keyword")
                                        (choice symbol regexp)))))
-  :group 'diary)
+  :group 'diary
+  :version "31.1")
 
 (defvar diary-font-lock-keywords)
 
@@ -1431,12 +1432,10 @@ Optional integers MON and YR are used instead of today's date."
 	  (fit-window-to-buffer nil nil calendar-minimum-window-height)
 	;; For a full height window or a window that is horizontally
 	;; combined don't fit height to that of its buffer.
-	(set-window-vscroll nil 0))
-      (sit-for 0))
+	(set-window-vscroll nil 0)))
     (and calendar-mark-holidays-flag
          ;; (calendar-date-is-valid-p today) ; useful for BC dates
-         (calendar-mark-holidays)
-         (and in-calendar-window (sit-for 0)))
+         (calendar-mark-holidays))
     (unwind-protect
         (if calendar-mark-diary-entries-flag (diary-mark-entries))
       (run-hooks (if today-visible
@@ -1586,16 +1585,25 @@ Otherwise, use the selected window of EVENT's frame."
       (define-key map (vector 'remap c) 'calendar-not-implemented))
     (define-key map "<"     'calendar-scroll-right)
     (define-key map "\C-x<" 'calendar-scroll-right)
+    (define-key map [S-wheel-up] 'calendar-scroll-right)
     (define-key map [prior] 'calendar-scroll-right-three-months)
     (define-key map "\ev"   'calendar-scroll-right-three-months)
+    (define-key map [wheel-up] 'calendar-scroll-right-three-months)
+    (define-key map [M-wheel-up] 'calendar-backward-year)
     (define-key map ">"     'calendar-scroll-left)
     (define-key map "\C-x>" 'calendar-scroll-left)
+    (define-key map [S-wheel-down] 'calendar-scroll-left)
     (define-key map [next]  'calendar-scroll-left-three-months)
     (define-key map "\C-v"  'calendar-scroll-left-three-months)
+    (define-key map [wheel-down] 'calendar-scroll-left-three-months)
+    (define-key map [M-wheel-down] 'calendar-forward-year)
+    (define-key map "\C-l"  'calendar-recenter)
     (define-key map "\C-b"  'calendar-backward-day)
     (define-key map "\C-p"  'calendar-backward-week)
     (define-key map "\e{"   'calendar-backward-month)
+    (define-key map "{"   'calendar-backward-month)
     (define-key map "\C-x[" 'calendar-backward-year)
+    (define-key map "[" 'calendar-backward-year)
     (define-key map "\C-f"  'calendar-forward-day)
     (define-key map "\C-n"  'calendar-forward-week)
     (define-key map [left]  'calendar-backward-day)
@@ -1603,7 +1611,9 @@ Otherwise, use the selected window of EVENT's frame."
     (define-key map [right] 'calendar-forward-day)
     (define-key map [down]  'calendar-forward-week)
     (define-key map "\e}"   'calendar-forward-month)
+    (define-key map "}"   'calendar-forward-month)
     (define-key map "\C-x]" 'calendar-forward-year)
+    (define-key map "]" 'calendar-forward-year)
     (define-key map "\C-a"  'calendar-beginning-of-week)
     (define-key map "\C-e"  'calendar-end-of-week)
     (define-key map "\ea"   'calendar-beginning-of-month)
@@ -2514,9 +2524,9 @@ ATTRLIST is a list with elements of the form :face face :foreground color."
     (if (not faceinfo)
         ;; No attributes to apply, so just use an existing-face.
         face
-      ;; FIXME should we be using numbered temp-faces, reusing where poss?
+      ;; Compute temp face name.
       (setq temp-face
-            (make-symbol
+            (intern
              (concat ":caltemp"
                      (mapconcat (lambda (sym)
                                   (cond
@@ -2524,10 +2534,12 @@ ATTRLIST is a list with elements of the form :face face :foreground color."
                                    ((numberp sym) (number-to-string sym))
                                    (t sym)))
                                 attrlist ""))))
-      (make-face temp-face)
-      (copy-face face temp-face)
-      ;; Apply the font aspects.
-      (apply #'set-face-attribute temp-face nil (nreverse faceinfo))
+      ;; Create this new face if it does not already exist.
+      (unless (member temp-face (face-list))
+        (make-face temp-face)
+        (copy-face face temp-face)
+        ;; Apply the font aspects.
+        (apply #'set-face-attribute temp-face nil (nreverse faceinfo)))
       temp-face)))
 
 (defun calendar-mark-visible-date (date &optional mark)

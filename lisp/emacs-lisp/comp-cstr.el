@@ -216,7 +216,7 @@ Return them as multiple value."
      collect cstr into positives
    finally return (cl-values positives negatives)))
 
-;; So we can load comp-cstr.el and comp.el in non native compiled
+;; So we can load comp-cstr.el and comp.el in non natively compiled
 ;; builds.
 (defvar comp-ctxt nil)
 
@@ -336,9 +336,13 @@ Return them as multiple value."
       (nreverse res))))
 
 (defun comp-supertypes (type)
-  "Return the ordered list of supertypes of TYPE."
-  (or (assq type (comp-cstr-ctxt-typeof-types comp-ctxt))
-      (error "Type %S missing from typeof-types!" type)))
+   "Return the ordered list of supertypes of TYPE."
+   (or (assq type (comp-cstr-ctxt-typeof-types comp-ctxt))
+       (progn
+	 (display-warning
+	  'native-compiler
+	  (format "Unknown type %S" type))
+	 '(t))))
 
 (defun comp--union-typesets (&rest typesets)
   "Union types present into TYPESETS."
@@ -448,12 +452,12 @@ Return them as multiple value."
    do
    (when (zerop nest)
      (setf low i))
-   (cl-incf nest)
+   (incf nest)
    else
    do
    (when (= nest 1)
      (push `(,(comp-range-1+ low) . ,i) res))
-   (cl-decf nest)
+   (decf nest)
    finally return (reverse res)))
 
 (defun comp--range-intersection (&rest ranges)
@@ -477,7 +481,7 @@ Return them as multiple value."
                (cl-return '()))
    if (eq x 'l)
    do
-   (cl-incf nest)
+   (incf nest)
    (when (= nest n-ranges)
      (setf low i))
    else
@@ -485,7 +489,7 @@ Return them as multiple value."
    (when (= nest n-ranges)
      (push `(,low . ,i)
            res))
-   (cl-decf nest)
+   (decf nest)
    finally return (reverse res)))
 
 (defun comp--range-negation (range)
@@ -982,8 +986,10 @@ Non memoized version of `comp-cstr-intersection-no-mem'."
     (and (comp-cstr-cl-tag-p cstr)
          (intern (match-string 1 (symbol-name (car (valset cstr))))))))
 
-(defun comp-cstr-= (dst op1 op2)
-  "Constraint OP1 being = OP2 setting the result into DST."
+(defun comp-cstr-= (dst op1 op2 nm-objs-h)
+  "Constraint OP1 being = OP2 setting the result into DST.
+NM-OBJS-H is an hash with all the immediates generated at compile time
+which should not be rendered into compiled code."
   (with-comp-cstr-accessors
     (cl-flet ((relax-cstr (cstr)
                 (setf cstr (copy-sequence cstr))
@@ -1011,8 +1017,11 @@ Non memoized version of `comp-cstr-intersection-no-mem'."
                  else
                    do (cl-pushnew 'float (typeset cstr))
                       (cl-return cstr)
-                 finally (setf (valset cstr)
-                               (append vals-to-add (valset cstr))))
+                 finally
+                   (mapc (lambda (x) (puthash x t nm-objs-h))
+                         vals-to-add)
+                   (setf (valset cstr)
+                         (append vals-to-add (valset cstr))))
                 (when (memql 0.0 (valset cstr))
                   (cl-pushnew -0.0 (valset cstr)))
                 (when (memql -0.0 (valset cstr))

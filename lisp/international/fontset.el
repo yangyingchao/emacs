@@ -33,8 +33,6 @@
 ;; Setup font-encoding-alist for all known encodings.
 
 (setq font-encoding-alist
-      (mapcar (lambda (arg)
-		(cons (purecopy (car arg)) (cdr arg)))
       '(("iso8859-1$" . iso-8859-1)
 	("iso8859-2$" . iso-8859-2)
 	("iso8859-3$" . iso-8859-3)
@@ -122,7 +120,7 @@
 	("mulelao-1" . mule-lao)
 	("muletibetan-2" . tibetan)
 	("muletibetan-0" . tibetan)
-	("muletibetan-1" . tibetan-1-column))))
+        ("muletibetan-1" . tibetan-1-column)))
 
 (defvar font-encoding-charset-alist)
 
@@ -246,6 +244,8 @@
 	(lydian #x10920)
 	(kharoshthi #x10A00)
 	(manichaean #x10AC0)
+	(avestan #x10B00)
+	(old-turkic #x10C00 #x10C01)
 	(hanifi-rohingya #x10D00 #x10D24 #x10D39)
         (garay #x10D50 #x10D70 #x10D4A #x10D41)
 	(yezidi #x10E80)
@@ -256,6 +256,7 @@
 	(old-uyghur #x10F70)
         (brahmi #x11013 #x11045 #x11052 #x11065)
         (kaithi #x1108D #x110B0 #x110BD)
+        (chakma #x11103 #x11127)
 	(mahajani #x11150)
         (sharada #x11191 #x111B3 #x111CD)
 	(khojki #x11200)
@@ -848,11 +849,13 @@
                     yezidi
 		    kharoshthi
 		    manichaean
+		    avestan
                     chorasmian
 		    elymaic
                     old-uyghur
                     brahmi
                     kaithi
+                    chakma
                     sharada
                     grantha
                     tirhuta
@@ -873,6 +876,7 @@
                     mahajani
                     sogdian
                     old-sogdian
+                    old-turkic
                     nabataean
                     palmyrene
                     linear-a
@@ -1244,17 +1248,17 @@ Internal use only.  Should be called at startup time."
 
 ;; Setting for suppressing XLoadQueryFont on big fonts.
 (setq x-pixel-size-width-font-regexp
-      (purecopy "gb2312\\|gbk\\|gb18030\\|jisx0208\\|ksc5601\\|cns11643\\|big5"))
+      "gb2312\\|gbk\\|gb18030\\|jisx0208\\|ksc5601\\|cns11643\\|big5")
 
 ;; These fonts require vertical centering.
 (setq vertical-centering-font-regexp
-      (purecopy "gb2312\\|gbk\\|gb18030\\|jisx0208\\|jisx0212\\|ksc5601\\|cns11643\\|big5"))
+      "gb2312\\|gbk\\|gb18030\\|jisx0208\\|jisx0212\\|ksc5601\\|cns11643\\|big5")
 (put 'vertical-centering-font-regexp 'standard-value
      (list vertical-centering-font-regexp))
 
 ;; CDAC fonts are actually smaller than their design sizes.
 (setq face-font-rescale-alist
-      (list (cons (purecopy "-cdac$")  1.3)))
+      (list '("-cdac$" . 1.3)))
 
 (defvar x-font-name-charset-alist nil
   "This variable has no meaning starting with Emacs 22.1.")
@@ -1574,7 +1578,7 @@ It returns a name of the created fontset."
 ;; specified here because FAMILY of those fonts are not "fixed" in
 ;; many cases.
 (defvar standard-fontset-spec
-  (purecopy "-*-fixed-medium-r-normal-*-16-*-*-*-*-*-fontset-standard")
+  "-*-fixed-medium-r-normal-*-16-*-*-*-*-*-fontset-standard"
   "String of fontset spec of the standard fontset.
 You have the biggest chance to display international characters
 with correct glyphs by using the standard fontset.

@@ -66,7 +66,7 @@
       (background light))
      (:foreground "red3"))
     (t
-     (:italic t)))
+     (:slant italic)))
   "Face used for displaying output from commands."
   :group 'mime-display)
 
@@ -232,6 +232,10 @@ before the external MIME handler is invoked."
      mm-inline-image
      ,(lambda (handle)
        (mm-valid-and-fit-image-p 'pbm handle)))
+    ("image/svg\\+xml"
+     mm-inline-image
+     ,(lambda (handle)
+        (mm-valid-and-fit-image-p 'svg handle)))
     ("text/plain" mm-inline-text identity)
     ("text/enriched" mm-inline-text identity)
     ("text/richtext" mm-inline-text identity)
@@ -536,13 +540,11 @@ result of the verification."
 		 (item :tag "ask" nil))
   :group 'mime-security)
 
-(defvar mm-viewer-completion-map
-  (let ((map (make-sparse-keymap 'mm-viewer-completion-map)))
-    (set-keymap-parent map minibuffer-local-completion-map)
-    ;; Should we bind other key to minibuffer-complete-word?
-    (define-key map " " 'self-insert-command)
-    map)
-  "Keymap for input viewer with completion.")
+(defvar-keymap mm-viewer-completion-map
+  :doc "Keymap for input viewer with completion."
+  :parent minibuffer-local-completion-map
+  ;; Should we bind other key to minibuffer-complete-word?
+  "SPC" #'self-insert-command)
 
 ;;; The functions.
 

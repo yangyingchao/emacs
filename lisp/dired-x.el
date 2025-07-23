@@ -132,7 +132,7 @@ option value:
           (restricted-sexp
            :tag "Variable with regexp value (default: `dired-re-exe')"
            :match-alternatives
-           ((lambda (obj) (and (symbolp obj) (boundp obj))))
+           (,(lambda (obj) (and (symbolp obj) (boundp obj))))
            :value dired-re-exe))
   :group 'dired-x)
 
@@ -498,8 +498,10 @@ status message."
                                nil
                                (if dired-omit-verbose
                                    (format "Omitted %%d line%%s in %s"
-                                           (abbreviate-file-name
-                                            dired-directory))
+                                           (replace-regexp-in-string
+                                            "%" "%%"
+                                            (abbreviate-file-name
+                                             dired-directory)))
                                  "")
                                init-count)))
               (force-mode-line-update))))

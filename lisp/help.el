@@ -57,7 +57,7 @@ buffer.")
 
 (defun help-key ()
   "Return `help-char' in a format suitable for the `keymap-set' KEY argument."
-  (key-description (char-to-string help-char)))
+  (key-description (vector help-char)))
 
 (defvar-keymap help-map
   :doc "Keymap for characters following the Help key."
@@ -305,6 +305,8 @@ specifies what to do when the user exits the help buffer.
 
 Do not call this in the scope of `with-help-window'."
   (and (not (get-buffer-window standard-output))
+       ;; FIXME: Call this code *after* we display the buffer, so we can
+       ;; detect reliably whether it's been put in its own frame or what.
        (let ((first-message
 	      (cond ((or
 		      pop-up-frames
@@ -331,7 +333,7 @@ Do not call this in the scope of `with-help-window'."
 			   (list (selected-window) (window-buffer)
 				 (window-start) (window-point)))
 		     "Type \\[switch-to-buffer] RET to remove help window."))))
-	 (funcall (or function 'message)
+	 (funcall (or function #'message)
 		  (concat
 		   (if first-message
 		       (substitute-command-keys first-message))
@@ -395,7 +397,7 @@ Do not call this in the scope of `with-help-window'."
 
 (defalias 'help #'help-for-help)
 (make-help-screen help-for-help
-  (purecopy "Type a help option: [abcCdefFgiIkKlLmnprstvw.] C-[cdefmnoptw] or ?")
+  "Type a help option: [abcCdefFgiIkKlLmnprstvw.] C-[cdefmnoptw] or ?"
   (concat
    "(Type "
    (help--key-description-fontified (kbd "<PageDown>"))
@@ -791,7 +793,6 @@ or a buffer name."
 
 	(when describe-bindings-outline
           (setq-local outline-regexp ".*:$")
-          (setq-local outline-heading-end-regexp ":\n")
           (setq-local outline-level (lambda () 1))
           (setq-local outline-minor-mode-cycle t
                       outline-minor-mode-highlight t
@@ -1396,10 +1397,10 @@ Otherwise, return a new string."
     ;; overriding-local-map, or from a \\<mapname> construct in STRING
     ;; itself.
     (let ((keymap overriding-local-map)
-          (inhibit-modification-hooks t)
           (inhibit-read-only t)
           (orig-buf (current-buffer)))
       (with-temp-buffer
+        (setq-local inhibit-modification-hooks t) ;; For speed.
         (insert string)
         (goto-char (point-min))
         (while (< (point) (point-max))
@@ -2170,8 +2171,7 @@ The `temp-buffer-window-setup-hook' hook is called."
           buffer-file-name nil)
     (setq-local help-mode--current-data nil)
     (buffer-disable-undo)
-    (let ((inhibit-read-only t)
-	  (inhibit-modification-hooks t))
+    (let ((inhibit-read-only t))
       (erase-buffer)
       (delete-all-overlays)
       (prog1
@@ -2191,7 +2191,10 @@ The `temp-buffer-window-setup-hook' hook is called."
   (let ((msg (eval help-form t)))
     (if (stringp msg)
 	(with-output-to-temp-buffer " *Char Help*"
-	  (princ msg)))))
+          ;; Use `insert' instead of `princ' so that keys in `help-form'
+          ;; are displayed with `help-key-binding' face (bug#77118).
+          (with-current-buffer standard-output
+            (insert msg))))))
 
 (defun help--append-keystrokes-help (str)
   (let* ((keys (this-single-command-keys))
@@ -2200,18 +2203,17 @@ The `temp-buffer-window-setup-hook' hook is called."
                                    (current-active-maps t)))))
     (catch 'res
       (dolist (val help-event-list)
-        (let ((key (vector (if (eql val 'help)
-                               help-char
-                             val))))
-          (unless (seq-find (lambda (map) (and (keymapp map) (lookup-key map key)))
-                            bindings)
-            (throw 'res
-                   (concat
-                    str
-                    (substitute-command-keys
-                     (format
-                      " (\\`%s' for help)"
-                      (key-description key))))))))
+        (when (setq val (if (eql val 'help) help-char val))
+          (let ((key (vector val)))
+            (unless (seq-find (lambda (map) (and (keymapp map) (lookup-key map key)))
+                              bindings)
+              (throw 'res
+                     (concat
+                      str
+                      (substitute-command-keys
+                       (format
+                        " (\\`%s' for help)"
+                        (key-description key)))))))))
       str)))
 
 
@@ -2309,7 +2311,7 @@ the same names as used in the original source code, when possible."
             (dolist (arg arglist)
               (unless (and (symbolp arg)
                            (let ((name (symbol-name arg)))
-                             (if (eq (aref name 0) ?&)
+                             (if (and (> (length name) 0) (eq (aref name 0) ?&))
                                  (memq arg '(&rest &optional))
                                (not (string-search "." name)))))
                 (setq valid nil)))

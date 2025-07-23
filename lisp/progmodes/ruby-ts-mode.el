@@ -24,18 +24,18 @@
 
 ;;; Tree-sitter language versions
 ;;
-;; ruby-ts-mode is known to work with the following languages and version:
+;; ruby-ts-mode has been tested with the following grammars and version:
 ;; - tree-sitter-ruby: v0.23.1
 ;;
 ;; We try our best to make builtin modes work with latest grammar
-;; versions, so a more recent grammar version has a good chance to work.
+;; versions, so a more recent grammar has a good chance to work too.
 ;; Send us a bug report if it doesn't.
 
 ;;; Commentary:
 
 ;; This file defines ruby-ts-mode which is a major mode for editing
 ;; Ruby files that uses Tree Sitter to parse the language.  More
-;; information about Tree Sitter can be found in the ELisp Info pages
+;; information about Tree Sitter can be found in the Elisp Info pages
 ;; as well as this website: https://tree-sitter.github.io/tree-sitter/
 
 ;; For this major mode to work, Emacs has to be compiled with
@@ -122,6 +122,12 @@
 (require 'treesit)
 (require 'ruby-mode)
 (treesit-declare-unavailable-functions)
+
+(add-to-list
+ 'treesit-language-source-alist
+ '(ruby "https://github.com/tree-sitter/tree-sitter-ruby"
+        :commit "71bd32fb7607035768799732addba884a37a6210")
+ t)
 
 (defgroup ruby-ts nil
   "Major mode for editing Ruby code."
@@ -1155,7 +1161,7 @@ leading double colon is not added."
   :group 'ruby
   :syntax-table ruby-mode-syntax-table
 
-  (unless (treesit-ready-p 'ruby)
+  (unless (treesit-ensure-installed 'ruby)
     (error "Tree-sitter for Ruby isn't available"))
 
   (setq treesit-primary-parser (treesit-parser-create 'ruby))
@@ -1167,120 +1173,88 @@ leading double colon is not added."
 
   (setq-local treesit-thing-settings
               `((ruby
-                 (sexp ,(cons (rx
-                               bol
+                 (sexp (not (or (and named
+                                     ,(rx bos (or "program"
+                                                  "body_statement"
+                                                  "comment"
+                                                  "then")
+                                          eos))
+                                (and anonymous
+                                     ,(rx bos (or "do" "begin"
+                                                  "if" "unless"
+                                                  "def" "end"
+                                                  "(" ")" "[" "]"
+                                                  "{" "}" "|" "," ";")
+                                          eos)))))
+                 (list ,(cons (rx
+                               bos
                                (or
+                                "begin_block"
+                                "end_block"
+                                "method"
+                                "singleton_method"
+                                "method_parameters"
+                                "parameters"
+                                "block_parameters"
                                 "class"
                                 "singleton_class"
                                 "module"
-                                "method"
-                                "singleton_method"
-                                "array"
-                                "hash"
-                                "parenthesized_statements"
-                                "method_parameters"
-                                "array_pattern"
-                                "hash_pattern"
-                                "if"
-                                "else"
-                                "then"
-                                "unless"
+                                "do"
                                 "case"
                                 "case_match"
-                                "when"
-                                "while"
-                                "until"
-                                "for"
-                                "block"
-                                "do_block"
+                                "array_pattern"
+                                "find_pattern"
+                                "hash_pattern"
+                                "parenthesized_pattern"
+                                "expression_reference_pattern"
+                                "if"
+                                "unless"
                                 "begin"
-                                "integer"
-                                "identifier"
-                                "self"
-                                "super"
-                                "constant"
-                                "simple_symbol"
-                                "hash_key_symbol"
-                                "symbol_array"
+                                "parenthesized_statements"
+                                "argument_list"
+                                "do_block"
+                                "block"
+                                "destructured_left_assignment"
+                                "interpolation"
                                 "string"
                                 "string_array"
-                                "heredoc_body"
+                                "symbol_array"
+                                "delimited_symbol"
                                 "regex"
-                                "argument_list"
-                                "interpolation"
-                                "instance_variable"
-                                "global_variable"
-                                )
-                               eol)
-                              #'ruby-ts--sexp-p))
-                 (list
-                  ,(cons (rx
-                          bol
-                          (or
-                           "begin_block"
-                           "end_block"
-                           "method"
-                           "singleton_method"
-                           "method_parameters"
-                           "parameters"
-                           "block_parameters"
-                           "class"
-                           "singleton_class"
-                           "module"
-                           "do"
-                           "case"
-                           "case_match"
-                           "array_pattern"
-                           "find_pattern"
-                           "hash_pattern"
-                           "parenthesized_pattern"
-                           "expression_reference_pattern"
-                           "if"
-                           "unless"
-                           "begin"
-                           "parenthesized_statements"
-                           "argument_list"
-                           "do_block"
-                           "block"
-                           "destructured_left_assignment"
-                           "interpolation"
-                           "string"
-                           "string_array"
-                           "symbol_array"
-                           "delimited_symbol"
-                           "regex"
-                           "heredoc_body"
-                           "array"
-                           "hash")
-                          eol)
-                         #'ruby-ts--list-p))
+                                "heredoc_body"
+                                "array"
+                                "hash")
+                               eos)
+                              #'ruby-ts--list-p))
+                 (sexp-default
+                  ;; For `C-M-f' in "#|{a}"
+                  ("#{" . ,(lambda (node)
+                             (and (eq (char-after (point)) ?{)
+                                  (equal (treesit-node-type (treesit-node-parent node))
+                                         "interpolation")))))
+                 (sentence ,(rx bos (or "return"
+                                        "body_statement"
+                                        "call"
+                                        "assignment")
+                                eos))
                  (text ,(lambda (node)
                           (or (member (treesit-node-type node)
-                                      '("comment" "string_content" "heredoc_content"))
-                              ;; for C-M-f in hash[:key] and hash['key']
-                              (and (member (treesit-node-text node)
-                                           '("[" "]"))
-                                   (equal (treesit-node-type
-                                           (treesit-node-parent node))
-                                          "element_reference"))
-                              ;; for C-M-f in "abc #{ghi} def"
-                              (and (member (treesit-node-text node)
-                                           '("#{" "}"))
-                                   (equal (treesit-node-type
-                                           (treesit-node-parent node))
-                                          "interpolation"))))))))
+                                      '("comment" "string_content"
+                                        "heredoc_content"))))))))
 
   ;; Imenu.
   (setq-local imenu-create-index-function #'ruby-ts--imenu)
 
   ;; Outline minor mode.
   (setq-local treesit-outline-predicate
-              (rx bos (or "singleton_method"
-                          "method"
-                          "alias"
-                          "class"
-                          "module")
-                  eos))
+              `(and ,(rx bos (or "singleton_method"
+                                 "method"
+                                 "alias"
+                                 "singleton_class"
+                                 "class"
+                                 "module")
+                         eos)
+                    named))
   ;; Restore default values of outline variables
   ;; to use `treesit-outline-predicate'.
   (kill-local-variable 'outline-regexp)

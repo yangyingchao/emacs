@@ -42,6 +42,7 @@
 (defvar comp-subr-arities-h)
 (defvar native-comp-eln-load-path)
 (defvar native-comp-enable-subr-trampolines)
+(defvar comp--\#$)
 
 (declare-function comp--compile-ctxt-to-file0 "comp.c")
 (declare-function comp--init-ctxt "comp.c")
@@ -155,7 +156,7 @@ native compilation runs.")
 
 (defvar comp-curr-allocation-class 'd-default
   "Current allocation class.
-Can be one of: `d-default', `d-impure' or `d-ephemeral'.  See `comp-ctxt'.")
+Can be one of: `d-default' or `d-ephemeral'.  See `comp-ctxt'.")
 
 (defconst comp-passes '(comp--spill-lap
                         comp--limplify
@@ -333,14 +334,14 @@ Useful to hook into pass checkers.")
   "Append ELT into VEC.
 Returns ELT."
   (puthash (comp-vec-end vec) elt (comp-vec-data vec))
-  (cl-incf (comp-vec-end vec))
+  (incf (comp-vec-end vec))
   elt)
 
 (defsubst comp-vec-prepend (vec elt)
   "Prepend ELT into VEC.
 Returns ELT."
   (puthash (1- (comp-vec-beg vec)) elt (comp-vec-data vec))
-  (cl-decf (comp-vec-beg vec))
+  (decf (comp-vec-beg vec))
   elt)
 
 
@@ -395,11 +396,11 @@ Needed to replace immediate byte-compiled lambdas with the compiled reference.")
                :documentation "Documentation index -> documentation")
   (d-default (make-comp-data-container) :type comp-data-container
              :documentation "Standard data relocated in use by functions.")
-  (d-impure (make-comp-data-container) :type comp-data-container
-            :documentation "Relocated data that cannot be moved into pure space.
-This is typically for top-level forms other than defun.")
   (d-ephemeral (make-comp-data-container) :type comp-data-container
                :documentation "Relocated data not necessary after load.")
+  (non-materializable-objs-h (make-hash-table :test #'equal) :type hash-table
+               :documentation "Objects produced by the propagation engine which can't be materialized.
+Typically floating points (which are not cons-hashed).")
   (with-late-load nil :type boolean
                   :documentation "When non-nil support late load."))
 
@@ -494,7 +495,7 @@ non local exit (ends with an `unreachable' insn)."))
   "Return a sequential number generator."
   (let ((n -1))
     (lambda ()
-      (cl-incf n))))
+      (incf n))))
 
 (cl-defstruct (comp-func (:copier nil))
   "LIMPLE representation of a function."
@@ -955,7 +956,7 @@ Points to the next slot to be filled.")
 Restore the original value afterwards."
   (declare (debug (form body))
            (indent defun))
-  (let ((sym (gensym)))
+  (cl-with-gensyms (sym)
     `(let ((,sym (comp--sp)))
        (setf (comp--sp) ,sp)
        (progn ,@body)
@@ -1190,7 +1191,7 @@ Return value is the fall-through block name."
 (defun comp--jump-table-optimizable (jmp-table)
   "Return t if JMP-TABLE can be optimized out."
   ;; Identify LAP sequences like:
-  ;; (byte-constant #s(hash-table test eq purecopy t data (created 126 deleted 126 changed 126)) . 24)
+  ;; (byte-constant #s(hash-table test eq data (created 126 deleted 126 changed 126)) . 24)
   ;; (byte-switch)
   ;; (TAG 126 . 10)
   (let ((targets (hash-table-values jmp-table)))
@@ -1304,7 +1305,7 @@ and the annotation emission."
                           ;;      ,(concat "LAP op " op-name)))
                           ;; Emit the stack adjustment if present.
                           ,(when (and sp-delta (not (eq 0 sp-delta)))
-			     `(cl-incf (comp--sp) ,sp-delta))
+                             `(incf (comp--sp) ,sp-delta))
                           ,@(comp--body-eff body op-name sp-delta))
                 else
 		collect `(',op (signal 'native-ice
@@ -1338,7 +1339,7 @@ and the annotation emission."
                              (make--comp-mvar :constant arg)
                              (comp--slot+1))))
       (byte-call
-       (cl-incf (comp--sp) (- arg))
+       (incf (comp--sp) (- arg))
        (comp--emit-set-call (comp--callref 'funcall (1+ arg) (comp--sp))))
       (byte-unbind
        (comp--emit (comp--call 'helper_unbind_n
@@ -1493,19 +1494,19 @@ and the annotation emission."
       (byte-numberp auto)
       (byte-integerp auto)
       (byte-listN
-       (cl-incf (comp--sp) (- 1 arg))
+       (incf (comp--sp) (- 1 arg))
        (comp--emit-set-call (comp--callref 'list arg (comp--sp))))
       (byte-concatN
-       (cl-incf (comp--sp) (- 1 arg))
+       (incf (comp--sp) (- 1 arg))
        (comp--emit-set-call (comp--callref 'concat arg (comp--sp))))
       (byte-insertN
-       (cl-incf (comp--sp) (- 1 arg))
+       (incf (comp--sp) (- 1 arg))
        (comp--emit-set-call (comp--callref 'insert arg (comp--sp))))
       (byte-stack-set
        (comp--copy-slot (1+ (comp--sp)) (- (comp--sp) arg -1)))
       (byte-stack-set2 (cl-assert nil)) ;; TODO
       (byte-discardN
-       (cl-incf (comp--sp) (- arg)))
+       (incf (comp--sp) (- arg)))
       (byte-switch
        ;; Assume to follow the emission of a setimm.
        ;; This is checked into comp--emit-switch.
@@ -1515,7 +1516,7 @@ and the annotation emission."
       (byte-constant
        (comp--emit-setimm arg))
       (byte-discardN-preserve-tos
-       (cl-incf (comp--sp) (- arg))
+       (incf (comp--sp) (- arg))
        (comp--copy-slot (+ arg (comp--sp)))))))
 
 (defun comp--emit-narg-prologue (minarg nonrest rest)
@@ -1545,7 +1546,7 @@ and the annotation emission."
   (comp--emit `(set-rest-args-to-local ,(comp--slot-n nonrest)))
   (setf (comp--sp) nonrest)
   (when (and (> nonrest 8) (null rest))
-    (cl-decf (comp--sp))))
+    (decf (comp--sp))))
 
 (defun comp--limplify-finalize-function (func)
   "Reverse insns into all basic blocks of FUNC."
@@ -1615,7 +1616,7 @@ and the annotation emission."
   (unless for-late-load
     (comp--emit
      (comp--call 'eval
-                (let ((comp-curr-allocation-class 'd-impure))
+                (let ((comp-curr-allocation-class 'd-default))
                   (make--comp-mvar :constant
                                   (byte-to-native-top-level-form form)))
                 (make--comp-mvar :constant
@@ -1625,7 +1626,7 @@ and the annotation emission."
   "Emit the creation of subrs for lambda FUNC.
 These are stored in the reloc data array."
   (let ((args (comp--prepare-args-for-top-level func)))
-    (let ((comp-curr-allocation-class 'd-impure))
+    (let ((comp-curr-allocation-class 'd-default))
       (comp--add-const-to-relocs (comp-func-byte-func func)))
     (comp--emit
      (comp--call 'comp--register-lambda
@@ -1724,7 +1725,7 @@ into the C code forwarding the compilation unit."
    for inst = (car inst-cell)
    for next-inst = (car-safe (cdr inst-cell))
    do (comp--limplify-lap-inst inst)
-      (cl-incf (comp-limplify-pc comp-pass))
+      (incf (comp-limplify-pc comp-pass))
    when (comp--lap-fall-through-p inst)
    do (pcase next-inst
         (`(TAG ,_label . ,label-sp)
@@ -1757,7 +1758,7 @@ into the C code forwarding the compilation unit."
       (let ((args (comp-func-l-args func)))
         (if (comp-args-p args)
             (cl-loop for i below (comp-args-max args)
-                     do (cl-incf (comp--sp))
+                     do (incf (comp--sp))
                         (comp--emit `(set-par-to-local ,(comp--slot) ,i)))
           (comp--emit-narg-prologue (comp-args-base-min args)
                                    (comp-nargs-nonrest args)
@@ -1903,7 +1904,7 @@ Return OP otherwise."
   (if-let* ((match (eql (comp-mvar-slot op) (comp-mvar-slot cmp-res)))
             (new-mvar (make--comp-mvar
                        :slot
-                       (- (cl-incf (comp-func-vframe-size comp-func))))))
+                       (- (incf (comp-func-vframe-size comp-func))))))
       (progn
         (push `(assume ,new-mvar ,op) (cdr insns-seq))
         new-mvar)
@@ -2029,15 +2030,11 @@ TARGET-BB-SYM is the symbol name of the target block."
               (call symbol-value ,(and (pred comp-cstr-cl-tag-p) mvar-tag)))
          (set ,(and (pred comp-mvar-p) mvar-3)
               (call memq ,(and (pred comp-mvar-p) mvar-1) ,(and (pred comp-mvar-p) mvar-2)))
-         (cond-jump ,(and (pred comp-mvar-p) mvar-3) ,(pred comp-mvar-p) ,bb1 ,bb2))
+         (cond-jump ,(and (pred comp-mvar-p) mvar-3) ,(pred comp-mvar-p) ,_bb1 ,bb2))
        (comp--emit-assume 'and mvar-tested
-                         (make--comp-mvar :type (comp-cstr-cl-tag mvar-tag))
-                         (comp--add-cond-cstrs-target-block b bb2)
-                         nil)
-       (comp--emit-assume 'and mvar-tested
-                         (make--comp-mvar :type (comp-cstr-cl-tag mvar-tag))
-                         (comp--add-cond-cstrs-target-block b bb1)
-                         t))
+                          (make--comp-mvar :type (comp-cstr-cl-tag mvar-tag))
+                          (comp--add-cond-cstrs-target-block b bb2)
+                          nil))
       (`((set ,(and (pred comp-mvar-p) cmp-res)
               (,(pred comp--call-op-p)
                ,(and (or (pred comp--equality-fun-p)
@@ -2736,7 +2733,8 @@ Fold the call in case."
        (<=
         (comp-cstr-<= lval (car operands) (cadr operands)))
        (=
-        (comp-cstr-= lval (car operands) (cadr operands)))))
+        (comp-cstr-= lval (car operands) (cadr operands)
+                     (comp-ctxt-non-materializable-objs-h comp-ctxt)))))
     (`(setimm ,lval ,v)
      (setf (comp-cstr-imm lval) v))
     (`(phi ,lval . ,rest)
@@ -2770,7 +2768,7 @@ Return t if something was changed."
                                  (comp--copy-insn insn))
                do
                (comp--fwprop-insn insn)
-               (cl-incf i)
+               (incf i)
                when (and (null modified) (not (equal insn orig-insn)))
                  do (setf modified t))
                when (> i comp--fwprop-max-insns-scan)
@@ -3257,7 +3255,9 @@ Set it into the `type' slot."
                  ;; from the corresponding m-var.
                  collect (if (gethash obj
                                       (comp-ctxt-byte-func-to-func-h comp-ctxt))
-                             'lambda-fixup
+                             ;; This prints as #$, so we can assert this
+                             ;; value does not remain in the data vector
+                             comp--\#$
                            obj))))
 
 (defun comp--finalize-relocs ()
@@ -3271,28 +3271,15 @@ Update all insn accordingly."
 
   (let* ((d-default (comp-ctxt-d-default comp-ctxt))
          (d-default-idx (comp-data-container-idx d-default))
-         (d-impure (comp-ctxt-d-impure comp-ctxt))
-         (d-impure-idx (comp-data-container-idx d-impure))
          (d-ephemeral (comp-ctxt-d-ephemeral comp-ctxt))
          (d-ephemeral-idx (comp-data-container-idx d-ephemeral)))
-    ;; We never want compiled lambdas ending up in pure space.  A copy must
-    ;; be already present in impure (see `comp--emit-lambda-for-top-level').
-    (cl-loop for obj being each hash-keys of d-default-idx
-             when (gethash obj (comp-ctxt-lambda-fixups-h comp-ctxt))
-               do (cl-assert (gethash obj d-impure-idx))
-                  (remhash obj d-default-idx))
-    ;; Remove entries in d-impure already present in d-default.
-    (cl-loop for obj being each hash-keys of d-impure-idx
-             when (gethash obj d-default-idx)
-               do (remhash obj d-impure-idx))
-    ;; Remove entries in d-ephemeral already present in d-default or
-    ;; d-impure.
+    ;; Remove entries in d-ephemeral already present in d-default
     (cl-loop for obj being each hash-keys of d-ephemeral-idx
-             when (or (gethash obj d-default-idx) (gethash obj d-impure-idx))
+             when (gethash obj d-default-idx)
                do (remhash obj d-ephemeral-idx))
     ;; Fix-up indexes in each relocation class and fill corresponding
     ;; reloc lists.
-    (mapc #'comp--finalize-container (list d-default d-impure d-ephemeral))
+    (mapc #'comp--finalize-container (list d-default d-ephemeral))
     ;; Make a vector from the function documentation hash table.
     (cl-loop with h = (comp-ctxt-function-docs comp-ctxt)
              with v = (make-vector (hash-table-count h) nil)
@@ -3302,13 +3289,13 @@ Update all insn accordingly."
              finally
              do (setf (comp-ctxt-function-docs comp-ctxt) v))
     ;; And now we conclude with the following: We need to pass to
-    ;; `comp--register-lambda' the index in the impure relocation
-    ;; array to store revived lambdas, but given we know it only now
-    ;; we fix it up as last.
+    ;; `comp--register-lambda' the index in the relocation array to
+    ;; store revived lambdas, but given we know it only now we fix it up
+    ;; as last.
     (cl-loop for f being each hash-keys of (comp-ctxt-lambda-fixups-h comp-ctxt)
              using (hash-value mvar)
              with reverse-h = (make-hash-table) ;; Make sure idx is unique.
-             for idx = (gethash f d-impure-idx)
+             for idx = (gethash f d-default-idx)
              do
              (cl-assert (null (gethash idx reverse-h)))
              (cl-assert (fixnump idx))
@@ -3380,7 +3367,7 @@ Prepare every function for final compilation and drive the C back-end."
 			 nil ".el"))
              (default-directory invocation-directory))
 	(with-temp-file temp-file
-          (insert ";; -*-coding: utf-8-emacs-unix; -*-\n")
+          (insert ";; -*- coding: utf-8-emacs-unix; lexical-binding: t -*-\n")
           (mapc (lambda (e)
                   (insert (prin1-to-string e)))
                 expr))
@@ -3574,7 +3561,7 @@ the deferred compilation mechanism."
                    for pass in comp-passes
                    unless (memq pass comp-disabled-passes)
                    do
-                   (comp-log (format "\n(%s) Running pass %s:\n"
+                   (comp-log (format "\n(%S) Running pass %s:\n"
                                      function-or-file pass)
                              2)
                    (setf data (funcall pass data))
@@ -3583,7 +3570,7 @@ the deferred compilation mechanism."
                             do (funcall f data))
                    finally
                    (when comp-log-time-report
-                     (comp-log (format "Done compiling %s" data) 0)
+                     (comp-log (format "Done compiling %S" data) 0)
                      (cl-loop for (pass . time) in (reverse report)
                               do (comp-log (format "Pass %s took: %fs."
                                                    pass time)
@@ -3595,7 +3582,7 @@ the deferred compilation mechanism."
                    (if (and comp-async-compilation
                             (not (eq (car err) 'native-compiler-error)))
                        (progn
-                         (message "%s: Error %s"
+                         (message "%S: Error %s"
                                   function-or-file
                                   (error-message-string err))
                          (kill-emacs -1))
@@ -3741,12 +3728,22 @@ variable \"NATIVE_DISABLED\" is set, only byte compile."
 
 ;;;###autoload
 (defun native-compile-prune-cache ()
-  "Remove .eln files that aren't applicable to the current Emacs invocation."
+  "Remove *.eln files that aren't usable by the current Emacs build.
+
+This command removes all the *.eln files in `native-comp-eln-load-path'
+which are incompatible with the Emacs session in which you invoke this
+command.  This includes the *.eln files compiled by all the Emacs
+sessions where `comp-native-version-dir' had a value different from the
+current session.
+
+Note that this command does not prune the *.eln files in the last
+directory in `native-comp-eln-load-path', which holds *.eln files
+compiled during the Emacs build process."
   (interactive)
   (unless (featurep 'native-compile)
     (user-error "This Emacs isn't built with native-compile support"))
-  ;; The last item in native-comp-eln-load-path is assumed to be a system
-  ;; directory, so don't try to delete anything there (bug#59658).
+  ;; The last directory in 'native-comp-eln-load-path' is assumed to be a
+  ;; system directory, so don't try to delete anything there (bug#59658).
   (dolist (dir (butlast native-comp-eln-load-path))
     ;; If a directory is non absolute it is assumed to be relative to
     ;; `invocation-directory'.

@@ -560,7 +560,7 @@ Multisession Variables
 
 Functions
 
-* What Is a Function::      Lisp functions vs. primitives; terminology.
+* What Is a Function::      Lisp functions vs.@: primitives; terminology.
 * Lambda Expressions::      How functions are expressed as Lisp objects.
 * Function Names::          A symbol can serve as the name of a function.
 * Defining Functions::      Lisp expressions for defining functions.
@@ -582,6 +582,10 @@ Functions
 * Related Topics::          Cross-references to specific Lisp primitives
                               that have a special bearing on how
                               functions work.
+
+Defining Functions
+
+* Finding Definitions::     Finding function definitions created by macros.
 
 Lambda Expressions
 
@@ -1076,6 +1080,7 @@ Windows
 * Recombining Windows::     Preserving the frame layout when splitting and
                               deleting windows.
 * Resurrecting Windows::    Restoring deleted windows.
+* Changing Window Layouts::  Transposing windows in an orderly manner.
 * Cyclic Window Ordering::  Moving around the existing windows.
 * Buffers and Windows::     Each window displays the contents of a buffer.
 * Switching Buffers::       Higher-level functions for switching to a buffer.
@@ -1181,6 +1186,12 @@ Window Frame Parameters
 * Management Parameters::   Communicating with the window manager.
 * Cursor Parameters::       Controlling the cursor appearance.
 * Font and Color Parameters:: Fonts and colors for the frame text.
+
+Child Frames
+
+* Child Frame Operations::  Making and investigating child frames.
+* Child Frame Properties::  Special properties of child frames.
+* Child Frame Peculiarities:: Deviant behaviors of child frames.
 
 Positions
 
@@ -1383,7 +1394,7 @@ Parsing Program Source
 * Pattern Matching::         Pattern matching with query patterns.
 * Multiple Languages::       Parse text written in multiple languages.
 * Tree-sitter Major Modes::  Develop major modes using tree-sitter.
-* Tree-sitter C API::        Compare the C API and the ELisp API.
+* Tree-sitter C API::        Compare the C API and the Lisp API.
 
 Syntax Descriptors
 
@@ -1637,6 +1648,9 @@ Preparing Lisp code for distribution
 * Simple Packages::         How to package a single .el file.
 * Multi-file Packages::     How to package multiple files.
 * Package Archives::        Maintaining package archives.
+* Archive Web Server::      Interfacing to an archive web server.
+* Forwards-Compatibility::  Supporting older versions of Emacs.
+* Package Information::     Information about built-in packages.
 
 Tips and Conventions
 
@@ -1652,7 +1666,6 @@ Tips and Conventions
 GNU Emacs Internals
 
 * Building Emacs::          How the dumped Emacs is made.
-* Pure Storage::            Kludge to make preloaded Lisp functions shareable.
 * Garbage Collection::      Reclaiming space for Lisp objects no longer used.
 * Stack-allocated Objects:: Temporary conses and strings on C stack.
 * Memory Usage::            Info about total size of Lisp objects made so far.

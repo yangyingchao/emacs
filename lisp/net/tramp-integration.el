@@ -59,8 +59,9 @@
 
 ;;; Fontification of `read-file-name':
 
-(defvar tramp-rfn-eshadow-overlay)
-(make-variable-buffer-local 'tramp-rfn-eshadow-overlay)
+;; An overlay covering the shadowed part of the filename (local to the
+;; minibuffer).
+(defvar-local tramp-rfn-eshadow-overlay nil)
 
 (defun tramp-rfn-eshadow-setup-minibuffer ()
   "Set up a minibuffer for `file-name-shadow-mode'.
@@ -104,7 +105,8 @@ been set up by `rfn-eshadow-setup-minibuffer'."
 		   (minibuffer-prompt-end)))
 	  ;; We do not want to send any remote command.
 	  (non-essential t))
-      (when (tramp-tramp-file-p (buffer-substring end (point-max)))
+      (when (and (tramp-tramp-file-p (buffer-substring end (point-max)))
+		 (not (file-name-quoted-p (buffer-substring end (point-max)))))
 	(save-excursion
 	  (save-restriction
 	    (narrow-to-region
@@ -357,7 +359,8 @@ It's value must be a Tramp user option, indexed in the Tramp manual via
 
 (defconst tramp-connection-local-default-system-variables
   '((path-separator . ":")
-    (null-device . "/dev/null"))
+    (null-device . "/dev/null")
+    (exec-suffixes . ("")))
   "Default connection-local system variables for remote connections.")
 
 (connection-local-set-profile-variables

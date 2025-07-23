@@ -113,6 +113,11 @@ want the name to be tried exactly as specified.  The default value is
 system-dependent.
 @end defopt
 
+@defun exec-suffixes
+This function returns the connection-local value of variable
+@code{exec-suffixes}.
+@end defun
+
   @strong{Please note:} The argument @var{program} contains only the
 name of the program file; it may not contain any command-line
 arguments.  You must use a separate argument, @var{args}, to provide
@@ -183,10 +188,11 @@ This function is an extension of the variable @code{exec-path}.  If
 returns a list of directories used for searching programs on the
 respective remote host.  In case of a local @code{default-directory},
 the function returns just the value of the variable @code{exec-path}.
+If you use @code{exec-suffixes} together with this function, you must
+also use the function @code{exec-suffixes} instead of the variable.
 @end defun
 
 @cindex programs distributed with Emacs, starting
-@vindex ctags-program-name
 @vindex etags-program-name
 @vindex hexl-program-name
 @vindex emacsclient-program-name
@@ -197,11 +203,11 @@ the function returns just the value of the variable @code{exec-path}.
 must take into account that the program may have been renamed in order
 to comply with executable naming restrictions present on the system.
 
-  Instead of starting @command{ctags}, for example, you should specify
-the value of @code{ctags-program-name} instead.  Likewise, instead of
+  Instead of starting @command{emacsclient}, for example, you should specify
+the value of @code{emacsclient-program-name} instead.  Likewise, instead of
 starting @command{movemail}, you must start
 @code{movemail-program-name}, and the same goes for @command{etags},
-@command{hexl}, @command{emacsclient}, @code{rcs2log}, and
+@command{hexl}, @code{rcs2log}, and
 @command{ebrowse}.
 
 @node Shell Arguments
@@ -3166,7 +3172,7 @@ machine you are using.  The value is an alist whose elements have the
 form @code{(@var{ifname} . @var{address})}.  @var{ifname} is a string
 naming the interface, @var{address} has the same form as the
 @var{local-address} and @var{remote-address} arguments to
-@code{make-network-process}, i.e. a vector of integers.  By default
+@code{make-network-process}, i.e.@: a vector of integers.  By default
 both IPv4 and IPv6 addresses are returned if possible.
 
 Optional argument @var{full} non-@code{nil} means to instead return a

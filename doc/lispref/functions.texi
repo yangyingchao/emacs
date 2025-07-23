@@ -11,7 +11,7 @@ explains what functions are, how they accept arguments, and how to
 define them.
 
 @menu
-* What Is a Function::          Lisp functions vs. primitives; terminology.
+* What Is a Function::          Lisp functions vs.@: primitives; terminology.
 * Lambda Expressions::          How functions are expressed as Lisp objects.
 * Function Names::              A symbol can serve as the name of a function.
 * Defining Functions::          Lisp expressions for defining functions.
@@ -219,11 +219,11 @@ function.  For example:
 
 @defun compiled-function-p object
 This function returns @code{t} if @var{object} is a function object
-that is not in the form of ELisp source code but something like
+that is not in the form of Lisp source code but something like
 machine code or byte code instead.  More specifically it returns
 @code{t} if the function is built-in (a.k.a.@: ``primitive'',
 @pxref{What Is a Function}), or byte-compiled (@pxref{Byte
-Compilation}), or natively-compiled (@pxref{Native Compilation}), or
+Compilation}), or native-compiled (@pxref{Native Compilation}), or
 a function loaded from a dynamic module (@pxref{Dynamic Modules}).
 @end defun
 
@@ -832,6 +832,112 @@ and tells the Lisp compiler to perform inline expansion on it.
   To undefine a function name, use @code{fmakunbound}.
 @xref{Function Cells}.
 
+@menu
+* Finding Definitions::         Finding function definitions created by macros.
+@end menu
+
+@node Finding Definitions
+@subsection Finding Definitions
+
+Tools such as Emacs's built-in help command @kbd{C-h f} (@pxref{Help,,,
+emacs, The GNU Emacs Manual}) can find the definition site of functions
+and other Lisp objects in the source code.  To do this, they use the
+variable @code{find-function-regexp-alist}.
+
+@vindex @code{find-function-regexp-alist}
+The alist @code{find-function-regexp-alist} associates object types with
+a regexp or a function that finds the definition of that object in its
+source file.  Each element's @code{car} is a symbol that describes the
+type of object, or @code{nil}, which means a function defined with
+@code{defun}.  Each element's @code{cdr} can be one of the following:
+
+@itemize
+@item
+A symbol whose value is a string interpreted as a regexp.
+@item
+A symbol naming a function that can find the definition.
+@item
+A cons cell where the @code{car} is a regexp (or function that returns
+one) and the @code{cdr} is @dfn{form-matcher}: a function that creates a
+matcher for macro-expanded forms.
+@end itemize
+
+A regexp string is actually a format string, and @code{%s} will be
+substituted with the name of the symbol we are looking for.
+
+A function will be called with one argument, the (symbol for) the object
+we are searching for.
+
+The form-matcher function in a cons cell value is called with one
+argument (the symbol being sought) and should return a function; that
+function should take a form and return non-@code{nil} if the form
+defines the sought symbol.  This is useful for finding definitions that
+are created by expansion of macros.
+
+@cindex @code{definition-name} (symbol property)
+If the function to be found is defined by a macro, it may be hard for
+Emacs to find the definition site in the source code.  A macro call may
+have an unexpected look to it, and @code{find-function-regexp-alist}
+will fail to identify the definition.
+
+For example, a @code{define-derived-mode} (@pxref{Derived Modes}) might
+define a mode-specific function or a variable implicitly; or your Lisp
+program might generate a run-time call to @code{defun} to define a
+function.  In these and similar cases, the @code{definition-name}
+property of the symbol should be another symbol whose definition can be
+found by textual search and whose code defines the original symbol.  In
+the example with @code{define-derived-mode}, the value of this property
+of the functions and variables it defines should be the mode symbol.
+
+@cindex @code{find-function-type-alist} (symbol property)
+In some cases, the definition cannot be found by looking for the
+definition of another symbol.  For example, a test file might use a
+macro to generate calls to @code{ert-deftest} (@pxref{How to Write
+Tests,,,ert, ERT: Emacs Lisp Regression Testing}) where the code is
+boiler plate and only varying data need to be passed in.  In such cases,
+the @code{find-function-type-alist} property of the symbol can be an
+alist that augments @code{find-function-regexp-alist} telling how to
+find the definition of symbols of this type.
+
+The @code{find-function-regexp-alist} property is most easily maintained
+with the convenience function @code{find-function-update-type-alist}.
+
+@defun find-function-update-type-alist symbol type variable
+Update property @code{find-function-type-alist} of @var{symbol} with
+a new element containing key @var{type} and value @var{variable}.
+@end defun
+
+In the example of a macro defining calls to @code{ert-deftest},
+the macro could put the property @code{find-function-type-alist} on each
+test defined, associating @code{ert--test} (the internal type of ERT
+tests) with the name of a regexp or function that can find the correct
+macro call.  The file defining the macro would also have to provide that
+definition-finding function or regexp.
+Here is an example using a function to find the definition:
+
+@example
+@group
+(defmacro define-foo-test (data)
+  "Define a test of the foo system using DATA."
+  (declare (debug (&rest sexp)))
+  (let ((test-name (intern (concat ...))))
+    `(progn
+       (find-function-update-type-alist
+        ',test-name 'ert--test 'foo-find-test-def-function)
+       (ert-deftest ,test-name ()
+         ,(concat "Test foo with " ...)
+         ...))))
+@end group
+
+@group
+(defun foo-find-test-def-function (test-name)
+  "Search for the `define-foo-test' call defining TEST-NAME.
+Return non-nil if the definition is found."
+  (let ((regexp ...))
+    (re-search-forward regexp nil t)))
+@end group
+@end example
+
 @node Calling Functions
 @section Calling Functions
 @cindex function invocation
@@ -964,7 +1070,17 @@ The result is a new function that accepts the rest of
 arguments and calls the original function with all the arguments
 combined.
 
-  Here's how to do partial application in Emacs Lisp:
+  In Emacs Lisp, this is best done with an anonymous function.  For
+example, if you have a function @samp{my-function} that takes two
+arguments, you could do something like this:
+
+@example
+(mapcar (lambda (x) (my-function 123 x)) @dots{})
+@end example
+
+  You can also do partial application using the function
+@code{apply-partially}.  However, this will be slower than using an
+anonymous function with @code{lambda}.
 
 @defun apply-partially func &rest args
 This function returns a new function which, when called, will call
@@ -1030,15 +1146,16 @@ the @code{call-interactively} function.  @xref{Interactive Call}.
 @cindex mapping functions
 
   A @dfn{mapping function} applies a given function (@emph{not} a
-special form or macro) to each element of a list or other collection.
+special form or macro) to each element of a sequence, such as a list or
+a vector or a string (@pxref{Sequences Arrays Vectors}).
 Emacs Lisp has several such functions; this section describes
 @code{mapcar}, @code{mapc}, @code{mapconcat}, and @code{mapcan}, which
-map over a list.  @xref{Definition of mapatoms}, for the function
+map over sequences.  @xref{Definition of mapatoms}, for the function
 @code{mapatoms} which maps over the symbols in an obarray.
 @xref{Definition of maphash}, for the function @code{maphash} which
 maps over key/value associations in a hash table.
 
-  These mapping functions do not allow char-tables because a char-table
+  These mapping functions do not work on char-tables because a char-table
 is a sparse array whose nominal range of indices is very large.  To map
 over a char-table in a way that deals properly with its sparse nature,
 use the function @code{map-char-table} (@pxref{Char-Tables}).
@@ -1378,7 +1495,7 @@ that don't require them.
 The type specializer, @code{(@var{arg} @var{type})}, can specify one
 of the @dfn{system types} in the following list.  When a parent type
 is specified, an argument whose type is any of its more specific child
-types, as well as grand-children, grand-grand-children, etc. will also
+types, as well as grand-children, grand-grand-children, etc.@: will also
 be compatible.
 
 @table @code
@@ -1621,22 +1738,15 @@ same way as ordinary functions.
 
   @xref{Lexical Binding}, for an example of using a closure.
 
-  Currently, an Emacs Lisp closure object is represented by a list
-with the symbol @code{closure} as the first element, a list
-representing the lexical environment as the second element, and the
-argument list and body forms as the remaining elements:
-
 @example
 ;; @r{lexical binding is enabled.}
 (lambda (x) (* x x))
      @result{} #f(lambda (x) [t] (* x x))
 @end example
 
-@noindent
-However, the fact that the internal structure of a closure is
-exposed to the rest of the Lisp world is considered an internal
-implementation detail.  For this reason, we recommend against directly
-examining or altering the structure of closure objects.
+  The internal structure of a closure is an implementation matter and we
+recommend against examining or altering it directly.  For the curious,
+@pxref{Closure Objects}.
 
 @node OClosures
 @section Open Closures
@@ -2727,24 +2837,27 @@ for the code emitted for the function (@pxref{Native-Compilation
 Variables}).
 
 @cindex function type declaration
+@cindex inferred type of function
 @item (ftype @var{type} &optional @var{function})
-Declare @var{type} to be the type of this function.  This is used for
-documentation by @code{describe-function}.  Also it can be used by the
-native compiler (@pxref{Native Compilation}) for improving code
-generation and for deriving more precisely the type of other functions
-without type declaration.
+Declare @var{type} to be the type of this function.  This type is used
+by @code{describe-function} for documentation, and by the native
+compiler (@pxref{Native Compilation}) for optimizing code generation and
+inferring types.  Incorrect type declarations may cause crashes in
+natively compiled code (see below).  Functions with type declarations
+are shown by @kbd{C-h C-f} as having a @dfn{declared type}, as opposed
+to an @dfn{inferred type} for functions without them.
 
-@var{type} is a @dfn{type specifier} (@pxref{Type Specifiers}) in the
+@var{type} is a @dfn{type specifier} (@pxref{Type Specifiers}) of the
 form @w{@code{(function (@var{arg-1-type} @dots{} @var{arg-n-type})
-RETURN-TYPE)}}.  Argument types can be interleaved with symbols
-@code{&optional} and @code{&rest} to match the function's arguments
+RETURN-TYPE)}}.  Argument types can be interleaved with @code{&optional}
+and @code{&rest} to reflect the function's calling convention
 (@pxref{Argument List}).
 
 @var{function} if present should be the name of function being defined.
 
-Here's an example of using @code{ftype} inside @code{declare} to declare
-a function @code{positive-p} that takes an argument of type @var{number}
-and return a @var{boolean}:
+Here's an example of using @code{ftype} inside @code{declare} to define
+a function @code{positive-p}, which takes an argument of type
+@var{number} and returns a @var{boolean}:
 
 @lisp
 @group
@@ -2755,9 +2868,9 @@ and return a @var{boolean}:
 @end group
 @end lisp
 
-Similarly this declares a function @code{cons-or-number} that: expects a
-first argument being a @var{cons} or a @var{number}, a second optional
-argument of type @var{string} and return one of the symbols
+Similarly, this defines a function @code{cons-or-number} that takes a
+first argument of type @var{cons} or a @var{number}, a second optional
+argument of type @var{string}, and returns one of the symbols
 @code{is-cons} or @code{is-number}:
 
 @lisp
@@ -2775,13 +2888,12 @@ argument of type @var{string} and return one of the symbols
 
 For description of additional types, see @ref{Lisp Data Types}).
 
-Declaring a function with an incorrect type produces undefined behavior
-and could lead to unexpected results or might even crash Emacs when
-natively-compiled code is loaded, if it was compiled with
-@code{compilation-safety} level of zero (@pxref{compilation-safety}).
-Note also that when redefining (or advising) a type-declared function,
-the replacement should respect the original signature to avoid such
-undefined behavior.
+Declaring a function with an incorrect type causes undefined behavior.
+If such a function is natively compiled with @code{compilation-safety}
+set to zero (@pxref{compilation-safety}), this may result in incorrect
+execution or even Emacs crashing when the compiled code is loaded.
+Redefining or advising a type-declared function must preserve the
+original signature to avoid these issues.
 
 @item no-font-lock-keyword
 This is valid for macros only.  Macros with this declaration are
@@ -2907,7 +3019,7 @@ known cases where @code{unsafep} returns @code{nil} for an unsafe
 expression.  However, a safe Lisp expression can return a string
 with a @code{display} property, containing an associated Lisp
 expression to be executed after the string is inserted into a buffer.
-This associated expression can be a virus.  In order to be safe, you
+This associated expression can be malicious.  In order to be safe, you
 must delete properties from all strings calculated by user code before
 inserting them into buffers.
 

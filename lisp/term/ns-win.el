@@ -214,6 +214,7 @@ The properties returned may include `top', `left', `height', and `width'."
 (defvaralias 'mac-right-option-modifier 'ns-right-option-modifier)
 (defvaralias 'mac-function-modifier 'ns-function-modifier)
 (declare-function ns-do-applescript "nsfns.m" (script))
+(declare-function ns-send-items "nsfns.m" (items))
 (defalias 'do-applescript 'ns-do-applescript)
 
 ;;;; Services
@@ -830,15 +831,15 @@ See the documentation of `create-fontset-from-fontset-spec' for the format.")
 	(setq menu-bar-final-items '(buffer services hide-app quit))
 
 	;; If running under GNUstep, "Help" is moved and renamed "Info".
-	(bindings--define-key global-map [menu-bar help-menu]
+        (define-key global-map [menu-bar help-menu]
 	  (cons "Info" menu-bar-help-menu))
-	(bindings--define-key global-map [menu-bar quit]
+        (define-key global-map [menu-bar quit]
 	  '(menu-item "Quit" save-buffers-kill-emacs
 		      :help "Save unsaved buffers, then exit"))
-	(bindings--define-key global-map [menu-bar hide-app]
+        (define-key global-map [menu-bar hide-app]
 	  '(menu-item "Hide" ns-do-hide-emacs
 		      :help "Hide Emacs"))
-	(bindings--define-key global-map [menu-bar services]
+        (define-key global-map [menu-bar services]
 	  (cons "Services" (make-sparse-keymap "Services")))))
 
 

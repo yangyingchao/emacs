@@ -24,8 +24,8 @@
 
 ;;; Tree-sitter language versions
 ;;
-;; php-ts-mode is known to work with the following languages and version:
-;; - tree-sitter-phpdoc: fe3202e468bc17332bec8969f2b50ff1f1da3a46
+;; php-ts-mode has been tested with the following grammars and version:
+;; - tree-sitter-phpdoc: v0.1.5
 ;; - tree-sitter-css: v0.23.1-1-g6a442a3
 ;; - tree-sitter-jsdoc: v0.23.2
 ;; - tree-sitter-javascript: v0.23.1-2-g108b2d4
@@ -33,7 +33,7 @@
 ;; - tree-sitter-php: v0.23.11
 ;;
 ;; We try our best to make builtin modes work with latest grammar
-;; versions, so a more recent grammar version has a good chance to work.
+;; versions, so a more recent grammar has a good chance to work too.
 ;; Send us a bug report if it doesn't.
 
 ;;; Commentary:
@@ -69,6 +69,7 @@
 
 (require 'treesit)
 (require 'c-ts-common) ;; For comment indent and filling.
+(require 'html-ts-mode) ;; for embed html
 (require 'css-mode) ;; for embed css into html
 (require 'js) ;; for embed javascript into html
 (require 'comint)
@@ -81,23 +82,25 @@
 
 ;;; Install treesitter language parsers
 (defvar php-ts-mode--language-source-alist
-  '((php . ("https://github.com/tree-sitter/tree-sitter-php" "v0.23.11" "php/src"))
-    (phpdoc . ("https://github.com/claytonrcarter/tree-sitter-phpdoc"))
-    (html . ("https://github.com/tree-sitter/tree-sitter-html"  "v0.23.0"))
-    (javascript . ("https://github.com/tree-sitter/tree-sitter-javascript" "v0.23.0"))
-    (jsdoc . ("https://github.com/tree-sitter/tree-sitter-jsdoc" "v0.23.0"))
-    (css . ("https://github.com/tree-sitter/tree-sitter-css" "v0.23.0")))
+  '((php "https://github.com/tree-sitter/tree-sitter-php"
+         :commit "43aad2b9a98aa8e603ea0cf5bb630728a5591ad8"
+         :source-dir "php/src")
+    (phpdoc "https://github.com/claytonrcarter/tree-sitter-phpdoc"
+            :commit "fe3202e468bc17332bec8969f2b50ff1f1da3a46"))
   "Treesitter language parsers required by `php-ts-mode'.
-You can customize this variable if you want to stick to a specific
-commit and/or use different parsers.")
+You can customize `treesit-language-source-alist' if you want
+to stick to a specific commit and/or use different parsers.")
+
+(dolist (item php-ts-mode--language-source-alist)
+  (add-to-list 'treesit-language-source-alist item t))
 
 (defun php-ts-mode-install-parsers ()
   "Install all the required treesitter parsers.
-`php-ts-mode--language-source-alist' defines which parsers to install."
+`treesit-language-source-alist' defines which parsers to install.
+It's pre-filled by loading \"html-ts-mode\", \"css-mode\", \"js\"."
   (interactive)
-  (let ((treesit-language-source-alist php-ts-mode--language-source-alist))
-    (dolist (item php-ts-mode--language-source-alist)
-      (treesit-install-language-grammar (car item)))))
+  (dolist (lang '(php phpdoc html css javascript jsdoc))
+    (treesit-install-language-grammar lang)))
 
 ;;; Custom variables
 
@@ -131,11 +134,15 @@ Works like `css--fontify-region'."
   :type 'boolean
   :safe 'booleanp)
 
-(defcustom php-ts-mode-php-executable (or (executable-find "php") "/usr/bin/php")
-  "The location of PHP executable."
+(defcustom php-ts-mode-php-default-executable (or (executable-find "php") "/usr/bin/php")
+  "The default PHP executable."
   :tag "PHP Executable"
   :version "30.1"
   :type 'file)
+
+(defvar-local php-ts-mode-alternative-php-program-name nil
+  "An alternative to the usual `php' program name.
+If non-nil, `php-ts-mode--executable' looks for this instead of \"php\".")
 
 (defcustom php-ts-mode-php-config nil
   "The location of php.ini file.
@@ -267,7 +274,7 @@ Calls REPORT-FN directly."
              :noquery t
              :connection-type 'pipe
              :buffer (generate-new-buffer " *php-ts-mode-flymake*")
-             :command `(,php-ts-mode-php-executable
+             :command `(,(php-ts-mode--executable)
                         "-l" "-d" "display_errors=0")
              :sentinel
              (lambda (proc _event)
@@ -302,6 +309,16 @@ Calls REPORT-FN directly."
 
 
 ;;; Utils
+
+(defun php-ts-mode--executable ()
+  "Return the absolute filename of the php executable.
+If the `default-directory' is remote, search on a remote host, otherwise
+it searches locally.  If `php-ts-mode-alternative-php-program-name' is
+non-nil, it searches for this program instead of the usual `php'.
+If the search fails, it returns `php-ts-mode-php-default-executable'."
+  (or (executable-find
+      (or php-ts-mode-alternative-php-program-name "php") t)
+    php-ts-mode-php-default-executable))
 
 (defun php-ts-mode--get-indent-style ()
   "Helper function to set indentation style.
@@ -593,11 +610,11 @@ doesn't have a child.
 PARENT is NODE's parent, BOL is the beginning of non-whitespace
 characters of the current line."
   (when-let* ((prev-sibling
-               (or (treesit-node-prev-sibling node t)
-                   (treesit-node-prev-sibling
-                    (treesit-node-first-child-for-pos parent bol) t)
-                   (treesit-node-child parent -1 t)))
-              (continue t))
+              (or (treesit-node-prev-sibling node t)
+                  (treesit-node-prev-sibling
+                   (treesit-node-first-child-for-pos parent bol) t)
+                  (treesit-node-child parent -1 t)))
+             (continue t))
     (save-excursion
       (while (and prev-sibling continue)
         (goto-char (treesit-node-start prev-sibling))
@@ -823,28 +840,23 @@ characters of the current line."
 
 (defun php-ts-mode--test-namespace-name-as-prefix-p ()
   "Return t if namespace_name_as_prefix is a named node, nil otherwise."
-  (ignore-errors
-    (progn (treesit-query-compile 'php "(namespace_name_as_prefix)" t) t)))
+  (treesit-query-valid-p 'php "(namespace_name_as_prefix)"))
 
 (defun php-ts-mode--test-namespace-aliasing-clause-p ()
   "Return t if namespace_aliasing_clause is a named node, nil otherwise."
-  (ignore-errors
-    (progn (treesit-query-compile 'php "(namespace_aliasing_clause)" t) t)))
+  (treesit-query-valid-p 'php "(namespace_aliasing_clause)"))
 
 (defun php-ts-mode--test-namespace-use-group-clause-p ()
   "Return t if namespace_use_group_clause is a named node, nil otherwise."
-  (ignore-errors
-    (progn (treesit-query-compile 'php "(namespace_use_group_clause)" t) t)))
+  (treesit-query-valid-p 'php "(namespace_use_group_clause)"))
 
 (defun php-ts-mode--test-visibility-modifier-operation-clause-p ()
   "Return t if (visibility_modifier (operation)) is defined, nil otherwise."
-  (ignore-errors
-    (progn (treesit-query-compile 'php "(visibility_modifier (operation))" t) t)))
+  (treesit-query-valid-p 'php "(visibility_modifier (operation))"))
 
 (defun php-ts-mode--test-property-hook-clause-p ()
   "Return t if property_hook is a named node, nil otherwise."
-  (ignore-errors
-    (progn (treesit-query-compile 'php "(property_hook)" t) t)))
+  (treesit-query-valid-p 'php "(property_hook)"))
 
 (defun php-ts-mode--font-lock-settings ()
   "Tree-sitter font-lock settings."
@@ -1136,32 +1148,6 @@ For NODE, OVERRIDE, START, and END, see `treesit-font-lock-rules'."
    'font-lock-warning-face
    override start end))
 
-(defun php-ts-mode--html-language-at-point (point)
-  "Return the language at POINT assuming the point is within a HTML region."
-  (let* ((node (treesit-node-at point 'html))
-         (parent (treesit-node-parent node))
-         (node-query (format "(%s (%s))"
-                             (treesit-node-type parent)
-                             (treesit-node-type node))))
-    (cond
-     ((string-equal "(script_element (raw_text))" node-query) 'javascript)
-     ((string-equal "(style_element (raw_text))" node-query) 'css)
-     (t 'html))))
-
-(defun php-ts-mode--language-at-point (point)
-  "Return the language at POINT."
-  (let* ((node (treesit-node-at point 'php))
-         (node-type (treesit-node-type node))
-         (parent (treesit-node-parent node))
-         (node-query (format "(%s (%s))" (treesit-node-type parent) node-type)))
-    (save-excursion
-      (goto-char (treesit-node-start node))
-      (cond
-       ((not (member node-query '("(program (text))"
-                                  "(text_interpolation (text))")))
-        'php)
-       (t (php-ts-mode--html-language-at-point point))))))
-
 
 ;;; Imenu
 
@@ -1234,7 +1220,7 @@ Return nil if the NODE has no field “name” or if NODE is not a defun node."
 `treesit-defun-type-regexp' defines what constructs to indent."
   (interactive "*")
   (when-let* ((orig-point (point-marker))
-              (node (treesit-defun-at-point)))
+             (node (treesit-defun-at-point)))
     (indent-region (treesit-node-start node)
                    (treesit-node-end node))
     (goto-char orig-point)))
@@ -1396,22 +1382,15 @@ Depends on `c-ts-common-comment-setup'."
   :syntax-table php-ts-mode--syntax-table
 
   (if (not (and
-            (treesit-ready-p 'php)
-            (treesit-ready-p 'phpdoc)
-            (treesit-ready-p 'html)
-            (treesit-ready-p 'javascript)
-            (treesit-ready-p 'jsdoc)
-            (treesit-ready-p 'css)))
+            (treesit-ensure-installed 'php)
+            (treesit-ensure-installed 'phpdoc)
+            (treesit-ensure-installed 'html)
+            (treesit-ensure-installed 'javascript)
+            (treesit-ensure-installed 'jsdoc)
+            (treesit-ensure-installed 'css)))
       (error "Tree-sitter for PHP isn't
     available.  You can install the parsers with M-x
     `php-ts-mode-install-parsers'")
-
-    ;; Require html-ts-mode only when we load php-ts-mode
-    ;; so that we don't get a tree-sitter compilation warning for
-    ;; php-ts-mode.
-    (defvar html-ts-mode--indent-rules)
-    (require 'html-ts-mode)
-    ;; For embed html
 
     ;; phpdoc is a local parser, don't create a parser for it
     (treesit-parser-create 'html)
@@ -1452,8 +1431,6 @@ Depends on `c-ts-common-comment-setup'."
                     (start_tag (tag_name))
                     (raw_text) @cap))))
 
-    (setq-local treesit-language-at-point-function #'php-ts-mode--language-at-point)
-
     ;; Navigation.
     (setq-local treesit-defun-type-regexp
                 (regexp-opt '("class_declaration"
@@ -1469,7 +1446,30 @@ Depends on `c-ts-common-comment-setup'."
     (setq-local treesit-thing-settings
                 `((php
                    (defun ,treesit-defun-type-regexp)
-                   (sexp (not ,(rx (or "{" "}" "[" "]" "(" ")" ","))))
+                   (sexp (not (or (and named
+                                       ,(rx bos (or "program"
+                                                    "comment")
+                                            eos))
+                                  (and anonymous
+                                       ,(rx bos (or "{" "}" "[" "]"
+                                                    "(" ")" ",")
+                                            eos)))))
+                   (list
+                    ,(rx bos (or "namespace_use_group"
+                                 "enum_declaration_list"
+                                 "declaration_list"
+                                 "property_hook_list"
+                                 "use_list"
+                                 "anonymous_function_use_clause"
+                                 "formal_parameters"
+                                 "match_block"
+                                 "switch_block"
+                                 "compound_statement"
+                                 "parenthesized_expression"
+                                 "_array_destructing"
+                                 "arguments"
+                                 "_complex_string_part")
+                         eos))
                    (sentence  ,(regexp-opt
                                 '("break_statement"
                                   "case_statement"
@@ -1518,7 +1518,7 @@ Depends on `c-ts-common-comment-setup'."
     (setq-local electric-indent-chars
                 (append "{}():;," electric-indent-chars))
 
-    ;; Imenu/Which-function/Outline
+    ;; Imenu/Which-function
     (setq-local treesit-simple-imenu-settings
                 '(("Class" "\\`class_declaration\\'" nil nil)
                   ("Enum" "\\`enum_declaration\\'" nil nil)
@@ -1529,6 +1529,16 @@ Depends on `c-ts-common-comment-setup'."
                   ("Trait" "\\`trait_declaration\\'" nil nil)
                   ("Variable" "\\`variable_name\\'" nil nil)
                   ("Constant" "\\`const_element\\'" nil nil)))
+
+    ;; Outline
+    (setq-local treesit-outline-predicate
+                (rx bos (or "class_declaration"
+                            "function_definition"
+                            "interface_declaration"
+                            "method_declaration"
+                            "namespace_definition"
+                            "trait_declaration")
+                    eos))
 
     ;; Font-lock.
     (setq-local treesit-font-lock-settings
@@ -1625,7 +1635,7 @@ CONFIG."
       (message "Run PHP built-in web server with args %s into buffer %s"
                (string-join args " ")
                buf-name)
-      (apply #'make-comint name php-ts-mode-php-executable nil args))
+      (apply #'make-comint name (php-ts-mode--executable) nil args))
     (funcall
      (if (called-interactively-p 'interactive) #'display-buffer #'get-buffer)
      buf-name)))
@@ -1717,18 +1727,19 @@ Prompt for CMD if `php-ts-mode-php-executable' is nil.
 Optional CONFIG, if supplied, is the php.ini file to use."
   (interactive (when current-prefix-arg
                  (list
-                  (read-string "Run PHP: " php-ts-mode-php-executable)
+                  (read-string "Run PHP: " (php-ts-mode--executable))
                   (expand-file-name
                    (read-file-name "With config: " php-ts-mode-php-config)))))
-  (let ((buffer (get-buffer-create php-ts-mode-inferior-php-buffer))
-        (cmd (or
-              cmd
-              php-ts-mode-php-executable
-              (read-string "Run PHP: " php-ts-mode-php-executable)))
-        (config (or
-                 config
-                 (and php-ts-mode-php-config
-                      (expand-file-name php-ts-mode-php-config)))))
+  (let* ((php-prog (php-ts-mode--executable))
+         (buffer (get-buffer-create php-ts-mode-inferior-php-buffer))
+         (cmd (or
+               cmd
+               php-prog
+               (read-string "Run PHP: " php-prog)))
+         (config (or
+                  config
+                  (and php-ts-mode-php-config
+                       (expand-file-name php-ts-mode-php-config)))))
     (unless (comint-check-proc buffer)
       (with-current-buffer buffer
         (inferior-php-ts-mode-startup cmd config)

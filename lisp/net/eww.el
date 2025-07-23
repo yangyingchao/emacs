@@ -35,6 +35,7 @@
 (require 'url-file)
 (require 'vtable)
 (require 'xdg)
+(require 'track-changes)
 (eval-when-compile (require 'subr-x))
 
 (defgroup eww nil
@@ -49,7 +50,6 @@
 - %t is replaced by the title.
 - %u is replaced by the URL."
   :version "24.4"
-  :group 'eww
   :type 'string)
 
 (defcustom eww-search-confirm-send-region t
@@ -58,15 +58,13 @@ Non-nil if EWW should ask for confirmation before sending the
 selected region to the configured search engine.  This is the
 default to mitigate the risk of accidental data leak.  Set this
 variable to nil to send the region to the search engine
-straightaway."
+straight away."
   :version "31.1"
-  :group 'eww
   :type 'boolean)
 
 (defcustom eww-search-prefix "https://duckduckgo.com/html/?q="
   "Prefix URL to search engine."
   :version "24.4"
-  :group 'eww
   :type 'string)
 
 (defcustom eww-use-browse-url "\\`mailto:"
@@ -80,7 +78,6 @@ The action to be taken can be further customized via
   "Default directory where `eww' saves downloaded files.
 Used by `eww--download-directory', which see."
   :version "29.1"
-  :group 'eww
   :type 'directory)
 
 (defun eww--download-directory ()
@@ -99,7 +96,6 @@ is defined, use the latter instead."
 This should either be a directory name or a function (called with
 no parameters) that returns a directory name."
   :version "28.1"
-  :group 'eww
   :type '(choice directory function))
 
 ;;;###autoload
@@ -113,7 +109,6 @@ Each of the elements is a function returning either a string or a list
 of strings.  The results will be joined into a single list with
 duplicate entries (if any) removed."
   :version "30.1"
-  :group 'eww
   :type 'hook
   :options '(eww-links-at-point
              thing-at-point-url-at-point
@@ -131,13 +126,11 @@ complete response of the server from which the page was requested.
 If the list of the functions is exhausted without any non-nil value,
 EWW assumes content-type is \"application/octet-stream\", per RFC-9110."
   :version "31.1"
-  :group 'eww
   :type '(repeat function))
 
 (defcustom eww-bookmarks-directory user-emacs-directory
   "Directory where bookmark files will be stored."
   :version "25.1"
-  :group 'eww
   :type 'directory)
 
 (defcustom eww-desktop-remove-duplicates t
@@ -146,7 +139,6 @@ If non-nil, repetitive EWW history entries (comprising of the URI, the
 title, and the point position) will not be saved as part of the Emacs
 desktop.  Otherwise, such entries will be retained."
   :version "25.1"
-  :group 'eww
   :type 'boolean)
 
 (defcustom eww-restore-desktop nil
@@ -156,7 +148,6 @@ If nil, buffers will require manual reload, and will contain the text
 specified in `eww-restore-reload-prompt' instead of the actual Web
 page contents."
   :version "25.1"
-  :group 'eww
   :type '(choice (const :tag "Restore all automatically" t)
                  (const :tag "Require manual reload" nil)))
 
@@ -167,13 +158,11 @@ This prompt will be used if `eww-restore-desktop' is nil.
 
 The string will be passed through `substitute-command-keys'."
   :version "25.1"
-  :group 'eww
   :type 'string)
 
 (defcustom eww-history-limit 50
   "Maximum number of entries to retain in the history."
   :version "25.1"
-  :group 'eww
   :type '(choice (const :tag "Unlimited" nil)
                  integer))
 
@@ -192,7 +181,6 @@ the first item is the program, and the rest are the arguments."
   "\\`\\(video/\\|audio/\\|application/ogg\\)"
   "Always use external browser for specified content-type."
   :version "24.4"
-  :group 'eww
   :type '(choice (const :tag "Never" nil)
                  regexp))
 
@@ -203,7 +191,6 @@ If t, then open the URL in a new tab rather than a new buffer if
 If `tab-bar', then open the URL in a new tab only when
 the tab bar is enabled."
   :version "27.1"
-  :group 'eww
   :type '(choice (const :tag "Always open URL in new tab" t)
                  (const :tag "Open new tab when tab bar is enabled" tab-bar)
                  (const :tag "Never open URL in new tab" nil)))
@@ -226,7 +213,6 @@ EWW provides the following values for this option:
 
 You can also set this to any other function you wish."
   :version "30.1"
-  :group 'eww
   :type '(choice (function-item :tag "Delete future history"
                                 eww-delete-future-history)
                  (function-item :tag "Clone previous history"
@@ -238,7 +224,6 @@ You can also set this to any other function you wish."
 (defcustom eww-after-render-hook nil
   "A hook called after eww has finished rendering the buffer."
   :version "25.1"
-  :group 'eww
   :type 'hook)
 
 (defcustom eww-auto-rename-buffer nil
@@ -266,20 +251,17 @@ of `eww-buffer-name-length'."
           (const :tag "Do not rename buffers (default)" nil)
           (const :tag "Rename buffer to web page title" title)
           (const :tag "Rename buffer to web page URL" url)
-          (function :tag "A user-defined function to rename the buffer"))
-  :group 'eww)
+          (function :tag "A user-defined function to rename the buffer")))
 
 (defcustom eww-buffer-name-length 40
   "Length of renamed buffer name, per `eww-auto-rename-buffer'."
   :type 'natnum
-  :version "29.1"
-  :group 'eww)
+  :version "29.1")
 
 (defcustom eww-form-checkbox-selected-symbol "[X]"
   "Symbol used to represent a selected checkbox.
 See also `eww-form-checkbox-symbol'."
   :version "24.4"
-  :group 'eww
   :type '(choice (const "[X]")
                  (const "☒")            ; Unicode BALLOT BOX WITH X
                  (const "☑")            ; Unicode BALLOT BOX WITH CHECK
@@ -289,7 +271,6 @@ See also `eww-form-checkbox-symbol'."
   "Symbol used to represent a checkbox.
 See also `eww-form-checkbox-selected-symbol'."
   :version "24.4"
-  :group 'eww
   :type '(choice (const "[ ]")
                  (const "☐")            ; Unicode BALLOT BOX
                  string))
@@ -327,62 +308,54 @@ by default."
      :box (:line-width 2 :style released-button)
      :background "#808080" :foreground "black"))
   "Face for eww buffer buttons."
-  :version "24.4"
-  :group 'eww)
+  :version "24.4")
 
 (defface eww-form-file
   '((((type x w32 ns haiku pgtk android) (class color))	; Like default mode line
      :box (:line-width 2 :style released-button)
      :background "#808080" :foreground "black"))
   "Face for eww buffer buttons."
-  :version "25.1"
-  :group 'eww)
+  :version "25.1")
 
 (defface eww-form-checkbox
   '((((type x w32 ns haiku pgtk android) (class color))	; Like default mode line
      :box (:line-width 2 :style released-button)
      :background "lightgrey" :foreground "black"))
   "Face for eww buffer buttons."
-  :version "24.4"
-  :group 'eww)
+  :version "24.4")
 
 (defface eww-form-select
   '((((type x w32 ns haiku pgtk android) (class color))	; Like default mode line
      :box (:line-width 2 :style released-button)
      :background "lightgrey" :foreground "black"))
   "Face for eww buffer buttons."
-  :version "24.4"
-  :group 'eww)
+  :version "24.4")
 
 (defface eww-form-text
   '((t :background "#505050"
        :foreground "white"
        :box (:line-width 1)))
   "Face for eww text inputs."
-  :version "24.4"
-  :group 'eww)
+  :version "24.4")
 
 (defface eww-form-textarea
   '((t :background "#C0C0C0"
        :foreground "black"
        :box (:line-width 1)))
   "Face for eww textarea inputs."
-  :version "24.4"
-  :group 'eww)
+  :version "24.4")
 
 (defface eww-invalid-certificate
   '((default :weight bold)
     (((class color)) :foreground "red"))
   "Face for web pages with invalid certificates."
-  :version "25.1"
-  :group 'eww)
+  :version "25.1")
 
 (defface eww-valid-certificate
   '((default :weight bold)
     (((class color)) :foreground "ForestGreen"))
   "Face for web pages with valid certificates."
-  :version "25.1"
-  :group 'eww)
+  :version "25.1")
 
 (defvar eww-data nil)
 (defvar eww-history nil)
@@ -391,6 +364,7 @@ by default."
 If zero, EWW is at the newest page, which isn't yet present in
 `eww-history'.")
 (defvar eww-prompt-history nil)
+(defvar-local eww--change-tracker-id nil)
 
 (defvar eww-local-regex "localhost"
   "When this regex is found in the URL, it's not a keyword but an address.")
@@ -811,9 +785,11 @@ Use CODING-SYSTEM to decode the region; if nil, decode as UTF-8.
 This replaces the region with the preprocessed HTML."
   (setq coding-system (or coding-system 'utf-8))
   (with-restriction start end
-    (condition-case nil
-        (decode-coding-region (point-min) (point-max) coding-system)
-      (coding-system-error nil))
+    (unless (and (not enable-multibyte-characters)
+		 (eq coding-system 'utf-8))
+      (condition-case nil
+          (decode-coding-region (point-min) (point-max) coding-system)
+        (coding-system-error nil)))
     ;; Remove CRLF and replace NUL with &#0; before parsing.
     (while (re-search-forward "\\(\r$\\)\\|\0" nil t)
       (replace-match (if (match-beginning 1) "" "&#0;") t t))
@@ -840,7 +816,6 @@ This replaces the region with the preprocessed HTML."
       (setq bidi-paragraph-direction nil)
       (plist-put eww-data :dom document)
       (let ((inhibit-read-only t)
-	    (inhibit-modification-hooks t)
             ;; Possibly set by the caller, e.g., `eww-render' which
             ;; preserves the old URL #target before chasing redirects.
             (shr-target-id (or shr-target-id
@@ -857,6 +832,11 @@ This replaces the region with the preprocessed HTML."
                 (link . eww-tag-link)
                 (meta . eww-tag-meta)
                 (a . eww-tag-a)))))
+        ;; Unregister any existing change tracker while we render the
+        ;; document.
+        (when eww--change-tracker-id
+          (track-changes-unregister eww--change-tracker-id)
+          (setq eww--change-tracker-id nil))
 	(erase-buffer)
         (with-delayed-message (2 "Rendering HTML...")
 	  (shr-insert-document document))
@@ -876,6 +856,11 @@ This replaces the region with the preprocessed HTML."
 	  (while (and (not (eobp))
 		      (get-text-property (point) 'eww-form))
 	    (forward-line 1)))))
+      ;; We used to enable this in `eww-mode', but it cause tracking of
+      ;; changes while we insert the document, whereas we only care
+      ;; about changes performed afterwards.
+      (setq eww--change-tracker-id (track-changes-register
+                                    #'eww--track-changes :nobefore t))
       (eww-size-text-inputs))))
 
 (defun eww-display-html (charset url &optional document point buffer)
@@ -883,12 +868,14 @@ This replaces the region with the preprocessed HTML."
     (with-current-buffer buffer
       (plist-put eww-data :source source)))
   (unless document
-    (let ((dom (eww--parse-html-region (point) (point-max) charset)))
-      (when (eww-default-readable-p url)
-        (eww-score-readability dom)
-        (setq dom (eww-highest-readability dom))
-        (with-current-buffer buffer
-          (plist-put eww-data :readable t)))
+    (let ((dom (eww--parse-html-region (point) (point-max) charset))
+          readable)
+      (when-let* (((eww-default-readable-p url))
+                  (readable-dom (eww-readable-dom dom)))
+        (setq dom readable-dom
+              readable t))
+      (with-current-buffer buffer
+        (plist-put eww-data :readable readable))
       (setq document (eww-document-base url dom))))
   (eww-display-document document point buffer))
 
@@ -1058,7 +1045,7 @@ This replaces the region with the preprocessed HTML."
 	(erase-buffer)
 	(insert data)
 	(condition-case nil
-	    (decode-coding-region (point-min) (1+ (length data)) encode)
+	    (decode-coding-region (point-min) (point) encode)
 	  (coding-system-error nil)))
       (goto-char (point-min)))))
 
@@ -1185,42 +1172,99 @@ adds a new entry to `eww-history'."
                 (eww--parse-html-region (point-min) (point-max))))
          (base (plist-get eww-data :url)))
     (when make-readable
-      (eww-score-readability dom)
-      (setq dom (eww-highest-readability dom)))
-    (when eww-readable-adds-to-history
-      (eww-save-history)
-      (eww--before-browse)
-      (dolist (elem '(:source :url :title :next :previous :up :peer))
-        (plist-put eww-data elem (plist-get old-data elem))))
-    (eww-display-document (eww-document-base base dom))
-    (plist-put eww-data :readable make-readable)
-    (eww--after-page-change)))
+      (unless (setq dom (eww-readable-dom dom))
+        (message "Unable to extract readable text from this page")))
+    (when dom
+      (when eww-readable-adds-to-history
+        (eww-save-history)
+        (eww--before-browse)
+        (dolist (elem '(:source :url :peer))
+          (plist-put eww-data elem (plist-get old-data elem))))
+      (eww-display-document (eww-document-base base dom))
+      (plist-put eww-data :readable make-readable)
+      (eww--after-page-change))))
 
-(defun eww-score-readability (node)
-  (let ((score -1))
-    (cond
-     ((memq (dom-tag node) '(script head comment))
-      (setq score -2))
-     ((eq (dom-tag node) 'meta)
-      (setq score -1))
-     ((eq (dom-tag node) 'img)
-      (setq score 2))
-     ((eq (dom-tag node) 'a)
-      (setq score (- (length (split-string (dom-text node))))))
-     (t
+(defun eww--walk-readability (node callback &optional noscore)
+  "Walk through all children of NODE to score readability.
+After scoring, call CALLBACK with the node and score.  If NOSCORE is
+non-nil, don't actually compute a score; just call the callback."
+  (let ((score nil))
+    (unless noscore
+      (cond
+       ((stringp node)
+        (setq score (length (split-string node))
+              noscore t))
+       ((memq (dom-tag node) '(head comment script style template))
+        (setq score -2
+              noscore t))
+       ((eq (dom-tag node) 'meta)
+        (setq score -1
+              noscore t))
+       ((eq (dom-tag node) 'img)
+        (setq score 2
+              noscore t))
+       ((eq (dom-tag node) 'a)
+        (setq score (- (length (split-string (dom-text node))))
+              noscore t))
+       (t
+        (setq score -1))))
+    (when (consp node)
       (dolist (elem (dom-children node))
-	(cond
-         ((stringp elem)
-          (setq score (+ score (length (split-string elem)))))
-         ((consp elem)
-	  (setq score (+ score
-			 (or (cdr (assoc :eww-readability-score (cdr elem)))
-			     (eww-score-readability elem)))))))))
-    ;; Cache the score of the node to avoid recomputing all the time.
-    (dom-set-attribute node :eww-readability-score score)
+        (let ((subscore (eww--walk-readability elem callback noscore)))
+          (when (and (not noscore) subscore)
+            (incf score subscore)))))
+    (funcall callback node score)
     score))
 
+(defun eww-readable-dom (dom)
+  "Return a readable version of DOM.
+If EWW can't create a readable version, return nil instead."
+  (let ((head-nodes nil)
+        (best-node nil)
+        (best-score most-negative-fixnum))
+    (eww--walk-readability
+     dom
+     (lambda (node score)
+       (when (consp node)
+         (when (and score (> score best-score)
+                    ;; We set a lower bound to how long we accept that
+                    ;; the readable portion of the page is going to be.
+                    (> (length (split-string (dom-texts node))) 100))
+           (setq best-score score
+                 best-node node))
+         ;; Keep track of any <title> and <link> tags we find to include
+         ;; in the final document.  EWW uses them for various features,
+         ;; like renaming the buffer or navigating to "next" and
+         ;; "previous" pages.  NOTE: We could probably filter out
+         ;; stylesheet <link> tags here, though it doesn't really matter
+         ;; since we don't *do* anything with stylesheets...
+         (when (memq (dom-tag node) '(title link base))
+           ;; Copy the node, but not any of its (non-text) children.
+           ;; This way, we can ensure that we don't include a node
+           ;; directly in our list in addition to as a child of some
+           ;; other node in the list.  This is ok for <title> and <link>
+           ;; tags, but might need changed if supporting other tags.
+           (let* ((inner-text (dom-texts node ""))
+                  (new-node `(,(dom-tag node)
+                              ,(dom-attributes node)
+                              ,@(when (length> inner-text 0)
+                                  (list inner-text)))))
+             (push new-node head-nodes))))))
+    (when (and best-node (not (eq best-node dom)))
+      `(html nil
+             (head nil ,@head-nodes)
+             (body nil ,best-node)))))
+
+(defun eww-score-readability (node)
+  (declare (obsolete 'eww--walk-readability "31.1"))
+  (eww--walk-readability
+   node
+   (lambda (node score)
+     (when (and score (consp node))
+       (dom-set-attribute node :eww-readability-score score)))))
+
 (defun eww-highest-readability (node)
+  (declare (obsolete 'eww-readable-dom "31.1"))
   (let ((result node)
 	highest)
     (dolist (elem (dom-non-text-children node))
@@ -1377,15 +1421,16 @@ within text input fields."
 
 ;; Autoload cookie needed by desktop.el.
 ;;;###autoload
-(define-derived-mode eww-mode special-mode "eww"
-  "Mode for browsing the web.
-
-\\{eww-mode-map}"
+(define-derived-mode eww-mode special-mode
+  `("eww"
+    (:eval (when (plist-get eww-data :readable)
+             '(:propertize ":readable"
+               help-echo "Showing only human-readable text of page"))))
+  "Mode for browsing the web."
   :interactive nil
   (setq-local eww-data (list :title ""))
   (setq-local browse-url-browser-function #'eww-browse-url)
-  (add-hook 'after-change-functions #'eww-process-text-input nil t)
-  (add-hook 'context-menu-functions 'eww-context-menu 5 t)
+  (add-hook 'context-menu-functions #'eww-context-menu 5 t)
   (setq-local eww-history nil)
   (setq-local eww-history-position 0)
   (when (boundp 'tool-bar-map)
@@ -1410,7 +1455,7 @@ within text input fields."
   (setq-local shr-url-transformer #'eww--transform-url)
   ;; Also rescale images when rescaling the text.
   (add-hook 'text-scale-mode-hook #'eww--rescale-images nil t)
-  (setq-local outline-search-function 'shr-outline-search
+  (setq-local outline-search-function #'shr-outline-search
               outline-level 'shr-outline-level)
   (add-hook 'post-command-hook #'eww-check-text-conversion nil t)
   (setq buffer-read-only t)
@@ -1513,7 +1558,6 @@ instead of `browse-url-new-window-flag'."
 
 (defun eww-restore-history (elem)
   (let ((inhibit-read-only t)
-	(inhibit-modification-hooks t)
 	(text (plist-get elem :text)))
     (setq eww-data elem)
     (if (null text)
@@ -1784,16 +1828,34 @@ Interactively, EVENT is the value of `last-nonmenu-event'."
   "List of input types which represent a text input.
 See URL `https://developer.mozilla.org/en-US/docs/Web/HTML/Element/Input'.")
 
-(defun eww-process-text-input (beg end replace-length)
-  (when-let* ((pos (field-beginning (point))))
-    (let* ((form (get-text-property pos 'eww-form))
-	   (properties (text-properties-at pos))
+(defun eww--track-changes (tracker-id)
+  (track-changes-fetch
+   tracker-id
+   (lambda (beg end len)
+     (eww--process-text-input beg end len)
+     ;; Disregard our own changes.
+     (track-changes-fetch tracker-id #'ignore))))
+
+(defun eww--process-text-input (beg end replace-length)
+  (when-let* ((_ (integerp replace-length))
+              (pos end)
+              (form (or (get-text-property pos 'eww-form)
+                        (progn
+                          (setq pos (max (point-min) (1- beg)))
+                          (get-text-property pos 'eww-form)))))
+    (let* ((properties (text-properties-at pos))
            (buffer-undo-list t)
 	   (inhibit-read-only t)
 	   (length (- end beg replace-length))
 	   (type (plist-get form :type)))
-      (when (and form
-		 (member type eww-text-input-types))
+      (when (member type eww-text-input-types)
+	;; Make sure the new text has the right properties, which also
+	;; integrates the new text into the "current field".
+	(set-text-properties beg end properties)
+	;; FIXME: This tries to preserve the "length" of the input field,
+        ;; but we should try to preserve the *width* instead.
+        ;; FIXME: Maybe instead of inserting/deleting spaces, we should
+        ;; have a single stretch-space character at the end.
 	(cond
 	 ((> length 0)
 	  ;; Delete some space at the end.
@@ -1805,22 +1867,25 @@ See URL `https://developer.mozilla.org/en-US/docs/Web/HTML/Element/Input'.")
 	    (while (and (> length 0)
 			(eq (char-after (1- (point))) ? ))
 	      (delete-region (1- (point)) (point))
-	      (cl-decf length))))
+              (decf length))))
 	 ((< length 0)
 	  ;; Add padding.
 	  (save-excursion
-	    (goto-char end)
-	    (goto-char
-	     (if (equal type "textarea")
-		 (1- (line-end-position))
-	       (1+ (eww-end-of-field))))
-	    (let ((start (point)))
-              (insert (make-string (abs length) ? ))
-	      (set-text-properties start (point) properties))
-	    (goto-char (1- end)))))
-	(set-text-properties (cdr (assq :start form))
-                             (cdr (assq :end form))
-			     properties)
+	    (goto-char pos)
+	    (let* ((field-length (- (eww-end-of-field)
+                                    (eww-beginning-of-field)))
+                   (ideal-length (cdr (assq :length form))))
+              ;; FIXME: This test isn't right for multiline fields.
+              (when (or (null ideal-length) (> ideal-length field-length))
+	        (goto-char
+		 (if (equal type "textarea")
+		     (1- (line-end-position))
+		   (1+ (eww-end-of-field))))
+		(let ((start (point)))
+	          (insert (make-string (min (abs length)
+	                                    (- ideal-length field-length))
+	                               ? ))
+	          (set-text-properties start (point) properties)))))))
 	(let ((value (buffer-substring-no-properties
 		      (eww-beginning-of-field)
 		      (eww-end-of-field))))
@@ -1836,12 +1901,12 @@ See URL `https://developer.mozilla.org/en-US/docs/Web/HTML/Element/Input'.")
                'display (make-string (length value) ?*)))))))))
 
 (defun eww-tag-textarea (dom)
-  (let ((start (point))
-        (value (or (dom-text dom) ""))
+  (let ((value (or (dom-text dom) ""))
 	(lines (string-to-number (or (dom-attr dom 'rows) "10")))
 	(width (string-to-number (or (dom-attr dom 'cols) "10")))
-	end form)
+	start end form)
     (shr-ensure-newline)
+    (setq start (point))
     (insert value)
     (shr-ensure-newline)
     (when (< (count-lines start (point)) lines)
@@ -2042,11 +2107,11 @@ Interactively, EVENT is the value of `last-nonmenu-event'."
 		(< start (point-max)))
       (when (or (get-text-property start 'eww-form)
 		(setq start (next-single-property-change start 'eww-form)))
-	(let ((props (get-text-property start 'eww-form)))
-          (nconc props (list (cons :start start)))
+	(let ((props (get-text-property start 'eww-form))
+              (beg start))
           (setq start (next-single-property-change
                        start 'eww-form nil (point-max)))
-          (nconc props (list (cons :end start))))))))
+          (nconc props (list (cons :length (- start beg)))))))))
 
 (defun eww-input-value (input)
   (let ((type (plist-get input :type))
@@ -2208,9 +2273,13 @@ EXTERNAL is the prefix argument.  If called interactively with
      ;; This is a #target url in the same page as the current one.
      ((and (setq target (url-target (url-generic-parse-url url)))
 	   (eww-same-page-p url (plist-get eww-data :url)))
-      (let ((point (point)))
+      (let ((old-data eww-data)
+            (point (point)))
 	(eww-save-history)
         (eww--before-browse)
+        ;; Copy previous `eww-data', since everything but the URL will
+        ;; stay the same, and we don't re-render the document.
+        (setq eww-data (copy-sequence old-data))
 	(plist-put eww-data :url url)
         (goto-char (point-min))
         (if-let* ((match (text-property-search-forward 'shr-target-id target #'member)))
@@ -2320,26 +2389,32 @@ If CHARSET is nil then use UTF-8."
       (eww-reload nil 'utf-8)
     (eww-reload nil charset)))
 
+(defun eww--buffer-p (buf)
+  (provided-mode-derived-p (buffer-local-value 'major-mode buf)
+                           'eww-mode))
+
 (defun eww-switch-to-buffer ()
-  "Prompt for an EWW buffer to display in the selected window."
+  "Prompt for an EWW buffer to display in the selected window.
+If no such buffer exist, fallback to calling `eww'."
   (interactive nil eww-mode)
-  (let ((completion-extra-properties
-         `(:annotation-function
-           ,(lambda (buf)
-              (with-current-buffer buf
-                (format " %s" (eww-current-url))))))
-        (curbuf (current-buffer)))
-    (pop-to-buffer-same-window
-     (read-buffer "Switch to EWW buffer: "
-                  (cl-loop for buf in (nreverse (buffer-list))
-                           if (with-current-buffer buf (derived-mode-p 'eww-mode))
-                           return buf)
-                  t
-                  (lambda (bufn)
-                    (setq bufn (if (consp bufn) (cdr bufn) (get-buffer bufn)))
-                    (and (with-current-buffer bufn
-                           (derived-mode-p 'eww-mode))
-                         (not (eq bufn curbuf))))))))
+  (let ((list (cl-loop for buf in (nreverse (buffer-list))
+                       if (and (eww--buffer-p buf)
+                               (not (eq buf (current-buffer))))
+                       collect (buffer-name buf))))
+    (if list
+        (pop-to-buffer-same-window
+         (if (length= list 1)
+             (car list)
+           (completing-read "Switch to EWW buffer: "
+                            (completion-table-with-metadata
+                             list
+                             `((category . buffer)
+                               (annotation-function
+                                . ,(lambda (buf)
+                                     (with-current-buffer buf
+                                       (format " %s" (eww-current-url)))))))
+                            nil t)))
+      (call-interactively #'eww))))
 
 (defun eww-toggle-fonts ()
   "Toggle whether to use monospaced or font-enabled layouts."
@@ -2390,6 +2465,7 @@ If CHARSET is nil then use UTF-8."
 	     (plist-get eww-data :title))))
 
 (defun eww-write-bookmarks ()
+  "Write the bookmarks in `eww-bookmarks-directory'."
   (with-temp-file (expand-file-name "eww-bookmarks" eww-bookmarks-directory)
     (insert ";; Auto-generated file; don't edit -*- mode: lisp-data -*-\n")
     (let ((print-length nil)
@@ -2409,115 +2485,146 @@ If ERROR-OUT, signal user-error if there are no bookmarks."
       (user-error "No bookmarks are defined"))))
 
 ;;;###autoload
-(defun eww-list-bookmarks ()
-  "Display the bookmarks."
+(defun eww-list-bookmarks (&optional build-only)
+  "Display the eww bookmarks.
+Optional argument BUILD-ONLY, when non-nil, means to build the buffer
+without popping it."
   (interactive)
   (eww-read-bookmarks t)
-  (pop-to-buffer "*eww bookmarks*")
-  (eww-bookmark-prepare))
+  (with-current-buffer (get-buffer-create "*eww bookmarks*")
+    (eww-bookmark-mode)
+    (eww--bookmark-prepare))
+  (unless build-only
+    (pop-to-buffer "*eww bookmarks*")))
 
-(defun eww-bookmark-prepare ()
-  (set-buffer (get-buffer-create "*eww bookmarks*"))
-  (eww-bookmark-mode)
-  (let* ((width (/ (window-width) 2))
-	 (format (format "%%-%ds %%s" width))
-	 (inhibit-read-only t)
-	 start title)
+(defun eww--bookmark-prepare ()
+  "Display a table with the list of eww bookmarks.
+Will remove all buffer contents first."
+  (let ((inhibit-read-only t))
     (erase-buffer)
-    (setq header-line-format (concat " " (format format "Title" "URL")))
-    (dolist (bookmark eww-bookmarks)
-      (setq start (point)
-	    title (plist-get bookmark :title))
-      (when (> (length title) width)
-	(setq title (truncate-string-to-width title width)))
-      (insert (format format title (plist-get bookmark :url)) "\n")
-      (put-text-property start (1+ start) 'eww-bookmark bookmark))
-    (goto-char (point-min))))
+    (make-vtable
+     :columns '((:name "Order" :min-width 6)
+                (:name "Title" :min-width "25%" :max-width "50%")
+                (:name "URL"))
+     :objects-function #'eww--bookmark-format-data
+     ;; use fixed-font face
+     :face 'default
+     :sort-by '((0 . ascend))
+     )))
+
+(defun eww--bookmark-format-data ()
+  "Format `eww-bookmarks' for use in a vtable.
+The data is returned as a list (order title url bookmark), for use
+in of `eww-bookmark-mode'.  Order stars counting from 1."
+  (seq-map-indexed (lambda (bm index)
+                     (list
+                      (+ 1 index)
+                      (plist-get bm :title)
+                      (plist-get bm :url)
+                      bm))
+                   eww-bookmarks))
 
 (defvar eww-bookmark-kill-ring nil)
+
+(defun eww--bookmark-check-order-sort ()
+  "Signal a user error unless the bookmark vtable is sorted by asc order."
+  ;; vtables sort respecting the previous sort column. As long as
+  ;; "order" was last, the kill/yank operations will make sense, no
+  ;; matter what sort was used before.
+  (when-let* ((the-table (vtable-current-table))
+              (last-sort-pair (car (last (vtable-sort-by the-table)))))
+    (unless (and (= 0 (car last-sort-pair))
+                 (eq 'ascend (cdr last-sort-pair)))
+      (user-error
+       "Can't kill/yank bookmarks unless the table is sorted by ascending Order"))))
 
 (defun eww-bookmark-kill ()
   "Kill the current bookmark."
   (interactive nil eww-bookmark-mode)
-  (let* ((start (line-beginning-position))
-	 (bookmark (get-text-property start 'eww-bookmark))
-	 (inhibit-read-only t))
-    (unless bookmark
+  (eww--bookmark-check-order-sort)
+  (let ((bookmark-at-point (nth 3 (vtable-current-object)))
+	(position (point)))
+    (unless bookmark-at-point
       (user-error "No bookmark on the current line"))
     (forward-line 1)
-    (push (buffer-substring start (point)) eww-bookmark-kill-ring)
-    (delete-region start (point))
-    (setq eww-bookmarks (delq bookmark eww-bookmarks))
-    (eww-write-bookmarks)))
+    (push bookmark-at-point eww-bookmark-kill-ring)
+    (setq eww-bookmarks (delq bookmark-at-point eww-bookmarks))
+    (eww-write-bookmarks)
+    (when (= (point) (point-max))
+      (forward-line -1)) ; don't go outside the vtable, or reverting fails
+    (vtable-revert-command)
+    (goto-char position)))
 
 (defun eww-bookmark-yank ()
   "Yank a previously killed bookmark to the current line."
   (interactive nil eww-bookmark-mode)
+  (eww--bookmark-check-order-sort)
   (unless eww-bookmark-kill-ring
     (user-error "No previously killed bookmark"))
-  (beginning-of-line)
-  (let ((inhibit-read-only t)
-	(start (point))
-	bookmark)
-    (insert (pop eww-bookmark-kill-ring))
-    (setq bookmark (get-text-property start 'eww-bookmark))
-    (if (= start (point-min))
-	(push bookmark eww-bookmarks)
-      (let ((line (count-lines start (point))))
-	(setcdr (nthcdr (1- line) eww-bookmarks)
-		(cons bookmark (nthcdr line eww-bookmarks)))))
-    (eww-write-bookmarks)))
+  (let* ((bookmark-at-point (nth 3 (vtable-current-object)))
+         (index-bap (seq-position eww-bookmarks bookmark-at-point))
+         ;; store in a list, for simpler concat
+         (bookmark-to-insert (list (pop eww-bookmark-kill-ring)))
+         (position (point)))
+    (setq eww-bookmarks
+          (if (= (point) (point-max))
+              ;; special case: point is in the last line of the buffer,
+              ;; so we know to append the bookmark at the end
+              (progn
+                (goto-char (point-min)) ; move inside the vtable instance
+                (seq-concatenate 'list eww-bookmarks bookmark-to-insert))
+            ;; TODO: a simpler way of doing this?
+            (seq-concatenate 'list
+                             (seq-subseq eww-bookmarks 0 index-bap)
+                             bookmark-to-insert
+                             (seq-subseq eww-bookmarks index-bap))))
+    (eww-write-bookmarks)
+    (vtable-revert-command)
+    (vtable-beginning-of-table)
+    (goto-char position)))
 
 (defun eww-bookmark-browse ()
   "Browse the bookmark under point in eww."
   (interactive nil eww-bookmark-mode)
-  (let ((bookmark (get-text-property (line-beginning-position) 'eww-bookmark)))
-    (unless bookmark
+  (let ((bookmark-at-point (nth 3 (vtable-current-object))))
+    (unless bookmark-at-point
       (user-error "No bookmark on the current line"))
     (quit-window)
-    (eww-browse-url (plist-get bookmark :url))))
+    (eww-browse-url (plist-get bookmark-at-point :url))))
 
 (defun eww-next-bookmark ()
   "Go to the next bookmark in the list."
   (interactive nil eww-bookmark-mode)
-  (let ((first nil)
-	bookmark)
+  (let (fresh-buffer target-bookmark)
     (unless (get-buffer "*eww bookmarks*")
-      (setq first t)
-      (eww-read-bookmarks t)
-      (eww-bookmark-prepare))
+      (setq fresh-buffer t)
+      (eww-list-bookmarks t))
     (with-current-buffer "*eww bookmarks*"
-      (when (and (not first)
-		 (not (eobp)))
-	(forward-line 1))
-      (setq bookmark (get-text-property (line-beginning-position)
-					'eww-bookmark))
-      (unless bookmark
-	(user-error "No next bookmark")))
-    (eww-browse-url (plist-get bookmark :url))))
+      (unless fresh-buffer
+        (forward-line 1))
+      (setq target-bookmark (nth 3 (vtable-current-object))))
+    (unless target-bookmark
+      ;; usually because we moved past end of the table
+      (user-error "No next bookmark"))
+    (eww-browse-url (plist-get target-bookmark :url))))
 
 (defun eww-previous-bookmark ()
   "Go to the previous bookmark in the list."
   (interactive nil eww-bookmark-mode)
-  (let ((first nil)
-	bookmark)
+  (let (fresh-buffer target-bookmark)
     (unless (get-buffer "*eww bookmarks*")
-      (setq first t)
-      (eww-read-bookmarks t)
-      (eww-bookmark-prepare))
+      (setq fresh-buffer t)
+      (eww-list-bookmarks t))
     (with-current-buffer "*eww bookmarks*"
-      (if first
-	  (goto-char (point-max))
-	(beginning-of-line))
-      ;; On the final line.
-      (when (eolp)
-	(forward-line -1))
-      (if (bobp)
-	  (user-error "No previous bookmark")
-	(forward-line -1))
-      (setq bookmark (get-text-property (line-beginning-position)
-					'eww-bookmark)))
-    (eww-browse-url (plist-get bookmark :url))))
+      (when fresh-buffer
+	(vtable-end-of-table))
+      ;; didn't move to a previous line, because we
+      ;; were already on the first one
+      (unless (= -1 (forward-line -1))
+        (setq target-bookmark (nth 3 (vtable-current-object)))))
+    (unless target-bookmark
+      (user-error "No previous bookmark"))
+    (eww-browse-url (plist-get target-bookmark :url))))
 
 (defun eww-bookmark-urls ()
   "Get the URLs from the current list of bookmarks."
@@ -2532,9 +2639,9 @@ If ERROR-OUT, signal user-error if there are no bookmarks."
   :menu '("Eww Bookmark"
           ["Exit" quit-window t]
           ["Browse" eww-bookmark-browse
-           :active (get-text-property (line-beginning-position) 'eww-bookmark)]
+           :active (nth 3 (vtable-current-object))]
           ["Kill" eww-bookmark-kill
-           :active (get-text-property (line-beginning-position) 'eww-bookmark)]
+           :active (nth 3 (vtable-current-object))]
           ["Yank" eww-bookmark-yank
            :active eww-bookmark-kill-ring]))
 
@@ -2681,15 +2788,17 @@ see)."
 
 (defun eww-buffer-list ()
   "Return a list of all live eww buffers."
-  (match-buffers '(derived-mode . eww-mode)))
+  (match-buffers #'eww--buffer-p))
 
 (defun eww-list-buffers ()
   "Pop a buffer with a list of eww buffers."
   (interactive)
-  (with-current-buffer (get-buffer-create "*eww buffers*")
-    (eww-buffers-mode)
-    (eww--list-buffers-display-table))
-  (pop-to-buffer "*eww buffers*"))
+  (if (null (eww-buffer-list))
+      (message "No EWW buffers.")
+    (with-current-buffer (get-buffer-create "*eww buffers*")
+      (eww-buffers-mode)
+      (eww--list-buffers-display-table))
+    (pop-to-buffer "*eww buffers*")))
 
 (defun eww--list-buffers-display-table (&optional _ignore-auto _noconfirm)
   "Display a table with the list of eww buffers.
@@ -2784,10 +2893,10 @@ The format of the data is (title url buffer), for use in of
 \\{eww-buffers-mode-map}"
   :interactive nil
   (buffer-disable-undo)
-  (setq truncate-lines t
-        ;; This is set so that pressing "g" with point just below the
-        ;; table will still update the listing.
-        revert-buffer-function #'eww--list-buffers-display-table))
+  (setq truncate-lines t)
+  ;; This is set so that pressing "g" with point just below the table
+  ;; will still update the listing.
+  (setq-local revert-buffer-function #'eww--list-buffers-display-table))
 
 ;;; Desktop support
 

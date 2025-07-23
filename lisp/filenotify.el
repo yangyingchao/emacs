@@ -123,7 +123,9 @@ It is nil or a `file-notify--rename' defstruct where the cookie can be nil.")
 (defun file-notify--expand-file-name (watch file)
   "Full file name of FILE reported for WATCH."
   (directory-file-name
-   (expand-file-name file (file-notify--watch-directory watch))))
+   (if (file-name-absolute-p file)
+       (concat (file-remote-p (file-notify--watch-directory watch)) file)
+     (expand-file-name file (file-notify--watch-directory watch)))))
 
 (cl-defun file-notify--callback-inotify ((desc actions file
                                           &optional file1-or-cookie))
@@ -189,7 +191,7 @@ It is nil or a `file-notify--rename' defstruct where the cookie can be nil.")
   "Notification callback for file name handlers."
   (file-notify--handle-event
    desc
-   ;; File name handlers use gfilenotify or inotify actions.
+   ;; File name handlers use gfilenotify, inotify or w32notify actions.
    (delq nil (mapcar
               (lambda (action)
                 (cond
@@ -205,7 +207,12 @@ It is nil or a `file-notify--rename' defstruct where the cookie can be nil.")
                  ((memq action '(delete delete-self move-self)) 'deleted)
                  ((eq action 'moved-from) 'renamed-from)
                  ((eq action 'moved-to) 'renamed-to)
-                 ((memq action '(ignored unmount)) 'stopped)))
+                 ((memq action '(ignored unmount)) 'stopped)
+                 ;; w32notify actions:
+                 ((eq action 'added) 'created)
+                 ((eq action 'modified) 'changed)
+                 ((eq action 'removed) 'deleted)
+                 ((memq action '(renamed-from renamed-to)) action)))
               (if (consp actions) actions (list actions))))
    file file1-or-cookie))
 
@@ -233,16 +240,18 @@ It is nil or a `file-notify--rename' defstruct where the cookie can be nil.")
          (and (stringp file1)
               (string-equal (file-notify--watch-filename watch)
                             (file-name-nondirectory file1))))
-    (when file-notify-debug
-      (message
-       "file-notify-callback %S %S %S %S %S %S %S"
-       desc action file file1 watch
-       (file-notify--watch-absolute-filename watch)
-       (file-notify--watch-directory watch)))
-    (funcall (file-notify--watch-callback watch)
-             (if file1
-                 (list desc action file file1)
-               (list desc action file)))))
+    ;; The callback could have removed in `file-notify--rm-descriptor'.
+    (when (file-notify--watch-callback watch)
+      (when file-notify-debug
+        (message
+         "file-notify--call-handler %S %S %S %S %S %S %S"
+         desc action file file1 watch
+         (file-notify--watch-absolute-filename watch)
+         (file-notify--watch-directory watch)))
+      (funcall (file-notify--watch-callback watch)
+               (if file1
+                   (list desc action file file1)
+                 (list desc action file))))))
 
 (defun file-notify--handle-event (desc actions file file1-or-cookie)
   "Handle an event returned from file notification.

@@ -193,6 +193,18 @@ uses `imenu--generic-function')."
   :type 'number
   :version "28.1")
 
+(defcustom imenu-allow-duplicate-menu-items t
+  "Non-nil means that Imenu can include duplicate menu items.
+For example, if the buffer contains multiple definitions of function
+`foo' then a menu item is included for each of them.
+Otherwise, only the first such definition is accessible from the menu.
+
+This option applies only to an Imenu menu, not also to the use of
+command `imenu', which uses `completing-read' to read a menu item.
+The use of that command doesn't allow duplicate items."
+  :type 'boolean
+  :version "31.1")
+
 ;;;###autoload
 (defvar-local imenu-generic-expression nil
   "List of definition matchers for creating an Imenu index.
@@ -391,7 +403,7 @@ The returned list DOES NOT share structure with LIST."
 	(i 0))
     (while remain
       (push (pop remain) sublist)
-      (cl-incf i)
+      (incf i)
       (and (= i n)
 	   ;; We have finished a sublist
 	   (progn (push (nreverse sublist) result)
@@ -505,15 +517,26 @@ Non-nil arguments are in recursive calls."
 (defun imenu--create-keymap (title alist &optional cmd)
   `(keymap ,title
            ,@(mapcar
-              (lambda (item)
-                `(,(intern (car item)) ,(car item)
-                  ,@(cond
-                     ((imenu--subalist-p item)
-                      (imenu--create-keymap (car item) (cdr item) cmd))
-                     (t
-                      (lambda () (interactive)
-                        (if cmd (funcall cmd item) item))))))
-              (seq-filter #'identity alist))))
+              (if imenu-allow-duplicate-menu-items
+                  (lambda (item)
+                    `(,(car item)
+                      ,(car item)
+                      ,@(cond
+                         ((imenu--subalist-p item)
+                          (imenu--create-keymap (car item) (cdr item) cmd))
+                         (t
+                          (lambda () (interactive)
+                            (if cmd (funcall cmd item) item))))))
+                (lambda (item)
+                  `(,(intern (car item))
+                    ,(car item)
+                    ,@(cond
+                       ((imenu--subalist-p item)
+                        (imenu--create-keymap (car item) (cdr item) cmd))
+                       (t
+                        (lambda () (interactive)
+                          (if cmd (funcall cmd item) item)))))))
+              (remq nil alist))))
 
 (defun imenu--in-alist (str alist)
   "Check whether the string STR is contained in multi-level ALIST."

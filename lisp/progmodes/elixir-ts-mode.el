@@ -23,12 +23,12 @@
 
 ;;; Tree-sitter language versions
 ;;
-;; elixir-ts-mode is known to work with the following languages and version:
-;; - tree-sitter-heex: v0.7.0
+;; elixir-ts-mode has been tested with the following grammars and version:
 ;; - tree-sitter-elixir: v0.3.3
+;; - tree-sitter-heex: v0.7.0
 ;;
 ;; We try our best to make builtin modes work with latest grammar
-;; versions, so a more recent grammar version has a good chance to work.
+;; versions, so a more recent grammar has a good chance to work too.
 ;; Send us a bug report if it doesn't.
 
 ;;; Commentary:
@@ -56,6 +56,17 @@
 (require 'treesit)
 (eval-when-compile (require 'rx))
 (treesit-declare-unavailable-functions)
+
+(add-to-list
+ 'treesit-language-source-alist
+ '(elixir "https://github.com/elixir-lang/tree-sitter-elixir"
+          :commit "02a6f7fd4be28dd94ee4dd2ca19cb777053ea74e")
+ t)
+(add-to-list
+ 'treesit-language-source-alist
+ '(heex "https://github.com/phoenixframework/tree-sitter-heex"
+        :commit "f6b83f305a755cd49cf5f6a66b2b789be93dc7b9")
+ t)
 
 (defgroup elixir-ts nil
   "Major mode for editing Elixir code."
@@ -110,13 +121,6 @@
   '((t (:inherit font-lock-preprocessor-face)))
   "Face used for attributes in Elixir files."
   :group 'elixir-ts)
-
-(defconst elixir-ts--sexp-regexp
-  (rx bol
-      (or "call" "stab_clause" "binary_operator" "list" "tuple" "map" "pair"
-          "sigil" "string" "atom" "alias" "arguments" "identifier"
-          "boolean" "quoted_content" "bitstring")
-      eol))
 
 (defconst elixir-ts--test-definition-keywords
   '("describe" "test"))
@@ -242,7 +246,21 @@
 (defvar elixir-ts--indent-rules
   (let ((offset elixir-ts-indent-offset))
     `((elixir
-       ((parent-is "^source$") column-0 0)
+       ((parent-is "^source$")
+        ,(lambda (_node _parent bol &rest _)
+           ;; If Elixir is embedded indent to parent
+           ;; otherwise indent to the bol.
+           (if (treesit-local-parsers-at (point))
+               (save-excursion
+                 (goto-char (treesit-node-start
+                             (treesit-node-at bol 'heex)))
+                 (back-to-indentation)
+                 (point))
+             (pos-bol)))
+        ,(lambda (_node _parent _bol &rest _)
+           (if (treesit-local-parsers-at (point))
+               elixir-ts-indent-offset
+             0)))
        ((parent-is "^string$") parent-bol 0)
        ((parent-is "^quoted_content$")
         (lambda (_n parent bol &rest _)
@@ -565,7 +583,49 @@
 
   "Tree-sitter font-lock settings.")
 
-(defvar elixir-ts--treesit-range-rules
+(defvar elixir-ts--font-lock-feature-list
+  '(( elixir-comment elixir-doc elixir-definition)
+    ( elixir-string elixir-keyword elixir-data-type)
+    ( elixir-sigil elixir-builtin elixir-string-escape)
+    ( elixir-function-call elixir-variable elixir-operator elixir-number ))
+  "Tree-sitter font-lock feature list.")
+
+(defvar elixir-ts--thing-settings
+  `((sexp (not (or (and named
+                        ,(rx bos (or "source" "keywords" "comment")
+                             eos))
+                   (and anonymous
+                        ,(rx bos (or "{" "}" "[" "]" "(" ")" ","
+                                     "do" "end")
+                             eos)))))
+    (list
+     (or (and "\\`arguments\\'" ,#'elixir-ts--with-parens-0-p)
+         (and "\\`unary_operator\\'" ,#'elixir-ts--with-parens-1-p)
+         ,(rx bos (or "block"
+                      "quoted_atom"
+                      "string"
+                      "interpolation"
+                      "sigil"
+                      "quoted_keyword"
+                      "list"
+                      "tuple"
+                      "bitstring"
+                      "map"
+                      "do_block"
+                      "anonymous_function")
+              eos)))
+    (sexp-default
+     ;; For `C-M-f' in "&|(a)"
+     ("(" . ,(lambda (node)
+               (equal (treesit-node-type (treesit-node-parent node))
+                      "unary_operator"))))
+    (sentence
+     ,(rx bos (or "call") eos))
+    (text
+     ,(rx bos (or "string" "sigil" "comment") eos)))
+  "`treesit-thing-settings' for Elixir.")
+
+(defvar elixir-ts--range-rules
   (when (treesit-available-p)
     (treesit-range-rules
      :embed 'heex
@@ -574,20 +634,11 @@
               (:match "^[HF]$" @_name)
               (quoted_content) @heex)))))
 
-(defvar heex-ts--sexp-regexp)
+(defvar heex-ts--range-rules)
+(defvar heex-ts--thing-settings)
 (defvar heex-ts--indent-rules)
 (defvar heex-ts--font-lock-settings)
-
-(defun elixir-ts--forward-sexp (&optional arg)
-  "Move forward across one balanced expression (sexp).
-With ARG, do it many times.  Negative ARG means move backward."
-  (or arg (setq arg 1))
-  (funcall
-   (if (> arg 0) #'treesit-end-of-thing #'treesit-beginning-of-thing)
-   (if (eq (treesit-language-at (point)) 'heex)
-       heex-ts--sexp-regexp
-     elixir-ts--sexp-regexp)
-   (abs arg)))
+(defvar heex-ts--font-lock-feature-list)
 
 (defun elixir-ts--treesit-anchor-grand-parent-bol (_n parent &rest _)
   "Return the beginning of non-space characters for the parent node of PARENT."
@@ -595,18 +646,6 @@ With ARG, do it many times.  Negative ARG means move backward."
     (goto-char (treesit-node-start (treesit-node-parent parent)))
     (back-to-indentation)
     (point)))
-
-(defun elixir-ts--treesit-language-at-point (point)
-  "Return the language at POINT."
-  (let ((node (treesit-node-at point 'elixir)))
-    (if (and (equal (treesit-node-type node) "quoted_content")
-             (let ((prev-sibling (treesit-node-prev-sibling node t)))
-               (and (treesit-node-p prev-sibling)
-                    (string-match-p
-                     (rx bos (or "H" "F") eos)
-                     (treesit-node-text prev-sibling)))))
-        'heex
-      'elixir)))
 
 (defun elixir-ts--defun-p (node)
   "Return non-nil when NODE is a defun."
@@ -636,6 +675,14 @@ Return nil if NODE is not a defun node or doesn't have a name."
                 (_ nil))))
     (_ nil)))
 
+(defun elixir-ts--with-parens-0-p (node)
+  (equal (treesit-node-type (treesit-node-child node 0))
+         "("))
+
+(defun elixir-ts--with-parens-1-p (node)
+  (equal (treesit-node-type (treesit-node-child node 1))
+         "("))
+
 (defvar elixir-ts--syntax-propertize-query
   (when (treesit-available-p)
     (treesit-query-compile
@@ -658,7 +705,7 @@ Return nil if NODE is not a defun node or doesn't have a name."
              (eq last-command-event ?\")
              (let ((count 0))
                (while (eq (char-before (- (point) count)) last-command-event)
-                 (cl-incf count))
+                 (incf count))
                (= count 3))
              (eq (char-after) last-command-event))
     (save-excursion
@@ -689,10 +736,11 @@ Return nil if NODE is not a defun node or doesn't have a name."
   (add-hook 'post-self-insert-hook
             #'elixir-ts--electric-pair-string-delimiter 'append t)
 
-  (when (treesit-ready-p 'elixir)
+  (when (treesit-ensure-installed 'elixir)
     ;; The HEEx parser has to be created first for elixir to ensure elixir
     ;; is the first language when looking for treesit ranges.
-    (when (treesit-ready-p 'heex)
+    ;; (In Emacs 31 this requirement is removed.)
+    (when (treesit-ensure-installed 'heex)
       ;; Require heex-ts-mode only when we load elixir-ts-mode
       ;; so that we don't get a tree-sitter compilation warning for
       ;; elixir-ts-mode.
@@ -702,17 +750,10 @@ Return nil if NODE is not a defun node or doesn't have a name."
     (setq-local treesit-primary-parser
                 (treesit-parser-create 'elixir))
 
-    (setq-local treesit-language-at-point-function
-                'elixir-ts--treesit-language-at-point)
-
     ;; Font-lock.
     (setq-local treesit-font-lock-settings elixir-ts--font-lock-settings)
     (setq-local treesit-font-lock-feature-list
-                '(( elixir-comment elixir-doc elixir-definition)
-                  ( elixir-string elixir-keyword elixir-data-type)
-                  ( elixir-sigil elixir-builtin elixir-string-escape)
-                  ( elixir-function-call elixir-variable elixir-operator elixir-number )))
-
+                elixir-ts--font-lock-feature-list)
 
     ;; Imenu.
     (setq-local treesit-simple-imenu-settings
@@ -722,15 +763,22 @@ Return nil if NODE is not a defun node or doesn't have a name."
     (setq-local treesit-simple-indent-rules elixir-ts--indent-rules)
 
     ;; Navigation.
-    (setq-local forward-sexp-function #'elixir-ts--forward-sexp)
+    (setq-local treesit-thing-settings
+                `((elixir ,@elixir-ts--thing-settings)
+                  (heex ,@heex-ts--thing-settings)))
     (setq-local treesit-defun-type-regexp
                 '("call" . elixir-ts--defun-p))
 
     (setq-local treesit-defun-name-function #'elixir-ts--defun-name)
 
     ;; Embedded Heex.
-    (when (treesit-ready-p 'heex)
-      (setq-local treesit-range-settings elixir-ts--treesit-range-rules)
+    (when (treesit-ensure-installed 'heex)
+      (setq-local treesit-range-settings
+                  (append elixir-ts--range-rules
+                          ;; Leave only local parsers from heex
+                          ;; for elixir->heex->elixir embedding.
+                          (seq-filter (lambda (r) (nth 2 r))
+                                      heex-ts--range-rules)))
 
       (setq-local treesit-font-lock-settings
                   (append treesit-font-lock-settings
@@ -741,15 +789,20 @@ Return nil if NODE is not a defun node or doesn't have a name."
                           heex-ts--indent-rules))
 
       (setq-local treesit-font-lock-feature-list
-                  '(( elixir-comment elixir-doc elixir-definition
-                      heex-comment heex-keyword heex-doctype )
-                    ( elixir-string elixir-keyword elixir-data-type
-                      heex-component heex-tag heex-attribute heex-string )
-                    ( elixir-sigil elixir-builtin elixir-string-escape)
-                    ( elixir-function-call elixir-variable elixir-operator elixir-number ))))
+                  (treesit-merge-font-lock-feature-list
+                   treesit-font-lock-feature-list
+                   heex-ts--font-lock-feature-list)))
 
     (treesit-major-mode-setup)
-    (setq-local syntax-propertize-function #'elixir-ts--syntax-propertize)))
+
+    (setq-local syntax-propertize-function #'elixir-ts--syntax-propertize)
+
+    ;; Enable the 'sexp' navigation by default
+    (setq-local forward-sexp-function #'treesit-forward-sexp
+                treesit-sexp-thing 'sexp
+                ;; But still use 'list' for `down-list' and `up-list'
+                treesit-sexp-thing-down-list 'list
+                treesit-sexp-thing-up-list 'list)))
 
 (derived-mode-add-parents 'elixir-ts-mode '(elixir-mode))
 

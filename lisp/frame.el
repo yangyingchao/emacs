@@ -60,6 +60,79 @@ The car of each entry is a regular expression matching a display
 name string.  The cdr is a symbol giving the window-system that
 handles the corresponding kind of display.")
 
+;; If you're adding a new frame parameter to `frame_parms' in frame.c,
+;; consider if it makes sense for the user to customize it via
+;; `initial-frame-alist' and the like.
+;; If it does, add it here, in order to provide completion for
+;; that parameter in the Customize UI.
+;; If the parameter has some special values, modify
+;; `frame--complete-parameter-value' to provide completion for those
+;; values as well.
+(defconst frame--special-parameters
+  '("alpha" "alpha-background" "auto-hide-function" "auto-lower"
+    "auto-raise" "background-color" "background-mode" "border-color"
+    "border-width" "bottom-divider-width" "bottom-visible" "buffer-list"
+    "buffer-predicate" "child-frame-border-width" "cursor-color"
+    "cursor-type" "delete-before" "display" "display-type"
+    "drag-internal-border" "drag-with-header-line" "drag-with-mode-line"
+    "drag-with-tab-line" "explicit-name" "fit-frame-to-buffer-margins"
+    "fit-frame-to-buffer-sizes" "font" "font-backend" "foreground-color"
+    "fullscreen" "fullscreen-restore" "height" "horizontal-scroll-bars"
+    "icon-left" "icon-name" "icon-top" "icon-type"
+    "inhibit-double-buffering" "internal-border-width" "keep-ratio"
+    "left" "left-fringe" "line-spacing" "menu-bar-lines" "min-height"
+    "min-width" "minibuffer" "minibuffer-exit" "mouse-color"
+    "mouse-wheel-frame" "name" "no-accept-focus" "no-focus-on-map"
+    "no-other-frame" "no-special-glyphs" "ns-appearance"
+    "ns-transparent-titlebar" "outer-window-id" "override-redirect"
+    "parent-frame" "right-fringe" "rigth-divider-width" "screen-gamma"
+    "scroll-bar-background" "scroll-bar-foreground" "scroll-bar-height"
+    "scroll-bar-width" "shaded" "skip-taskbar" "snap-width" "sticky"
+    "tab-bar-lines" "title" "tool-bar-lines" "tool-bar-position" "top"
+    "top-visible" "tty-color-mode" "undecorated" "unspittable"
+    "use-frame-synchronization" "user-position" "user-size"
+    "vertical-scroll-bars" "visibility" "wait-for-wm" "width" "z-group")
+  "List of special frame parameters that makes sense to customize.")
+
+(declare-function widget-field-text-end "wid-edit")
+(declare-function widget-field-start "wid-edit")
+(declare-function widget-get "wid-edit")
+
+(defun frame--complete-parameter-value (widget)
+  "Provide completion for WIDGET, which holds frame parameter's values."
+  (let* ((parameter (widget-value
+                     (nth 0
+                          (widget-get (widget-get widget :parent) :children))))
+         (comps (cond ((eq parameter 'display-type)
+                       '("color" "grayscale" "mono"))
+                      ((eq parameter 'z-group) '("nil" "above" "below"))
+                      ((memq parameter '(fullscreen fullscreen-restore))
+                       '("fullwidth" "fullheight" "fullboth" "maximized"))
+                      ((eq parameter 'cursor-type)
+                       '("t" "nil" "box" "hollow" "bar" "hbar"))
+                      ((eq parameter 'vertical-scroll-bars)
+                       '("nil" "left" "right"))
+                      ((eq parameter 'tool-bar-position)
+                       '("top" "bottom" "left" "right"))
+                      ((eq parameter 'minibuffer)
+                       '("t" "nil" "only"))
+                      ((eq parameter 'minibuffer-exit)
+                       '("nil" "t" "iconify-frame" "delete-frame"))
+                      ((eq parameter 'visibility) '("nil" "t" "icon"))
+                      ((memq parameter '(ns-appearance background-mode))
+                       '("dark" "light"))
+                      ((eq parameter 'font-backend)
+                       '("x" "xft" "xfthb" "ftcr" "ftcrhb" "gdi"
+                         "uniscribe" "harfbuzz"))
+                      ((memq parameter '(buffer-predicate auto-hide-function))
+                       (apply-partially
+                        #'completion-table-with-predicate
+                        obarray #'fboundp 'strict))
+                      (t nil))))
+    (completion-in-region (widget-field-start widget)
+                          (max (point) (widget-field-text-end widget))
+                          comps)))
+
 ;; The initial value given here used to ask for a minibuffer.
 ;; But that's not necessary, because the default is to have one.
 ;; By not specifying it here, we let an X resource specify it.
@@ -91,9 +164,11 @@ process:
 * Set `initial-frame-alist' in your normal init file in a way
   that matches the X resources, to override what you put in
   `default-frame-alist'."
-  :type '(repeat (cons :format "%v"
-		       (symbol :tag "Parameter")
-		       (sexp :tag "Value")))
+  :type `(repeat (cons :format "%v"
+                       (symbol :tag "Parameter"
+                               :completions ,frame--special-parameters)
+                       (sexp :tag "Value"
+                             :complete frame--complete-parameter-value)))
   :group 'frames)
 
 (defcustom minibuffer-frame-alist '((width . 80) (height . 2))
@@ -110,9 +185,11 @@ You can set this in your init file; for example,
 
 It is not necessary to include (minibuffer . only); that is
 appended when the minibuffer frame is created."
-  :type '(repeat (cons :format "%v"
-		       (symbol :tag "Parameter")
-		       (sexp :tag "Value")))
+  :type `(repeat (cons :format "%v"
+                       (symbol :tag "Parameter"
+                               :completions ,frame--special-parameters)
+                       (sexp :tag "Value"
+                             :complete frame--complete-parameter-value)))
   :group 'frames)
 
 (defun frame-deletable-p (&optional frame)
@@ -413,8 +490,12 @@ there (in decreasing order of priority)."
 	     parms
 	   ;; initial-frame-alist and default-frame-alist were already
 	   ;; applied in pc-win.el.
-	   (append initial-frame-alist window-system-frame-alist
-		   default-frame-alist parms nil)))
+	   (setq parms (append initial-frame-alist window-system-frame-alist
+			       default-frame-alist parms nil))
+	   ;; Don't enable tab-bar in daemon's initial frame.
+	   (when (and (daemonp) (not (frame-parameter nil 'client)))
+	     (setq parms (delq (assq 'tab-bar-lines parms) parms)))
+	   parms))
 	(if (null initial-window-system) ;; MS-DOS does this differently in pc-win.el
 	    (let ((newparms (frame-parameters))
 		  (frame (selected-frame)))
@@ -949,7 +1030,13 @@ guess the window-system from the display.
 
 On graphical displays, this function does not itself make the new
 frame the selected frame.  However, the window system may select
-the new frame according to its own rules."
+the new frame according to its own rules.
+
+By default do not display the current buffer in the new frame if the
+buffer is hidden, that is, if the buffer's name starts with a space.
+Display another buffer, one that could be returned by `other-buffer',
+instead.  However, if `expose-hidden-buffer' is non-nil, display the
+current buffer even if it is hidden."
   (interactive)
   (let* ((display (cdr (assq 'display parameters)))
          (w (cond
@@ -1143,10 +1230,11 @@ recently selected windows nor the buffer list."
     (set-mouse-position frame (1- (frame-width frame)) 0))))
 
 (defun other-frame (arg)
-  "Select the ARGth different visible frame on current display, and raise it.
-All frames are arranged in a cyclic order.
-This command selects the frame ARG steps away in that order.
-A negative ARG moves in the opposite order.
+  "Select the ARGth visible frame on current display, and raise it.
+All frames are arranged in a cyclic order.  This command selects the
+frame ARG steps away from the selected frame in that order.  A negative
+ARG moves in the opposite order.  It does not select a minibuffer-only
+frame.
 
 To make this command work properly, you must tell Emacs how the
 system (or the window manager) generally handles focus-switching
@@ -1174,6 +1262,9 @@ that variable should be nil."
   "Display the buffer of the next command in a new frame.
 The next buffer is the buffer displayed by the next command invoked
 immediately after this command (ignoring reading from the minibuffer).
+In case of multiple consecutive mouse events such as <down-mouse-1>,
+a mouse release event <mouse-1>, <double-mouse-1>, <triple-mouse-1>
+all bound commands are handled until one of them displays a buffer.
 Creates a new frame before displaying the buffer.
 When `switch-to-buffer-obey-display-actions' is non-nil,
 `switch-to-buffer' commands are also supported."
@@ -1208,18 +1299,38 @@ Calls `suspend-emacs' if invoked from the controlling tty device,
       (suspend-tty)))
    (t (suspend-emacs))))
 
-(defun make-frame-names-alist ()
-  ;; Only consider the frames on the same display.
-  (let* ((current-frame (selected-frame))
-	 (falist
-	  (cons
-	   (cons (frame-parameter current-frame 'name) current-frame) nil))
-	 (frame (next-frame nil 0)))
-    (while (not (eq frame current-frame))
-      (progn
-	(push (cons (frame-parameter frame 'name) frame) falist)
-	(setq frame (next-frame frame 0))))
-    falist))
+(defun frame-list-1 (&optional frame)
+  "Return list of all live frames starting with FRAME.
+The optional argument FRAME must specify a live frame and defaults to
+the selected frame.  Tooltip frames are not included."
+  (let* ((frame (window-normalize-frame frame))
+	 (frames (frame-list)))
+    (unless (eq (car frames) frame)
+      (let ((tail frames))
+	(while tail
+	  (if (eq (cadr tail) frame)
+	      (let ((head (cdr tail)))
+		(setcdr tail nil)
+		(setq frames (nconc head frames))
+		(setq tail nil))
+	    (setq tail (cdr tail))))))
+    frames))
+
+(defun make-frame-names-alist (&optional frame)
+  "Return alist of frame names and frames starting with FRAME.
+Only visible or iconified frames on the same terminal as FRAME are
+listed.  Frames with a non-nil `no-other-frame' parameter are not
+listed.  The optional argument FRAME must specify a live frame and
+defaults to the selected frame."
+  (let ((frames (frame-list-1 frame))
+	(terminal (frame-parameter frame 'terminal))
+	alist)
+    (dolist (frame frames)
+      (when (and (frame-visible-p frame)
+		 (eq (frame-parameter frame 'terminal) terminal)
+		 (not (frame-parameter frame 'no-other-frame)))
+	(push (cons (frame-parameter frame 'name) frame) alist)))
+    (nreverse alist)))
 
 (defvar frame-name-history nil)
 (defun select-frame-by-name (name)
@@ -2537,6 +2648,10 @@ details depend on the platform and environment.
 The `source' attribute describes the source from which the
 information was obtained.  On X, this may be one of: \"Gdk\",
 \"XRandR 1.5\", \"XRandr\", \"Xinerama\", or \"fallback\".
+If it is \"fallback\", it means Emacs was built without GTK
+and without XrandR or Xinerama extensions, in which case the
+information about multiple physical monitors will be provided
+as if they all as a whole formed a single monitor.
 
 A frame is dominated by a physical monitor when either the
 largest area of the frame resides in the monitor, or the monitor
@@ -2729,32 +2844,32 @@ deleting them."
   (interactive "i\nP")
   (setq frame (window-normalize-frame frame))
   (let ((minibuffer-frame (window-frame (minibuffer-window frame)))
-        (this (next-frame frame t))
+	(terminal (frame-terminal frame))
         (parent (frame-parent frame))
-        next)
+	(frames (frame-list)))
     ;; In a first round consider minibuffer-less frames only.
-    (while (not (eq this frame))
-      (setq next (next-frame this t))
-      (unless (or (eq (window-frame (minibuffer-window this)) this)
+    (dolist (this frames)
+      (unless (or (eq this frame)
+		  (eq this minibuffer-frame)
+		  (not (eq (frame-terminal this) terminal))
+		  (eq (window-frame (minibuffer-window this)) this)
                   ;; When FRAME is a child frame, delete its siblings
                   ;; only.
                   (and parent (not (eq (frame-parent this) parent)))
-                  ;; Do not delete a child frame of FRAME.
-                  (eq (frame-parent this) frame))
-        (if iconify (iconify-frame this) (delete-frame this)))
-      (setq this next))
+                  ;; Do not delete frame descending from FRAME.
+                  (frame-ancestor-p frame this))
+        (if iconify (iconify-frame this) (delete-frame this))))
     ;; In a second round consider all remaining frames.
-    (setq this (next-frame frame t))
-    (while (not (eq this frame))
-      (setq next (next-frame this t))
-      (unless (or (eq this minibuffer-frame)
+    (dolist (this frames)
+      (unless (or (eq this frame)
+		  (eq this minibuffer-frame)
+		  (not (eq (frame-terminal this) terminal))
                   ;; When FRAME is a child frame, delete its siblings
                   ;; only.
                   (and parent (not (eq (frame-parent this) parent)))
-                  ;; Do not delete a child frame of FRAME.
-                  (eq (frame-parent this) frame))
-        (if iconify (iconify-frame this) (delete-frame this)))
-      (setq this next))))
+                  ;; Do not delete frame descending from FRAME.
+                  (frame-ancestor-p frame this))
+        (if iconify (iconify-frame this) (delete-frame this))))))
 
 (defvar undelete-frame--deleted-frames nil
   "Internal variable used by `undelete-frame--save-deleted-frame'.")

@@ -5,6 +5,7 @@
 ;; Author: Helmut Eller <eller.helmut@gmail.com>
 ;; Maintainer: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Version: 1.0.1
+;; Package-Requires: ((emacs "25"))
 ;;
 ;; This program is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -316,11 +317,15 @@ EXPS is a list of rules/expressions that failed.")
   "Match PEXS at point.
 PEXS is a sequence of PEG expressions, implicitly combined with `and'.
 Returns STACK if the match succeed and signals an error on failure,
-moving point along the way."
+moving point along the way.
+For backward compatibility (and convenience) PEXS can also be a list of
+RULES in which case we run the first such rule.  In case of ambiguity,
+prefix PEXS with \"\" so it doesn't look like a list of rules."
   (if (and (consp (car pexs))
            (symbolp (caar pexs))
-           (not (ignore-errors
-                  (not (eq 'call (car (peg-normalize (car pexs))))))))
+           (not (or (get (peg--rule-id (caar pexs)) 'peg--rule-definition)
+                    (ignore-errors
+                      (not (eq 'call (car (peg-normalize (car pexs)))))))))
       ;; The first of `pexs' has not been defined as a rule, so assume
       ;; that none of them have been and they should be fed to
       ;; `with-peg-rules'
@@ -369,7 +374,7 @@ defaults to `ignore'."
   "Define PEG rule NAME as equivalent to PEXS.
 The PEG expressions in PEXS are implicitly combined with the
 sequencing `and' operator of PEG grammars."
-  (declare (indent 1))
+  (declare (indent 2))
   (let ((inline nil))
     (while (keywordp (car pexs))
       (pcase (pop pexs)
@@ -659,7 +664,7 @@ rulesets defined previously with `define-peg-ruleset'."
 
 ;; This is the main translation function.
 (defun peg-translate-exp (exp)
-  "Return the ELisp code to match the PE EXP."
+  "Return the Emacs Lisp code to match the PE EXP."
   ;; FIXME: This expansion basically duplicates `exp' in the output, which is
   ;; a serious problem because it's done recursively, so it makes the output
   ;; code's size exponentially larger than the input!
@@ -934,7 +939,8 @@ input.  PATH is the list of rules that we have visited so far."
   (cl-adjoin `(not ,x) merged :test #'equal))
 
 (cl-defmethod peg--merge-error (merged (_ (eql action)) _action) merged)
-(cl-defmethod peg--merge-error (merged (_ (eql null))) merged)
+(cl-defmethod peg--merge-error (merged (_ (eql guard)) e)
+  (if (eq e t) merged (cl-adjoin `(guard ,e) merged :test #'equal)))
 
 (provide 'peg)
 (require 'peg)

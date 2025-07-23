@@ -457,13 +457,13 @@ It is a list of lists (KEY PREDICATE REVERSE).")
 
 (defface proced-interruptible-sleep-status-code
   '((((class color) (min-colors 88)) (:foreground "DimGrey"))
-    (t (:italic t)))
+    (t (:slant italic)))
   "Face used in Proced buffers for interruptible sleep status code character \"S\"."
   :version "29.1")
 
 (defface proced-uninterruptible-sleep-status-code
   '((((class color)) (:foreground "red"))
-    (t (:bold t)))
+    (t (:weight bold)))
   "Face used in Proced buffers for uninterruptible sleep status code character \"D\"."
   :version "29.1")
 
@@ -471,7 +471,7 @@ It is a list of lists (KEY PREDICATE REVERSE).")
   '((((class color) (min-colors 88) (background dark)) (:foreground "DeepSkyBlue"))
     (((class color) (background dark)) (:foreground "cyan"))
     (((class color) (background light)) (:foreground "blue"))
-    (t (:bold t)))
+    (t (:weight bold)))
   "Face used in Proced buffers for executable names.
 The first word in the process arguments attribute is assumed to
 be the executable that runs in the process."
@@ -536,8 +536,8 @@ be the executable that runs in the process."
   :version "29.1")
 
 (defface proced-cpu
-  '((((class color) (min-colors 88)) (:foreground "#6d5cc3" :bold t))
-    (t (:bold t)))
+  '((((class color) (min-colors 88)) (:foreground "#6d5cc3" :weight bold))
+    (t (:weight bold)))
   "Face used in Proced buffers for process CPU utilization."
   :version "29.1")
 
@@ -548,13 +548,13 @@ be the executable that runs in the process."
   :version "29.1")
 
 (defface proced-user
-  '((t (:bold t)))
+  '((t (:weight bold)))
   "Face used in Proced buffers for the user owning the process."
   :version "29.1")
 
 (defface proced-time-colon
   '((((class color) (min-colors 88)) (:foreground "DarkMagenta"))
-    (t (:bold t)))
+    (t (:weight bold)))
   "Face used in Proced buffers for the colon in time strings."
   :version "29.1")
 
@@ -655,7 +655,6 @@ Important: the match ends just after the marker.")
   "h"         #'describe-mode
   "?"         #'proced-help
   "<remap> <undo>"            #'proced-undo
-  "<remap> <advertised-undo>" #'proced-undo
   ;; Additional keybindings are inherited from `special-mode-map'
   )
 (put 'proced-mark :advertised-binding "m")
@@ -1185,7 +1184,7 @@ Return the filtered process list."
             ( ;; apply predicate to each list of attributes
              (eq (car filter) 'function)
              (dolist (process process-alist)
-               (if (funcall (car filter) (cdr process))
+               (if (funcall (cdr filter) (cdr process))
                    (push process new-alist))))
             (t ;; apply predicate to specified attribute
              (let* ((cdrfilter (cdr filter))
@@ -1423,10 +1422,12 @@ a certain refinement, consider defining a new filter in `proced-filter-alist'."
 
 (defun proced-< (num1 num2)
   "Return t if NUM1 less than NUM2.
-Return `equal' if NUM1 equals NUM2.  Return nil if NUM1 greater than NUM2."
-  (if (= num1 num2)
-      'equal
-    (< num1 num2)))
+Return `equal' if NUM1 equals NUM2.  Return nil if NUM1 greater than NUM2.
+If either NUM1 or NUM2 is not a number, return nil."
+  (when (and (numberp num1) (numberp num2))
+    (if (= num1 num2)
+        'equal
+      (< num1 num2))))
 
 (defun proced-string-lessp (s1 s2)
   "Return t if string S1 is less than S2 in lexicographic order.
@@ -2026,7 +2027,7 @@ After updating a displayed Proced buffer run the normal hook
     (setq mode-name
           (concat "Proced"
                   (if proced-filter
-                      (concat ": " (symbol-name proced-filter))
+                      (format ": %S" proced-filter)
                     "")
                   (if proced-sort
                       (let* ((key (if (consp proced-sort) (car proced-sort)

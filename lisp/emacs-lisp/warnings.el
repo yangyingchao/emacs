@@ -122,9 +122,22 @@ See also `warning-suppress-log-types'."
   :version "22.1")
 
 (defcustom warning-display-at-bottom t
-  "Display the warning buffer at the bottom of the screen.
-The output window will be scrolled to the bottom of the buffer
-to show the last warning message."
+  "Whether to display the warning buffer at the bottom of the screen.
+If this is non-nil (the default), Emacs will attempt to display the
+window showing the warning buffer at the bottom of the selected
+frame, whether by reusing the bottom-most window or by creating a
+new window at the bottom of the frame.  The resulting window will be
+scrolled to the bottom of the buffer to show the last warning message.
+
+If the value of this variable is nil, Emacs will display the warning
+buffer in some window, as determined by `display-buffer' and its
+customizations.  In particular, the category designated by the
+symbol `warning' can be used in `display-buffer-alist' to customize
+the display of this buffer.
+
+This option affects display of all the buffers shown by `display-warning',
+including warnings from byte-compiler and native-compiler,
+from `check-declare', etc."
   :type 'boolean
   :version "30.1")
 
@@ -172,10 +185,13 @@ also call that function before the next warning.")
 ;; safely, testing the existing value, before they call one of the
 ;; warnings functions.
 ;;;###autoload
-(defvar warning-type-format (purecopy " (%s)")
+(defvar warning-type-format " (%s)"
   "Format for displaying the warning type in the warning message.
 The result of formatting the type this way gets included in the
 message under the control of the string in `warning-levels'.")
+;;;###autoload
+(defvar warning-inhibit-types nil
+  "Like `warning-suppress-log-types', but intended for programs to let-bind.")
 
 (defun warning-numeric-level (level)
   "Return a numeric measure of the warning severity level LEVEL."
@@ -277,9 +293,10 @@ disable automatic display of the warning or disable the warning
 entirely by setting `warning-suppress-types' or
 `warning-suppress-log-types' on their behalf."
   (if (not (or after-init-time noninteractive (daemonp)))
-      ;; Ensure warnings that happen early in the startup sequence
-      ;; are visible when startup completes (bug#20792).
-      (delay-warning type message level buffer-name)
+      (or (warning-suppress-p type warning-inhibit-types)
+          ;; Ensure warnings that happen early in the startup sequence
+          ;; are visible when startup completes (bug#20792).
+          (delay-warning type message level buffer-name))
     (unless level
       (setq level :warning))
     (unless buffer-name
@@ -290,6 +307,7 @@ entirely by setting `warning-suppress-types' or
         (setq level new)))
     (or (< (warning-numeric-level level)
 	   (warning-numeric-level warning-minimum-log-level))
+        (warning-suppress-p type warning-inhibit-types)
 	(warning-suppress-p type warning-suppress-log-types)
 	(let* ((typename (if (consp type) (car type) type))
 	       (old (get-buffer buffer-name))
@@ -373,9 +391,10 @@ entirely by setting `warning-suppress-types' or
 		     (let ((window (display-buffer
 				    buffer
 				    (when warning-display-at-bottom
-				      '(display-buffer--maybe-at-bottom
-					(window-height . (lambda (window)
-					  (fit-window-to-buffer window 10)))
+				      `(display-buffer--maybe-at-bottom
+					(window-height
+					 . ,(lambda (window)
+					      (fit-window-to-buffer window 10)))
 					(category . warning))))))
 		       (when (and window (markerp warning-series)
 				  (eq (marker-buffer warning-series) buffer))

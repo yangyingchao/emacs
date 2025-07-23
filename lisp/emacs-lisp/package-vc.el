@@ -219,7 +219,9 @@ asynchronously."
   ;; FIXME: vc should be extended to allow querying the commit of a
   ;; directory (as is possible when dealing with git repositories).
   ;; This should be a fallback option.
-  (cl-loop with dir = (package-desc-dir pkg-desc)
+  (cl-loop with dir = (let ((pkg-spec (package-vc--desc->spec pkg-desc)))
+                        (or (plist-get pkg-spec :lisp-dir)
+                            (package-desc-dir pkg-desc)))
            for file in (directory-files dir t "\\.el\\'" t)
            when (vc-working-revision file) return it
            finally return "unknown"))
@@ -241,10 +243,10 @@ asynchronously."
   (cl-assert (package-vc-p pkg-desc))
   (let* ((pkg-spec (package-vc--desc->spec pkg-desc))
          (name (symbol-name (package-desc-name pkg-desc)))
-         (directory (file-name-concat
+         (directory (expand-file-name
+                     (or (plist-get pkg-spec :lisp-dir) ".")
                      (or (package-desc-dir pkg-desc)
-                         (expand-file-name name package-user-dir))
-                     (plist-get pkg-spec :lisp-dir)))
+                         (expand-file-name name package-user-dir))))
          (file (expand-file-name
                 (or (plist-get pkg-spec :main-file)
                     (concat name ".el"))
@@ -271,7 +273,11 @@ asynchronously."
 (defun package-vc--generate-description-file (pkg-desc pkg-file)
   "Generate a package description file for PKG-DESC and write it to PKG-FILE."
   (let ((name (package-desc-name pkg-desc)))
-    ;; Infer the subject if missing.
+    (when (equal (package-desc-summary pkg-desc) package--default-summary)
+      ;; We unset the package description if it is just the default
+      ;; summary, so that the following heuristic can take effect.
+      (setf (package-desc-summary pkg-desc) nil))
+    ;; Infer the package description if missing.
     (unless (package-desc-summary pkg-desc)
       (setf (package-desc-summary pkg-desc)
             (let ((main-file (package-vc--main-file pkg-desc)))
@@ -413,7 +419,7 @@ this function successfully installs all given dependencies)."
                   "Attempt to find all dependencies for PKG."
                   (cond
                    ((assq (car pkg) to-install)) ;inhibit cycles
-                   ((package-installed-p (car pkg)))
+                   ((package-installed-p (car pkg) (cadr pkg)))
                    ((let* ((pac package-archive-contents)
                            (desc (cadr (assoc (car pkg) pac))))
                       (if desc
@@ -456,7 +462,7 @@ identify a package as a VC package later on), building
 documentation and marking the package as installed."
   (let* ((pkg-spec (package-vc--desc->spec pkg-desc))
          (lisp-dir (plist-get pkg-spec :lisp-dir))
-         (lisp-path (file-name-concat pkg-dir lisp-dir))
+         (lisp-path (expand-file-name (or lisp-dir ".") pkg-dir))
          missing)
 
     ;; In case the package was installed directly from source, the
@@ -504,7 +510,7 @@ documentation and marking the package as installed."
            (with-temp-buffer
              (insert ";; Autoload indirection for package-vc\n\n")
              (prin1 `(load (expand-file-name
-                            ,(file-name-concat lisp-dir auto-name)
+                            ,(expand-file-name auto-name lisp-dir)
                             (or (and load-file-name
                                      (file-name-directory load-file-name))
                                 (car load-path))))
@@ -907,29 +913,35 @@ for the last released version of the package."
     (find-file directory)))
 
 ;;;###autoload
-(defun package-vc-install-from-checkout (dir &optional name)
+(defun package-vc-install-from-checkout (dir &optional name interactive)
   "Install the package NAME from its source directory DIR.
-NAME defaults to the base name of DIR.
-Interactively, prompt the user for DIR, which should be a directory
-under version control, typically one created by `package-vc-checkout'.
-If invoked interactively with a prefix argument, prompt the user
-for the NAME of the package to set up."
-  (interactive (let* ((dir (read-directory-name "Directory: "))
-                      (base (file-name-base (directory-file-name dir))))
+NAME defaults to the base name of DIR.  Interactively, prompt the user
+for DIR, which should be a directory under version control, typically
+one created by `package-vc-checkout'.  If invoked interactively with a
+prefix argument, prompt the user for the NAME of the package to set up.
+If the optional argument INTERACTIVE is non-nil (as happens
+interactively), DIR must be an absolute file name."
+  (interactive (let ((dir (expand-file-name (read-directory-name "Directory: "))))
                  (list dir (and current-prefix-arg
-                                (read-string
-                                 (format-prompt "Package name" base)
-                                 nil nil base)))))
-  (unless (vc-responsible-backend dir)
-    (user-error "Directory %S is not under version control" dir))
+                                (let ((base (file-name-base
+                                             (directory-file-name
+                                              dir))))
+                                  (read-string
+                                   (format-prompt "Package name" base)
+                                   nil nil base)))
+                       :interactive)))
   (package-vc--archives-initialize)
-  (let* ((name (or name (file-name-base (directory-file-name dir))))
-         (pkg-dir (expand-file-name name package-user-dir)))
+  (let* ((dir (if interactive dir (expand-file-name dir))) ;avoid double expansion
+         (name (or name (file-name-base (directory-file-name dir))))
+         (pkg-dir (file-name-concat package-user-dir name))
+         (package-vc-selected-packages
+          (cons (list name :lisp-dir dir)
+                package-vc-selected-packages)))
     (when (file-exists-p pkg-dir)
       (if (yes-or-no-p (format "Overwrite previous checkout for package `%s'?" name))
           (package--delete-directory pkg-dir)
         (error "There already exists a checkout for %s" name)))
-    (make-symbolic-link (expand-file-name dir) pkg-dir)
+    (make-directory pkg-dir t)
     (package-vc--unpack-1
      (package-desc-create
       :name (intern name)

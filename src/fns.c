@@ -36,7 +36,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "buffer.h"
 #include "intervals.h"
 #include "window.h"
-#include "puresize.h"
 #include "gnutls.h"
 
 #ifdef HAVE_TREE_SITTER
@@ -148,7 +147,7 @@ efficient.  */)
   else if (VECTORP (sequence))
     val = ASIZE (sequence);
   else if (CHAR_TABLE_P (sequence))
-    val = MAX_CHAR;
+    val = MAX_CHAR + 1;
   else if (BOOL_VECTOR_P (sequence))
     val = bool_vector_size (sequence);
   else if (CLOSUREP (sequence) || RECORDP (sequence))
@@ -2816,8 +2815,8 @@ equal_no_quit (Lisp_Object o1, Lisp_Object o2)
   return internal_equal (o1, o2, EQUAL_NO_QUIT, 0, Qnil);
 }
 
-static ptrdiff_t hash_lookup_with_hash (struct Lisp_Hash_Table *h,
-					Lisp_Object key, hash_hash_t hash);
+static ptrdiff_t hash_find_with_hash (struct Lisp_Hash_Table *h,
+				      Lisp_Object key, hash_hash_t hash);
 
 
 /* Return true if O1 and O2 are equal.  EQUAL_KIND specifies what kind
@@ -2849,7 +2848,7 @@ internal_equal_1 (Lisp_Object o1, Lisp_Object o2, enum equal_kind equal_kind,
 	  {
 	    struct Lisp_Hash_Table *h = XHASH_TABLE (*ht);
 	    hash_hash_t hash = hash_from_key (h, o1);
-	    ptrdiff_t i = hash_lookup_with_hash (h, o1, hash);
+	    ptrdiff_t i = hash_find_with_hash (h, o1, hash);
 	    if (i >= 0)
 	      { /* `o1' was seen already.  */
 		Lisp_Object o2s = HASH_VALUE (h, i);
@@ -3042,7 +3041,7 @@ fixnum_float_cmp (EMACS_INT a, double b)
     {
       /* This doesn't mean that a=b because the conversion may have rounded.
 	 However, b must be an integer that fits in an EMACS_INT,
-	 because |b| ≤ 2|a| and EMACS_INT has at least one bit more than
+	 because |b| <= 2|a| and EMACS_INT has at least one bit more than
 	 needed to represent any fixnum.
 	 Thus we can compare in the integer domain instead.  */
       EMACS_INT ib = b;		/* lossless conversion */
@@ -3114,9 +3113,7 @@ value_cmp (Lisp_Object a, Lisp_Object b, int maxdepth)
 	}
       if (NILP (b))
 	return 1;
-      else
-	goto type_mismatch;
-      goto tail_recurse;
+      goto type_mismatch;
 
     case Lisp_Vectorlike:
       if (VECTORLIKEP (b))
@@ -3277,7 +3274,6 @@ ARRAY is a vector, string, char-table, or bool-vector.  */)
       size = SCHARS (array);
       if (size != 0)
 	{
-	  CHECK_IMPURE (array, XSTRING (array));
 	  unsigned char str[MAX_MULTIBYTE_LENGTH];
 	  int len;
 	  if (STRING_MULTIBYTE (array))
@@ -3320,7 +3316,6 @@ removes all text properties.  This may change its length.  */)
 			Qnil, string);
   if (len != 0 || STRING_MULTIBYTE (string))
     {
-      CHECK_IMPURE (string, XSTRING (string));
       memset (SDATA (string), 0, len);
       STRING_SET_CHARS (string, len);
       STRING_SET_UNIBYTE (string);
@@ -3414,9 +3409,8 @@ mapcar1 (EMACS_INT leni, Lisp_Object *vals, Lisp_Object fn, Lisp_Object seq)
 	    vals[i_before] = dummy;
 	}
     }
-  else
+  else if (BOOL_VECTOR_P (seq))
     {
-      eassert (BOOL_VECTOR_P (seq));
       for (EMACS_INT i = 0; i < leni; i++)
 	{
 	  Lisp_Object dummy = calln (fn, bool_vector_ref (seq, i));
@@ -3424,6 +3418,8 @@ mapcar1 (EMACS_INT leni, Lisp_Object *vals, Lisp_Object fn, Lisp_Object seq)
 	    vals[i] = dummy;
 	}
     }
+  else
+    wrong_type_argument (Qsequencep, seq);
 
   return leni;
 }
@@ -3440,7 +3436,8 @@ characters; nil stands for the empty string.
 
 FUNCTION must be a function of one argument, and must return a value
   that is a sequence of characters: either a string, or a vector or
-  list of numbers that are valid character codepoints.  */)
+  list of numbers that are valid character codepoints; nil is treated
+  as an empty string.  */)
   (Lisp_Object function, Lisp_Object sequence, Lisp_Object separator)
 {
   USE_SAFE_ALLOCA;
@@ -3452,7 +3449,7 @@ FUNCTION must be a function of one argument, and must return a value
     return empty_unibyte_string;
   Lisp_Object *args;
   SAFE_ALLOCA_LISP (args, args_alloc);
-  if (EQ (function, Qidentity))
+  if (BASE_EQ (function, Qidentity))
     {
       /* Fast path when no function call is necessary.  */
       if (CONSP (sequence))
@@ -3782,7 +3779,7 @@ FILENAME are suppressed.  */)
 	{
 	  /* Avoid landing here recursively while outputting the
 	     backtrace from the error.  */
-	  gflags.will_dump_ = false;
+	  gflags.will_dump = false;
 	  error ("(require %s) while preparing to dump",
 		 SDATA (SYMBOL_NAME (feature)));
 	}
@@ -3833,65 +3830,8 @@ FILENAME are suppressed.  */)
 
   return feature;
 }
+
 
-/* Primitives for work of the "widget" library.
-   In an ideal world, this section would not have been necessary.
-   However, lisp function calls being as slow as they are, it turns
-   out that some functions in the widget library (wid-edit.el) are the
-   bottleneck of Widget operation.  Here is their translation to C,
-   for the sole reason of efficiency.  */
-
-DEFUN ("widget-put", Fwidget_put, Swidget_put, 3, 3, 0,
-       doc: /* In WIDGET, set PROPERTY to VALUE.
-The value can later be retrieved with `widget-get'.  */)
-  (Lisp_Object widget, Lisp_Object property, Lisp_Object value)
-{
-  CHECK_CONS (widget);
-  XSETCDR (widget, plist_put (XCDR (widget), property, value));
-  return value;
-}
-
-DEFUN ("widget-get", Fwidget_get, Swidget_get, 2, 2, 0,
-       doc: /* In WIDGET, get the value of PROPERTY.
-The value could either be specified when the widget was created, or
-later with `widget-put'.  */)
-  (Lisp_Object widget, Lisp_Object property)
-{
-  Lisp_Object tmp;
-
-  while (1)
-    {
-      if (NILP (widget))
-	return Qnil;
-      CHECK_CONS (widget);
-      tmp = plist_member (XCDR (widget), property);
-      if (CONSP (tmp))
-	{
-	  tmp = XCDR (tmp);
-	  return CAR (tmp);
-	}
-      tmp = XCAR (widget);
-      if (NILP (tmp))
-	return Qnil;
-      widget = Fget (tmp, Qwidget_type);
-    }
-}
-
-DEFUN ("widget-apply", Fwidget_apply, Swidget_apply, 2, MANY, 0,
-       doc: /* Apply the value of WIDGET's PROPERTY to the widget itself.
-Return the result of applying the value of PROPERTY to WIDGET.
-ARGS are passed as extra arguments to the function.
-usage: (widget-apply WIDGET PROPERTY &rest ARGS)  */)
-  (ptrdiff_t nargs, Lisp_Object *args)
-{
-  Lisp_Object widget = args[0];
-  Lisp_Object property = args[1];
-  Lisp_Object propval = Fwidget_get (widget, property);
-  Lisp_Object trailing_args = Flist (nargs - 2, args + 2);
-  Lisp_Object result = CALLN (Fapply, propval, widget, trailing_args);
-  return result;
-}
-
 #ifdef HAVE_LANGINFO_CODESET
 #include <langinfo.h>
 #endif
@@ -4862,15 +4802,11 @@ static const hash_idx_t empty_hash_index_vector[] = {-1};
 
    Give the table initial capacity SIZE, 0 <= SIZE <= MOST_POSITIVE_FIXNUM.
 
-   WEAK specifies the weakness of the table.
-
-   If PURECOPY is non-nil, the table can be copied to pure storage via
-   `purecopy' when Emacs is being dumped. Such tables can no longer be
-   changed after purecopy.  */
+   WEAK specifies the weakness of the table.  */
 
 Lisp_Object
 make_hash_table (const struct hash_table_test *test, EMACS_INT size,
-		 hash_table_weakness_t weak, bool purecopy)
+		 hash_table_weakness_t weak)
 {
   eassert (SYMBOLP (test->name));
   eassert (0 <= size && size <= min (MOST_POSITIVE_FIXNUM, PTRDIFF_MAX));
@@ -4916,7 +4852,6 @@ make_hash_table (const struct hash_table_test *test, EMACS_INT size,
     }
 
   h->next_weak = NULL;
-  h->purecopy = purecopy;
   h->mutable = true;
   return make_lisp_hash_table (h);
 }
@@ -5031,11 +4966,6 @@ maybe_resize_hash_table (struct Lisp_Hash_Table *h)
 	  set_hash_next_slot (h, i, HASH_INDEX (h, start_of_bucket));
 	  set_hash_index_slot (h, start_of_bucket, i);
 	}
-
-#ifdef ENABLE_CHECKING
-      if (HASH_TABLE_P (Vpurify_flag) && XHASH_TABLE (Vpurify_flag) == h)
-	message ("Growing hash table to: %"pD"d", new_size);
-#endif
     }
 }
 
@@ -5102,8 +5032,8 @@ hash_table_thaw (Lisp_Object hash_table)
 /* Look up KEY with hash HASH in table H.
    Return entry index or -1 if none.  */
 static ptrdiff_t
-hash_lookup_with_hash (struct Lisp_Hash_Table *h,
-		       Lisp_Object key, hash_hash_t hash)
+hash_find_with_hash (struct Lisp_Hash_Table *h,
+		     Lisp_Object key, hash_hash_t hash)
 {
   ptrdiff_t start_of_bucket = hash_index_index (h, hash);
   for (ptrdiff_t i = HASH_INDEX (h, start_of_bucket);
@@ -5119,20 +5049,20 @@ hash_lookup_with_hash (struct Lisp_Hash_Table *h,
 
 /* Look up KEY in table H.  Return entry index or -1 if none.  */
 ptrdiff_t
-hash_lookup (struct Lisp_Hash_Table *h, Lisp_Object key)
+hash_find (struct Lisp_Hash_Table *h, Lisp_Object key)
 {
-  return hash_lookup_with_hash (h, key, hash_from_key (h, key));
+  return hash_find_with_hash (h, key, hash_from_key (h, key));
 }
 
 /* Look up KEY in hash table H.  Return its hash value in *PHASH.
    Value is the index of the entry in H matching KEY, or -1 if not found.  */
 ptrdiff_t
-hash_lookup_get_hash (struct Lisp_Hash_Table *h, Lisp_Object key,
-		      hash_hash_t *phash)
+hash_find_get_hash (struct Lisp_Hash_Table *h, Lisp_Object key,
+		    hash_hash_t *phash)
 {
   EMACS_UINT hash = hash_from_key (h, key);
   *phash = hash;
-  return hash_lookup_with_hash (h, key, hash);
+  return hash_find_with_hash (h, key, hash);
 }
 
 static void
@@ -5140,7 +5070,6 @@ check_mutable_hash_table (Lisp_Object obj, struct Lisp_Hash_Table *h)
 {
   if (!h->mutable)
     signal_error ("hash table test modifies table", obj);
-  eassert (!PURE_P (h));
 }
 
 /* Put an entry into hash table H that associates KEY with VALUE.
@@ -5358,7 +5287,7 @@ sweep_weak_table (struct Lisp_Hash_Table *h, bool remove_entries_p)
    can be any EMACS_UINT value.  */
 
 EMACS_UINT
-hash_string (char const *ptr, ptrdiff_t len)
+hash_char_array (char const *ptr, ptrdiff_t len)
 {
   char const *p   = ptr;
   char const *end = ptr + len;
@@ -5531,7 +5460,7 @@ sxhash_obj (Lisp_Object obj, int depth)
       return XHASH (obj);
 
     case Lisp_String:
-      return hash_string (SSDATA (obj), SBYTES (obj));
+      return hash_char_array (SSDATA (obj), SBYTES (obj));
 
     case Lisp_Vectorlike:
       {
@@ -5752,13 +5681,8 @@ key, value, one of key or value, or both key and value, depending on
 WEAK.  WEAK t is equivalent to `key-and-value'.  Default value of WEAK
 is nil.
 
-:purecopy PURECOPY -- If PURECOPY is non-nil, the table can be copied
-to pure storage when Emacs is being dumped, making the contents of the
-table read only. Any further changes to purified tables will result
-in an error.
-
-The keywords arguments :rehash-threshold and :rehash-size are obsolete
-and ignored.
+The keywords arguments :rehash-threshold, :rehash-size, and :purecopy
+are obsolete and ignored.
 
 usage: (make-hash-table &rest KEYWORD-ARGS)  */)
   (ptrdiff_t nargs, Lisp_Object *args)
@@ -5766,7 +5690,6 @@ usage: (make-hash-table &rest KEYWORD-ARGS)  */)
   Lisp_Object test_arg = Qnil;
   Lisp_Object weakness_arg = Qnil;
   Lisp_Object size_arg = Qnil;
-  Lisp_Object purecopy_arg = Qnil;
 
   if (nargs & 1)
     error ("Odd number of arguments");
@@ -5780,9 +5703,8 @@ usage: (make-hash-table &rest KEYWORD-ARGS)  */)
 	weakness_arg = arg;
       else if (BASE_EQ (kw, QCsize))
 	size_arg = arg;
-      else if (BASE_EQ (kw, QCpurecopy))
-	purecopy_arg = arg;
-      else if (BASE_EQ (kw, QCrehash_threshold) || BASE_EQ (kw, QCrehash_size))
+      else if (BASE_EQ (kw, QCrehash_threshold) || BASE_EQ (kw, QCrehash_size)
+	       || BASE_EQ (kw, QCpurecopy))
 	;  /* ignore obsolete keyword arguments */
       else
 	signal_error ("Invalid keyword argument", kw);
@@ -5797,8 +5719,6 @@ usage: (make-hash-table &rest KEYWORD-ARGS)  */)
     test = &hashtest_equal;
   else
     test = get_hash_table_user_test (test_arg);
-
-  bool purecopy = !NILP (purecopy_arg);
 
   EMACS_INT size;
   if (NILP (size_arg))
@@ -5822,7 +5742,7 @@ usage: (make-hash-table &rest KEYWORD-ARGS)  */)
   else
     signal_error ("Invalid hash table weakness", weakness_arg);
 
-  return make_hash_table (test, size, weak, purecopy);
+  return make_hash_table (test, size, weak);
 }
 
 
@@ -5942,7 +5862,7 @@ usage: (gethash KEY TABLE &optional DEFAULT)  */)
   (Lisp_Object key, Lisp_Object table, Lisp_Object dflt)
 {
   struct Lisp_Hash_Table *h = check_hash_table (table);
-  ptrdiff_t i = hash_lookup (h, key);
+  ptrdiff_t i = hash_find (h, key);
   return i >= 0 ? HASH_VALUE (h, i) : dflt;
 }
 
@@ -5957,7 +5877,7 @@ VALUE.  In any case, return VALUE.  */)
   check_mutable_hash_table (table, h);
 
   EMACS_UINT hash = hash_from_key (h, key);
-  ptrdiff_t i = hash_lookup_with_hash (h, key, hash);
+  ptrdiff_t i = hash_find_with_hash (h, key, hash);
   if (i >= 0)
     set_hash_value_slot (h, i, value);
   else
@@ -6095,7 +6015,7 @@ hexbuf_digest (char *hexbuf, void const *digest, int digest_size)
 
   for (int i = digest_size - 1; i >= 0; i--)
     {
-      static char const hexdigit[16] = "0123456789abcdef";
+      static char const hexdigit[16] ATTRIBUTE_NONSTRING = "0123456789abcdef";
       int p_i = p[i];
       hexbuf[2 * i] = hexdigit[p_i >> 4];
       hexbuf[2 * i + 1] = hexdigit[p_i & 0xf];
@@ -6275,7 +6195,7 @@ extract_data_from_object (Lisp_Object spec,
       /* Format: (iv-auto REQUIRED-LENGTH).  */
 
       if (! FIXNATP (start))
-        error ("Without a length, `iv-auto' can't be used; see ELisp manual");
+        error ("Without a length, `iv-auto' can't be used; see Elisp manual");
       else
         {
 	  EMACS_INT start_hold = XFIXNAT (start);
@@ -6398,6 +6318,11 @@ command `prefer-coding-system') is used.
 
 If NOERROR is non-nil, silently assume the `raw-text' coding if the
 guesswork fails.  Normally, an error is signaled in such case.
+
+This function is semi-obsolete, since for most purposes it is equivalent
+to calling `secure-hash` with the symbol `md5' as the ALGORITHM
+argument.  The OBJECT, START and END arguments have the same meanings as
+in `secure-hash'.
 
 Note that MD5 is not collision resistant and should not be used for
 anything security-related.  See `secure-hash' for alternatives.  */)
@@ -6925,9 +6850,6 @@ For best results this should end in a space.  */);
   defsubr (&Srequire);
   defsubr (&Sprovide);
   defsubr (&Splist_member);
-  defsubr (&Swidget_put);
-  defsubr (&Swidget_get);
-  defsubr (&Swidget_apply);
   defsubr (&Sbase64_encode_region);
   defsubr (&Sbase64_decode_region);
   defsubr (&Sbase64_encode_string);

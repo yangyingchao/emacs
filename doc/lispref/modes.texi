@@ -1510,9 +1510,6 @@ You can thus get the full benefit of adaptive filling
  (see the variable `adaptive-fill-mode').
 \\@{text-mode-map@}
 Turning on Text mode runs the normal hook `text-mode-hook'."
-@end group
-@group
-  (setq-local text-mode-variant t)
   (setq-local require-final-newline mode-require-final-newline))
 @end group
 @end smallexample
@@ -2152,17 +2149,6 @@ windows, you can say something like:
 @end lisp
 @end defun
 
-@vindex mode-line-compact
-  Some modes put a lot of data in the mode line, pushing elements at
-the end of the mode line off to the right.  Emacs can ``compress'' the
-mode line if the @code{mode-line-compact} variable is non-@code{nil}
-by turning stretches of spaces into a single space.  If this variable
-is @code{long}, this is only done when the mode line is wider than the
-currently selected window.  (This computation is approximate, based on
-the number of characters, and not their displayed width.)  This
-variable can be buffer-local to only compress mode-lines in certain
-buffers.
-
 @node Mode Line Data
 @subsection The Data Structure of the Mode Line
 @cindex mode line construct
@@ -2609,7 +2595,7 @@ The value of @code{global-mode-string} (which is part of
 
 @item %o
 The degree of @dfn{travel} of the window through (the visible portion
-of) the buffer, i.e. the size of the text above the top of the window
+of) the buffer, i.e.@: the size of the text above the top of the window
 expressed as a percentage of all the text outside the window, or
 @samp{Top}, @samp{Bottom} or @samp{All}.
 
@@ -3167,12 +3153,22 @@ It's required in both cases: whether you define
 @code{outline-regexp} or @code{outline-search-function}.
 @end defvar
 
-If built with tree-sitter, Emacs can automatically use
-Outline minor mode if the major mode sets the following variable.
+If built with tree-sitter, Emacs can automatically use Outline
+minor mode if the major mode sets one of the following variables.
 
 @defvar treesit-outline-predicate
 This variable instructs Emacs how to find lines with outline headings.
 It should be a predicate that matches the node on the heading line.
+@end defvar
+
+@defvar treesit-aggregated-outline-predicate
+This variable allows major modes to configure outlines for multiple
+languages.  Its value is an alist mapping language symbols to outline
+headings as described above for the value of
+@code{treesit-outline-predicate}.
+
+If this variable is non-@code{nil}, it overrides
+@code{treesit-outline-predicate} for setting up outline headings.
 @end defvar
 
 @node Font Lock Mode
@@ -3277,10 +3273,7 @@ Lock mode is enabled, to set all the other variables.
 @defvar font-lock-defaults
 This variable is set by modes to specify how to fontify text in that
 mode.  It automatically becomes buffer-local when set.  If its value
-is @code{nil}, Font Lock mode does no highlighting, and you can use
-the @samp{Faces} menu (under @samp{Edit} and then @samp{Text
-Properties} in the menu bar) to assign faces explicitly to text in the
-buffer.
+is @code{nil}, Font Lock mode does no highlighting.
 
 If non-@code{nil}, the value should look like this:
 
@@ -3420,7 +3413,7 @@ However, @var{facespec} can also evaluate to a list of this form:
 
 @example
 (@var{subexp}
-(face @var{face} @var{prop1} @var{val1} @var{prop2} @var{val2}@dots{}))
+ (face @var{face} @var{prop1} @var{val1} @var{prop2} @var{val2}@dots{}))
 @end example
 
 @noindent
@@ -4128,7 +4121,7 @@ This variable is normally set through the ``other'' elements in
 @lisp
 (setq-local font-lock-defaults
             `(,python-font-lock-keywords
-              nil nil nil nil
+              nil nil nil
               (font-lock-syntactic-face-function
                . python-font-lock-syntactic-face-function)))
 @end lisp
@@ -5416,11 +5409,14 @@ on the line which @var{parent}'s start is on.
 
 @item standalone-parent
 This anchor is a function that is called with 3 arguments: @var{node},
-@var{parent}, and @var{bol}.  It finds the first ancestor node
-(parent, grandparent, etc.@:) of @var{node} that starts on its own
-line, and return the start of that node.  ``Starting on its own line''
-means there is only whitespace character before the node on the line
-which the node's start is on.
+@var{parent}, and @var{bol}.  It finds the first ancestor node (parent,
+grandparent, etc.@:) of @var{node} that starts on its own line, and
+return the start of that node.  ``Starting on its own line'' means there
+is only whitespace character before the node on the line which the
+node's start is on.  The exact definition of ``Starting on its own
+line'' can be relaxed by setting
+@code{treesit-simple-indent-standalone-predicate}, some major mode might
+want to do that for easier indentation for method chaining.
 
 @item prev-sibling
 This anchor is a function that is called with 3 arguments: @var{node},

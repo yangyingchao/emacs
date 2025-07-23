@@ -85,7 +85,44 @@
   :version "28.1"
   :group 'tab-bar-faces)
 
+(defface tab-bar-tab-highlight
+  '((((class color) (min-colors 88))
+     :box (:line-width 1 :style released-button)
+     :background "grey85"
+     :foreground "black")
+    (t :inverse-video nil))
+  "Tab bar face for highlighting."
+  :version "31.1"
+  :group 'tab-bar-faces)
+
 
+
+(defvar-keymap tab-bar-mode-map
+  :doc "Tab Bar mode map.")
+
+(defcustom tab-bar-define-keys t
+  "Define specified tab-bar key bindings.
+If t, the default, all key mappings are defined.
+
+If \\='numeric, define only numeric select-tab key mappings, and in
+conjunction with `tab-bar-select-tab-modifiers', which see.
+
+If \\='tab, define only TAB and SHIFT-TAB tab-selection key mappings.
+
+If nil, do not define any key mappings."
+  :type '(choice (const :tag "All keys" t)
+                 (const :tag "Numeric tab selection keys" numeric)
+                 (const :tag "TAB and SHIFT-TAB selection keys" tab)
+                 (const :tag "None" nil))
+  :initialize #'custom-initialize-default
+  :set (lambda (sym val)
+         (tab-bar--undefine-keys)
+         (set-default sym val)
+         ;; Enable the new keybindings
+         (tab-bar--define-keys))
+  :group 'tab-bar
+  :version "31.1")
+
 (defcustom tab-bar-select-tab-modifiers '()
   "List of modifier keys for selecting tab-bar tabs by their numbers.
 Possible modifier keys are `control', `meta', `shift', `hyper', `super' and
@@ -104,18 +141,17 @@ For easier selection of tabs by their numbers, consider customizing
               (const alt))
   :initialize #'custom-initialize-default
   :set (lambda (sym val)
-         (when tab-bar-mode
-           (tab-bar--undefine-keys))
+         (tab-bar--undefine-keys)
          (set-default sym val)
-         ;; Reenable the tab-bar with new keybindings
-         (when tab-bar-mode
-           (tab-bar--define-keys)))
+         ;; Enable the new keybindings
+         (tab-bar--define-keys))
   :group 'tab-bar
   :version "27.1")
 
 (defun tab-bar--define-keys ()
   "Install key bindings to switch between tabs if so configured."
-  (when tab-bar-select-tab-modifiers
+  (when (and (memq tab-bar-define-keys '(t numeric))
+             tab-bar-select-tab-modifiers)
     (define-key tab-bar-mode-map
                 (vector (append tab-bar-select-tab-modifiers (list ?0)))
                 #'tab-recent)
@@ -127,6 +163,14 @@ For easier selection of tabs by their numbers, consider customizing
     (define-key tab-bar-mode-map
                 (vector (append tab-bar-select-tab-modifiers (list ?9)))
                 #'tab-last))
+
+  (when (memq tab-bar-define-keys '(t tab))
+    (unless (global-key-binding [(control tab)])
+      (define-key tab-bar-mode-map [(control tab)] #'tab-next))
+    (unless (global-key-binding [(control shift tab)])
+      (define-key tab-bar-mode-map [(control shift tab)] #'tab-previous))
+    (unless (global-key-binding [(control shift iso-lefttab)])
+      (define-key tab-bar-mode-map [(control shift iso-lefttab)] #'tab-previous)))
 
   ;; Replace default value with a condition that supports displaying
   ;; global-mode-string in the tab bar instead of the mode line.
@@ -152,7 +196,11 @@ For easier selection of tabs by their numbers, consider customizing
                   nil t))
     (define-key tab-bar-mode-map
                 (vector (append tab-bar-select-tab-modifiers (list ?9)))
-                nil t)))
+                nil t))
+
+  (define-key tab-bar-mode-map [(control tab)] nil t)
+  (define-key tab-bar-mode-map [(control shift tab)] nil t)
+  (define-key tab-bar-mode-map [(control shift iso-lefttab)] nil t))
 
 (defun tab-bar--load-buttons ()
   "Load the icons for the tab buttons."
@@ -232,7 +280,9 @@ a list of frames to update."
     (dolist (frame frame-lst)
       (unless (or (frame-parameter frame 'tab-bar-lines-keep-state)
                   (and (eq auto-resize-tab-bars 'grow-only)
-                       (> (frame-parameter frame 'tab-bar-lines) 1)))
+                       (> (frame-parameter frame 'tab-bar-lines) 1))
+                  ;; Don't enable tab-bar in daemon's initial frame.
+                  (and (daemonp) (not (frame-parameter frame 'client))))
         (set-frame-parameter frame 'tab-bar-lines
                              (tab-bar--tab-bar-lines-for-frame frame)))))
   ;; Update `default-frame-alist'
@@ -241,20 +291,6 @@ a list of frames to update."
           (cons (cons 'tab-bar-lines
                       (if (and tab-bar-mode (eq tab-bar-show t)) 1 0))
                 (assq-delete-all 'tab-bar-lines default-frame-alist)))))
-
-(defun tab-bar-mode--tab-key-bind (map key binding)
-  ;; Don't override user customized global key bindings
-  (define-key map key
-    `(menu-item "" ,binding
-      :filter ,(lambda (cmd) (unless (global-key-binding key) cmd)))))
-
-(defvar tab-bar-mode-map
-  (let ((map (make-sparse-keymap)))
-    (tab-bar-mode--tab-key-bind map [(control tab)] #'tab-next)
-    (tab-bar-mode--tab-key-bind map [(control shift tab)] #'tab-previous)
-    (tab-bar-mode--tab-key-bind map [(control shift iso-lefttab)] #'tab-previous)
-    map)
-  "Tab Bar mode map.")
 
 (define-minor-mode tab-bar-mode
   "Toggle the tab bar in all graphical frames (Tab Bar mode).
@@ -265,7 +301,12 @@ to switch the frame between different window configurations.
 See `current-window-configuration' for more about window configurations.
 To add a button (which can then record one more window configuration),
 click on the \"+\" button.  Clicking on the \"x\" icon of a button
-deletes the button."
+deletes the button.
+
+If you intend to use `tab-bar-mode' with `winner-mode', we recommend
+using `tab-bar-history-mode' instead, since it provides tab-specific
+window configuration history, and is better behaved when `tab-bar-mode'
+is turned on."
   :global t
   ;; It's defined in C/cus-start, this stops the d-m-m macro defining it again.
   :variable tab-bar-mode
@@ -533,7 +574,7 @@ appropriate."
   "<touchscreen-begin>" #'tab-bar-touchscreen-begin)
 
 (global-set-key [tab-bar]
-                `(menu-item ,(purecopy "tab bar") ,(make-sparse-keymap)
+                `(menu-item "tab bar" ,(make-sparse-keymap)
                             :filter tab-bar-make-keymap))
 
 (defun tab-bar-make-keymap (&optional _ignore)
@@ -561,7 +602,11 @@ on each new frame when the global `tab-bar-mode' is disabled,
 or if you want to disable the tab bar individually on each
 new frame when the global `tab-bar-mode' is enabled, by using
 
-  (add-hook \\='after-make-frame-functions #\\='toggle-frame-tab-bar)"
+  (add-hook \\='after-make-frame-functions #\\='toggle-frame-tab-bar)
+
+Or when starting Emacs in daemon mode:
+
+  (add-hook \\='server-after-make-frame-hook #\\='toggle-frame-tab-bar)"
   (interactive)
   (set-frame-parameter frame 'tab-bar-lines
                        (if (> (frame-parameter frame 'tab-bar-lines) 0) 0 1))
@@ -855,10 +900,15 @@ It uses the function `tab-bar-tab-face-function'."
    0 (length name) (funcall tab-bar-tab-face-function tab) t name)
   name)
 
+(defun tab-bar-tab-name-format-mouse-face (name _tab _i)
+  "Apply the `mouse-face' `tab-bar-tab-highlight' to the tab name."
+  (propertize name 'mouse-face 'tab-bar-tab-highlight))
+
 (defcustom tab-bar-tab-name-format-functions
   '(tab-bar-tab-name-format-hints
     tab-bar-tab-name-format-close-button
-    tab-bar-tab-name-format-face)
+    tab-bar-tab-name-format-face
+    tab-bar-tab-name-format-mouse-face)
   "Functions called to modify the tab name.
 Each function is called with three arguments: the name returned
 by the previously called modifier, the tab and its number.
@@ -868,6 +918,7 @@ It should return the formatted tab name to display in the tab bar."
                   (function-item tab-bar-tab-name-format-hints)
                   (function-item tab-bar-tab-name-format-close-button)
                   (function-item tab-bar-tab-name-format-face)
+                  (function-item tab-bar-tab-name-format-mouse-face)
                   (function :tag "Custom function")))
   :group 'tab-bar
   :version "30.1")
@@ -966,6 +1017,17 @@ You can hide these buttons by customizing `tab-bar-format' and removing
        menu-item ,tab-bar-forward-button tab-bar-history-forward
        :help "Click to go forward in tab history"))))
 
+(defun tab-bar-format-tab-help-text-default (tab _i)
+  (alist-get 'name tab))
+
+(defvar tab-bar-format-tab-help-text-function #'tab-bar-format-tab-help-text-default
+  "Function to produce help text for tabs displayed in the tab bar.
+This function should accept two arguments: the tab, and the one-based
+tab's number.
+
+The function should produce a string, which may be propertized.  By
+default, use function `tab-bar-format-tab-help-text-default.")
+
 (defun tab-bar--format-tab (tab i)
   "Format TAB using its index I and return the result as a keymap."
   (append
@@ -976,13 +1038,13 @@ You can hide these buttons by customizing `tab-bar-format' and removing
         menu-item
         ,(funcall tab-bar-tab-name-format-function tab i)
         ignore
-        :help ,(alist-get 'name tab))))
+        :help ,(funcall tab-bar-format-tab-help-text-function tab i))))
     (t
      `((,(intern (format "tab-%i" i))
         menu-item
         ,(funcall tab-bar-tab-name-format-function tab i)
         ,(alist-get 'binding tab)
-        :help ,(alist-get 'name tab)))))
+        :help ,(funcall tab-bar-format-tab-help-text-function tab i)))))
    (when (alist-get 'close-binding tab)
      `((,(if (eq (car tab) 'current-tab) 'C-current-tab
            (intern (format "C-tab-%i" i)))
@@ -1132,14 +1194,28 @@ when the tab is current.  Return the result as a keymap."
     `((add-tab menu-item ,tab-bar-new-button tab-bar-new-tab
                :help "New tab"))))
 
-(defun tab-bar-format-align-right ()
-  "Align the rest of tab bar items to the right."
-  (let* ((rest (cdr (memq 'tab-bar-format-align-right tab-bar-format)))
-         (rest (tab-bar-format-list rest))
+(defvar tab-bar--align-right-cache nil
+  "Optimization for `tab-bar-format-align-right'.")
+
+(defun tab-bar-format-align-right (&optional rest)
+  "Align the rest of tab bar items to the right.
+The argument `rest' is used for special handling of this item
+by `tab-bar-format-list' that collects the rest of formatted items.
+This prevents calling other non-idempotent items like
+`tab-bar-format-global' twice."
+  (let* ((rest (or rest (tab-bar-format-list
+                         (cdr (memq 'tab-bar-format-align-right
+                                    tab-bar-format)))))
          (rest (mapconcat (lambda (item) (nth 2 item)) rest ""))
          (hpos (progn
                  (add-face-text-property 0 (length rest) 'tab-bar t rest)
-                 (string-pixel-width rest)))
+                 (or (and tab-bar--align-right-cache
+                          (equal-including-properties
+                           (car tab-bar--align-right-cache) rest)
+                          (cdr tab-bar--align-right-cache))
+                     (let ((width (string-pixel-width rest)))
+                       (setq tab-bar--align-right-cache (cons rest width))
+                       width))))
          (str (propertize " " 'display
                           ;; The `right' spec doesn't work on TTY frames
                           ;; when windows are split horizontally (bug#59620)
@@ -1161,19 +1237,33 @@ on the tab bar instead."
           global-mode-string))
 
 (defun tab-bar-format-list (format-list)
-  (let ((i 0))
-    (apply #'append
-           (mapcar
-            (lambda (format)
-              (setq i (1+ i))
-              (cond
-               ((functionp format)
-                (let ((ret (funcall format)))
-                  (when (stringp ret)
-                    (setq ret `((,(intern (format "str-%i" i))
-                                 menu-item ,ret ignore))))
-                  ret))))
-            format-list))))
+  "Return a list of items formatted from `format-list'.
+The item `tab-bar-format-align-right' has special formatting."
+  (let* ((i 0) align-right-p rest
+         (res (apply #'append
+                     (mapcar
+                      (lambda (format)
+                        (setq i (1+ i))
+                        (cond
+                         ((eq format 'tab-bar-format-align-right)
+                          (setq align-right-p t)
+                          (list format))
+                         ((functionp format)
+                          (let ((ret (funcall format)))
+                            (when (stringp ret)
+                              (setq ret `((,(intern (format "str-%i" i))
+                                           menu-item ,ret ignore))))
+                            (when align-right-p
+                              (setq rest (append rest ret)))
+                            ret))))
+                      format-list))))
+    (when align-right-p
+      (setq res (mapcan (lambda (format)
+                          (if (eq format 'tab-bar-format-align-right)
+                              (tab-bar-format-align-right rest)
+                            (list format)))
+                        res)))
+    res))
 
 (defun tab-bar-make-keymap-1 ()
   "Generate an actual keymap from `tab-bar-map', without caching."
@@ -1643,8 +1733,8 @@ Negative TAB-NUMBER counts tabs from the end of the tab bar."
                        (marker-buffer wc-point))
               (goto-char wc-point))
 
-            (when wc-bl  (set-frame-parameter nil 'buffer-list wc-bl))
-            (when wc-bbl (set-frame-parameter nil 'buried-buffer-list wc-bbl))
+            (set-frame-parameter nil 'buffer-list wc-bl)
+            (set-frame-parameter nil 'buried-buffer-list wc-bbl)
 
             (when tab-bar-history-mode
               (puthash (selected-frame)
@@ -2185,6 +2275,13 @@ happens interactively)."
       (unless tab-bar-mode
         (message "Deleted all other tabs")))))
 
+(defcustom tab-bar-post-undo-close-tab-functions nil
+  "List of functions to call after a closed tab is restored.
+Each function is called with one argument: the tab that has been restored."
+  :type '(repeat function)
+  :group 'tab-bar
+  :version "31.1")
+
 (defun tab-bar-undo-close-tab ()
   "Restore the most recently closed tab."
   (interactive)
@@ -2208,6 +2305,8 @@ happens interactively)."
             ;; `pushnew' handles the head of tabs but not frame-parameter
             (tab-bar-tabs-set tabs))
           (tab-bar-select-tab (1+ index)))
+        (run-hook-with-args 'tab-bar-post-undo-close-tab-functions
+                            tab)
         (tab-bar--update-tab-bar-lines))
 
     (message "No more closed tabs to undo")))
@@ -2462,6 +2561,13 @@ This navigates forward in the history of window configurations."
 (defvar-keymap tab-bar-history-mode-map
   "C-c <left>"  #'tab-bar-history-back
   "C-c <right>" #'tab-bar-history-forward)
+
+(defvar-keymap tab-bar-history-repeat-map
+  :doc "Keymap to repeat tab-bar-history key sequences.
+Used in `repeat-mode'."
+  :repeat t
+  "<left>"  #'tab-bar-history-back
+  "<right>" #'tab-bar-history-forward)
 
 (define-minor-mode tab-bar-history-mode
   "Toggle tab history mode for the tab bar.
@@ -2936,6 +3042,9 @@ files will be visited."
   "Display the buffer of the next command in a new tab.
 The next buffer is the buffer displayed by the next command invoked
 immediately after this command (ignoring reading from the minibuffer).
+In case of multiple consecutive mouse events such as <down-mouse-1>,
+a mouse release event <mouse-1>, <double-mouse-1>, <triple-mouse-1>
+all bound commands are handled until one of them displays a buffer.
 Creates a new tab before displaying the buffer, or switches to the tab
 that already contains that buffer.
 When `switch-to-buffer-obey-display-actions' is non-nil,

@@ -26,6 +26,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #include <tree_sitter/api.h>
 #include "lisp.h"
+#include "buffer.h"
 
 INLINE_HEADER_BEGIN
 
@@ -63,6 +64,15 @@ struct Lisp_TS_Parser
      but rather return DEFAULT_RANGE.  (A single range where start_byte
      = 0, end_byte = UINT32_MAX).  */
   Lisp_Object last_set_ranges;
+  /* Parsers for embedded code blocks will have a non-zero embed level.
+     The primary parser has level 0, and each additional layer of parser
+     embedding increments the leve by 1.  The embed level can be either
+     a non-negative integer or nil.  Every parser created by
+     'treesit-parser-create' starts with a nil level.  If the value is
+     nil, that means the range functions (treesit-update-ranges and
+     friends) haven't touched this parser yet, and this parser isn't
+     part of the embed parser tree.  */
+  Lisp_Object embed_level;
   /* The buffer associated with this parser.  */
   Lisp_Object buffer;
   /* The pointer to the tree-sitter parser.  Never NULL.  */
@@ -88,6 +98,14 @@ struct Lisp_TS_Parser
      (ref:visible-beg-null) in treesit.c for more explanation.  */
   ptrdiff_t visible_beg;
   ptrdiff_t visible_end;
+  /* Caches the line and column number of VISIBLE_BEG.  It's always
+     valid and matches VISIBLE_BEG (because it's updated at each buffer
+     edit).  (It has to be, because in treesit_record_change, we need to
+     calculate the line/col offset of old_end_linecol, the exact reason
+     why is left as an exercise to the reader.)  */
+  struct ts_linecol visi_beg_linecol;
+  /* Similar to VISI_BEG_LINECOL but caches VISIBLE_END.  */
+  struct ts_linecol visi_end_linecol;
   /* This counter is incremented every time a change is made to the
      buffer in treesit_record_change.  The node retrieved from this parser
      inherits this timestamp.  This way we can make sure the node is
@@ -213,9 +231,21 @@ CHECK_TS_COMPILED_QUERY (Lisp_Object query)
 
 INLINE_HEADER_END
 
-extern void treesit_record_change (ptrdiff_t, ptrdiff_t, ptrdiff_t);
+extern const struct ts_linecol TREESIT_BOB_LINECOL;
+/* An uninitialized linecol.  */
+extern const struct ts_linecol TREESIT_EMPTY_LINECOL;
+extern const TSPoint TREESIT_TS_POINT_1_0;
+
+extern bool treesit_buf_tracks_linecol_p (struct buffer *);
+extern struct ts_linecol linecol_offset (struct ts_linecol,
+					 struct ts_linecol);
+extern struct ts_linecol treesit_linecol_maybe (ptrdiff_t, ptrdiff_t,
+						struct ts_linecol);
+extern void treesit_record_change (ptrdiff_t, ptrdiff_t, ptrdiff_t,
+				   struct ts_linecol, struct ts_linecol,
+				   ptrdiff_t);
 extern Lisp_Object make_treesit_parser (Lisp_Object, TSParser *, TSTree *,
-					Lisp_Object, Lisp_Object);
+					Lisp_Object, Lisp_Object, bool);
 extern Lisp_Object make_treesit_node (Lisp_Object, TSNode);
 
 extern bool treesit_node_uptodate_p (Lisp_Object);

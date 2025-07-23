@@ -321,9 +321,6 @@ stylesheet is switched, or its contents modified."
   :version "29.1"
   :set #'doc-view-custom-set-epub-user-stylesheet)
 
-(defvar-local doc-view--current-cache-dir nil
-  "Only used internally.")
-
 (defun doc-view-custom-set-epub-font-size (option-name new-value)
   (set-default option-name new-value)
   (doc-view--epub-reconvert))
@@ -591,11 +588,15 @@ Typically \"page-%s.png\".")
   (cl-labels ((revert ()
                 (let ((revert-buffer-preserve-modes t))
                   (apply orig-fun args)
-                  ;; Update the cached version of the pdf file,
-                  ;; too.  This is the one that's used when
-                  ;; rendering (bug#26996).
-                  (unless (equal buffer-file-name
-                                 doc-view--buffer-file-name)
+                  ;; Update the cached version of the pdf file, too.
+                  ;; This is the one that's used when rendering
+                  ;; (bug#26996).  doc-view--buffer-file-name is nil in
+                  ;; the case where we've switched to the editing mode
+                  ;; (bug#76478).  In that case, we'll update the cached
+                  ;; version when switching back to doc-view-mode.
+                  (when (and doc-view--buffer-file-name
+                             (not (equal buffer-file-name
+                                         doc-view--buffer-file-name)))
                     ;; FIXME: Lars says he needed to recreate
                     ;; the dir, we should figure out why.
                     (doc-view-make-safe-dir doc-view-cache-directory)
@@ -1676,7 +1677,8 @@ ARGS is a list of image descriptors."
                             (setq args `(,@args :transform-smoothing t)))
                           (when (eq doc-view--image-type 'svg)
                             (setq args `(,@args :background ,(face-background 'doc-view-svg-face)
-                                                :foreground ,(face-foreground 'doc-view-svg-face))))
+                                                :foreground ,(face-foreground 'doc-view-svg-face)
+                                                :css "svg{fill:currentcolor;}")))
 			  (apply #'create-image file doc-view--image-type nil args))))
 	     (slice (doc-view-current-slice))
 	     (img-width (and image (car (image-size image))))
@@ -1798,7 +1800,7 @@ For now these keys are useful:
   (if doc-view--current-converter-processes
       (message "DocView: please wait till conversion finished.")
     (let ((txt (expand-file-name "doc.txt" (doc-view--current-cache-dir)))
-          (page (doc-view-current-page)))
+          (page (or (doc-view-current-page) 1)))
       (if (file-readable-p txt)
           (let ((dv-bfn doc-view--buffer-file-name)
                 (dv-text-buffer-name (format "%s/text" (buffer-name))))
@@ -2443,7 +2445,20 @@ to the next best mode."
 See the command `doc-view-mode' for more information on this mode."
   :lighter " DocView"
   (when doc-view-minor-mode
-    (add-hook 'change-major-mode-hook (lambda () (doc-view-minor-mode -1)) nil t)
+    (add-hook 'change-major-mode-hook
+              (lambda ()
+                (doc-view-minor-mode -1))
+              nil t)
+    ;; OpenDocuments are archive files, so their editing mode is
+    ;; archive-mode.  When editing and saving a file in that archive,
+    ;; it'll automatically revert the archive buffer.  Take care to
+    ;; re-enable `doc-view-minor-mode' in that case.
+    (add-hook 'revert-buffer-restore-functions
+              (lambda ()
+                (lambda ()
+                  (unless (derived-mode-p 'doc-view-mode)
+                    (doc-view-minor-mode 1))))
+              nil t)
     (message
      "%s"
      (substitute-command-keys

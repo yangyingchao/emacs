@@ -1080,7 +1080,7 @@ This function is used as a value for `add-log-current-defun-function'."
            (let ((xref-current-item xref))
              (xref--show-location (xref-item-location xref) t)))
           (t
-           (error "No %s xref" (if backward "previous" "next"))))))
+           (user-error "No %s xref" (if backward "previous" "next"))))))
 
 (defvar xref--button-map
   (let ((map (make-sparse-keymap)))
@@ -1252,7 +1252,9 @@ Return an alist of the form ((GROUP . (XREF ...)) ...)."
          (dd default-directory)
          buf)
     (with-current-buffer (get-buffer-create xref-buffer-name)
-      (xref--ensure-default-directory dd (current-buffer))
+      (if (fboundp 'set-buffer-local-toplevel-value)
+          (set-buffer-local-toplevel-value 'default-directory dd)
+        (xref--ensure-default-directory dd (current-buffer)))
       (xref--xref-buffer-mode)
       (xref--show-common-initialize xref-alist fetcher alist)
       (setq mode-line-process (list xref-mode-line-matches))
@@ -1378,7 +1380,9 @@ local keymap that binds `RET' to `xref-quit-and-goto-xref'."
       (setq xref-alist (xref--analyze xrefs))
 
       (with-current-buffer (get-buffer-create xref-buffer-name)
-        (xref--ensure-default-directory dd (current-buffer))
+        (if (fboundp 'set-buffer-local-toplevel-value)
+            (set-buffer-local-toplevel-value 'default-directory dd)
+          (xref--ensure-default-directory dd (current-buffer)))
         (xref--transient-buffer-mode)
         (xref--show-common-initialize xref-alist fetcher alist)
         (pop-to-buffer (current-buffer)
@@ -1521,31 +1525,40 @@ The meanings of both arguments are the same as documented in
                     xrefs
                   (setq xrefs 'called-already)))))))
   (let ((cb (current-buffer))
-        (pt (point)))
+        (pt (point))
+        (win (selected-window)))
     (prog1
         (funcall xref-show-xrefs-function fetcher
-                 `((window . ,(selected-window))
+                 `((window . ,win)
                    (display-action . ,display-action)
                    (auto-jump . ,xref-auto-jump-to-first-xref)))
-      (xref--push-markers cb pt))))
+      (xref--push-markers cb pt win))))
 
 (defun xref--show-defs (xrefs display-action)
   (let ((cb (current-buffer))
-        (pt (point)))
+        (pt (point))
+        (win (selected-window)))
     (prog1
         (funcall xref-show-definitions-function xrefs
-                 `((window . ,(selected-window))
+                 `((window . ,win)
                    (display-action . ,display-action)
                    (auto-jump . ,xref-auto-jump-to-first-definition)))
-      (xref--push-markers cb pt))))
+      (xref--push-markers cb pt win))))
 
-(defun xref--push-markers (buf pt)
+(defun xref--push-markers (buf pt win)
   (when (buffer-live-p buf)
-    (save-excursion
-      (with-no-warnings (set-buffer buf))
-      (goto-char pt)
-      (unless (region-active-p) (push-mark nil t))
-      (xref-push-marker-stack))))
+    ;; This was we support the `xref-history-storage' getter which
+    ;; depends on the selected window.  This is getting pretty complex,
+    ;; though. The alternative approach to try would be to push early
+    ;; but undo the stack insertion and mark-pushing in error handler.
+    (save-window-excursion
+      (when (window-live-p win)
+        (select-window win))
+      (save-excursion
+        (with-no-warnings (set-buffer buf))
+        (goto-char pt)
+        (unless (region-active-p) (push-mark nil t))
+        (xref-push-marker-stack)))))
 
 (defun xref--prompt-p (command)
   (or (eq xref-prompt-for-identifier t)

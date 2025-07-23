@@ -462,7 +462,7 @@ File Handling
 * Copying and Naming::  Copying, naming and renaming files.
 * Misc File Ops::       Other things you can do on files.
 * Compressed Files::    Accessing compressed files.
-* File Archives::       Operating on tar, zip, jar etc. archive files.
+* File Archives::       Operating on tar, zip, jar etc.@: archive files.
 * Remote Files::        Accessing files on other machines.
 * Quoted File Names::   Quoting special characters in file names.
 * File Name Cache::     Completion against a list of files you often use.
@@ -485,6 +485,11 @@ Backup Files
 * Backup Names::        How backup files are named.
 * Backup Deletion::     Emacs deletes excess numbered backups.
 * Backup Copying::      Backups can be made by copying or renaming.
+
+Updating Time Stamps Automatically
+
+* Time Stamp Customization::   How to customize with time-stamp-pattern.
+* Time Stamps for One File::   Ensure automatic time-stamp of a specific file.
 
 @ifnottex
 Auto Reverting Non-File Buffers
@@ -588,7 +593,7 @@ International Character Set Support
 
 Major and Minor Modes
 
-* Major Modes::         Text mode vs. Lisp mode vs. C mode...
+* Major Modes::         Text mode vs.@: Lisp mode vs.@: C mode...
 * Minor Modes::         Each minor mode is a feature you can turn on
                           independently of any others.
 * Choosing Modes::      How modes are chosen when visiting files.
@@ -864,7 +869,9 @@ Miscellaneous Commands and Features of VC
 * VC Delete/Rename::      Deleting and renaming version-controlled files.
 * Revision Tags::         Symbolic names for revisions.
 * Version Headers::       Inserting version control headers into working files.
-* Editing VC Commands:: Editing the VC shell commands that Emacs will run.
+* Editing VC Commands::   Editing the VC shell commands that Emacs will run.
+* Preparing Patches::     Preparing and composing patches from within VC.
+* VC Auto-Reverting::     Updating buffer contents after VCS operations.
 
 Customizing VC
 
@@ -879,6 +886,7 @@ Projects
 * Project Buffer Commands:: Commands for handling project buffers.
 * Switching Projects::      Switching between projects.
 * Managing Projects::       Managing the project list file.
+* VC-Aware Project Backend:: Default project backend.
 
 Change Logs
 
@@ -909,7 +917,7 @@ Tags Tables
 Merging Files with Emerge
 
 * Overview of Emerge::  How to start Emerge.  Basic concepts.
-* Submodes of Emerge::  Fast mode vs. Edit mode.
+* Submodes of Emerge::  Fast mode vs.@: Edit mode.
                           Skip Prefers mode and Auto Advance mode.
 * State of Difference:: You do the merge by specifying state A or B
                           for each difference.
@@ -1121,7 +1129,7 @@ Hyperlinking and Navigation Features
 * Embedded WebKit Widgets:: Embedding browser widgets in Emacs buffers.
 * Browse-URL::          Following URLs.
 * Goto Address mode::   Activating URLs.
-* FFAP::                Finding files etc. at point.
+* FFAP::                Finding files etc.@: at point.
 
 Emacs Lisp Packages
 

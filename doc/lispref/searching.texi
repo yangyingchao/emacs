@@ -616,12 +616,16 @@ This matches horizontal whitespace, as defined by Annex C of the
 Unicode Technical Standard #18.  In particular, it matches spaces,
 tabs, and other characters whose Unicode @samp{general-category}
 property (@pxref{Character Properties}) indicates they are spacing
-separators.
+separators.  (If you only need to look for ASCII whitespace characters,
+we suggest using an explicit set of character alternatives, such as
+@w{@samp{[ \t]}}, instead, as it will be faster than
+@code{[[:blank:]]}.)
 @item [:cntrl:]
 This matches any character whose code is in the range 0--31.
 @item [:digit:]
 This matches @samp{0} through @samp{9}.  Thus, @samp{[-+[:digit:]]}
 matches any digit, as well as @samp{+} and @samp{-}.
+@cindex graphic characters
 @item [:graph:]
 This matches graphic characters---everything except spaces,
 @acronym{ASCII} and non-@acronym{ASCII} control characters,
@@ -638,6 +642,7 @@ one.
 This matches any multibyte character (@pxref{Text Representations}).
 @item [:nonascii:]
 This matches any non-@acronym{ASCII} character.
+@cindex printable characters
 @item [:print:]
 This matches any printing character---either spaces or graphic
 characters matched by @samp{[:graph:]}.
@@ -1028,13 +1033,13 @@ programming language:
 
 @example
 @group
-(rx "/*"                    ; Initial /*
+(rx "/*"                            ; Initial /*
     (zero-or-more
-     (or (not "*")          ;  Either non-*,
-         (seq "*"           ;  or * followed by
-              (not "/"))))  ;     non-/
-    (one-or-more "*")       ; At least one star,
-    "/")                    ; and the final /
+     (or (not "*")                  ;  Either non-*,
+         (seq (one-or-more "*")     ;  or some * followed by
+              (not (or "*" "/"))))) ;     neither * nor /
+    (one-or-more "*")               ; At least one star,
+    "/")                            ; and the final /
 @end group
 @end example
 
@@ -1045,7 +1050,7 @@ or, using shorter synonyms and written more compactly,
 @group
 (rx "/*"
     (* (| (not "*")
-          (: "*" (not "/"))))
+          (: (+ "*") (not (in "*/")))))
     (+ "*") "/")
 @end group
 @end example
@@ -1054,7 +1059,7 @@ or, using shorter synonyms and written more compactly,
 In conventional string syntax, it would be written
 
 @example
-"/\\*\\(?:[^*]\\|\\*[^/]\\)*\\*+/"
+"/\\*\\(?:[^*]\\|\\*+[^*/]\\)*\\*+/"
 @end example
 
 The @code{rx} notation is mainly useful in Lisp code; it cannot be
@@ -1835,7 +1840,7 @@ The optional argument @var{paren} can be any of the following:
 @table @asis
 @item a string
 The resulting regexp is preceded by @var{paren} and followed by
-@samp{\)}, e.g. use @samp{"\\(?1:"} to produce an explicitly
+@samp{\)}.  For example, use @samp{"\\(?1:"} to produce an explicitly
 numbered group.
 
 @item @code{words}

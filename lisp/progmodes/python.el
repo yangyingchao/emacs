@@ -3,10 +3,10 @@
 ;; Copyright (C) 2003-2025 Free Software Foundation, Inc.
 
 ;; Author: Fabián E. Gallina <fgallina@gnu.org>
-;; URL: https://github.com/fgallina/python.el
-;; Version: 0.28
-;; Package-Requires: ((emacs "24.4") (compat "29.1.1.0") (seq "2.23"))
 ;; Maintainer: emacs-devel@gnu.org
+;; URL: https://github.com/fgallina/python.el
+;; Version: 0.30
+;; Package-Requires: ((emacs "29.1") (compat "29.1.1.0") (seq "2.23") (project "0.1") (flymake "1.0"))
 ;; Created: Jul 2010
 ;; Keywords: languages
 
@@ -259,11 +259,26 @@
 (require 'compat)
 (require 'project nil 'noerror)
 (require 'seq)
-(treesit-declare-unavailable-functions)
+
+(declare-function treesit-parser-create "treesit.c")
+(declare-function treesit-induce-sparse-tree "treesit.c")
+(declare-function treesit-node-child-by-field-name "treesit.c")
+(declare-function treesit-node-type "treesit.c")
+(declare-function treesit-node-start "treesit.c")
+(declare-function treesit-node-end "treesit.c")
+(declare-function treesit-node-parent "treesit.c")
+(declare-function treesit-node-prev-sibling "treesit.c")
+
+(add-to-list
+ 'treesit-language-source-alist
+ '(python "https://github.com/tree-sitter/tree-sitter-python"
+          :commit "bffb65a8cfe4e46290331dfef0dbf0ef3679de11")
+ t)
 
 ;; Avoid compiler warnings
 (defvar compilation-error-regexp-alist)
 (defvar outline-heading-end-regexp)
+(defvar treesit-thing-settings)
 
 (autoload 'comint-mode "comint")
 (autoload 'help-function-arglist "help-fns")
@@ -283,7 +298,7 @@
 ;;;###autoload
 (add-to-list 'auto-mode-alist (cons python--auto-mode-alist-regexp 'python-mode))
 ;;;###autoload
-(add-to-list 'interpreter-mode-alist (cons (purecopy "python[0-9.]*") 'python-mode))
+(add-to-list 'interpreter-mode-alist '("python[0-9.]*" . python-mode))
 
 (defgroup python nil
   "Python Language's flying circus support for Emacs."
@@ -308,11 +323,21 @@ To customize the Python interpreter for interactive use, modify
   :version "30.1"
   :type 'string)
 
+(defcustom python-2-support nil
+  "If non-nil, enable Python 2 support.
+Currently only affects highlighting.
+
+After customizing this variable, you must restart Emacs for it to take
+effect."
+  :version "31.1"
+  :type 'boolean
+  :safe 'booleanp)
+
 
 ;;; Bindings
 
-(defvar-keymap python-mode-map
-  :doc "Keymap for `python-mode'."
+(defvar-keymap python-base-mode-map
+  :doc "Keymap for `python-base-mode'."
   ;; Movement
   "<remap> <backward-sentence>" #'python-nav-backward-block
   "<remap> <forward-sentence>"  #'python-nav-forward-block
@@ -355,9 +380,16 @@ To customize the Python interpreter for interactive use, modify
   ;; Utilities
   "<remap> <complete-symbol>" #'completion-at-point)
 
+(defvar-keymap python-indent-repeat-map
+  :doc "Keymap to repeat Python indentation commands.
+Used in `repeat-mode'."
+  :repeat t
+  "<" #'python-indent-shift-left
+  ">" #'python-indent-shift-right)
+
 (defvar subword-mode nil)
 
-(easy-menu-define python-menu python-mode-map
+(easy-menu-define python-menu python-base-mode-map
   "Menu used for ´python-mode'."
   '("Python"
     :help "Python-specific Features"
@@ -418,7 +450,10 @@ To customize the Python interpreter for interactive use, modify
       :style toggle :selected subword-mode
       :help "Toggle subword movement and editing mode"])))
 
-(defvar python-ts-mode-map (copy-keymap python-mode-map)
+(defvar python-mode-map (make-composed-keymap nil python-base-mode-map)
+ "Keymap for `python-mode'.")
+
+(defvar python-ts-mode-map (make-composed-keymap nil python-base-mode-map)
   "Keymap for `python-ts-mode'.")
 
 
@@ -440,10 +475,17 @@ This variant of `rx' supports common Python named REGEXPS."
             (dedenter          (seq symbol-start
                                     (or "elif" "else" "except" "finally" "case")
                                     symbol-end))
-            (block-ender       (seq symbol-start
-                                    (or
-                                     "break" "continue" "pass" "raise" "return")
-                                    symbol-end))
+            (block-ender       (seq
+                                symbol-start
+                                (or
+                                 (seq (or
+                                       "break" "continue" "pass" "raise" "return")
+                                  symbol-end)
+                                 (seq
+                                  (or
+                                   (seq (? (or (seq "os." (? ?_)) "sys.")) "exit")
+                                   "quit")
+                                  (* space) "("))))
             (decorator         (seq line-start (* space) ?@ (any letter ?_)
                                     (* (any word ?_))))
             (defun             (seq symbol-start
@@ -674,6 +716,40 @@ the {...} holes that appear within f-strings."
 This is the minimum decoration level, including function and
 class declarations.")
 
+(defvar python-font-lock-builtin-types
+  '("bool" "bytearray" "bytes" "complex" "dict" "float" "frozenset"
+    "int" "list" "memoryview" "range" "set" "str" "tuple"))
+
+(defvar python-font-lock-builtins-python3
+  '("abs" "aiter" "all" "anext" "any" "ascii" "bin" "breakpoint"
+    "callable" "chr" "classmethod" "compile" "delattr" "dir" "divmod"
+    "enumerate" "eval" "exec" "filter" "format" "getattr" "globals"
+    "hasattr" "hash" "help" "hex" "id" "input" "isinstance"
+    "issubclass" "iter" "len" "locals" "map" "max" "min" "next"
+    "object" "oct" "open" "ord" "pow" "print" "property" "repr"
+    "reversed" "round" "setattr" "slice" "sorted" "staticmethod" "sum"
+    "super" "type" "vars" "zip" "__import__"))
+
+(defvar python-font-lock-builtins-python2
+  '("basestring" "cmp" "execfile" "file" "long" "raw_input" "reduce"
+    "reload" "unichr" "unicode" "xrange" "apply" "buffer" "coerce"
+    "intern"))
+
+(defvar python-font-lock-builtins
+  (append python-font-lock-builtins-python3
+          (when python-2-support
+            python-font-lock-builtins-python2)))
+
+(defvar python-font-lock-special-attributes
+  '(;; https://docs.python.org/3/reference/datamodel.html
+    "__annotations__" "__bases__" "__closure__" "__code__"
+    "__defaults__" "__dict__" "__doc__" "__firstlineno__"
+    "__globals__" "__kwdefaults__" "__name__" "__module__"
+    "__mro__" "__package__" "__qualname__"
+    "__static_attributes__" "__type_params__"
+    ;; Extras:
+    "__all__"))
+
 (defvar python-font-lock-keywords-level-2
   `(,@python-font-lock-keywords-level-1
     ,(rx symbol-start
@@ -696,33 +772,11 @@ class declarations.")
           "self")
          symbol-end)
     ;; Builtins
-    (,(rx symbol-start
-          (or
-           "abs" "all" "any" "bin" "bool" "callable" "chr" "classmethod"
-           "compile" "complex" "delattr" "dict" "dir" "divmod" "enumerate"
-           "eval" "filter" "float" "format" "frozenset" "getattr" "globals"
-           "hasattr" "hash" "help" "hex" "id" "input" "int" "isinstance"
-           "issubclass" "iter" "len" "list" "locals" "map" "max" "memoryview"
-           "min" "next" "object" "oct" "open" "ord" "pow" "print" "property"
-           "range" "repr" "reversed" "round" "set" "setattr" "slice" "sorted"
-           "staticmethod" "str" "sum" "super" "tuple" "type" "vars" "zip"
-           "__import__"
-           ;; Python 2:
-           "basestring" "cmp" "execfile" "file" "long" "raw_input" "reduce"
-           "reload" "unichr" "unicode" "xrange" "apply" "buffer" "coerce"
-           "intern"
-           ;; Python 3:
-           "aiter" "anext" "ascii" "breakpoint" "bytearray" "bytes" "exec"
-           ;; Special attributes:
-           ;; https://docs.python.org/3/reference/datamodel.html
-           "__annotations__" "__bases__" "__closure__" "__code__"
-           "__defaults__" "__dict__" "__doc__" "__firstlineno__"
-           "__globals__" "__kwdefaults__" "__name__" "__module__"
-           "__mro__" "__package__" "__qualname__"
-           "__static_attributes__" "__type_params__"
-           ;; Extras:
-           "__all__")
-          symbol-end) . font-lock-builtin-face))
+    (,(rx-to-string `(seq symbol-start
+                          (or ,@(append python-font-lock-builtin-types
+                                        python-font-lock-builtins
+                                        python-font-lock-special-attributes))
+                          symbol-end)) . font-lock-builtin-face))
   "Font lock keywords to use in `python-mode' for level 2 decoration.
 
 This is the medium decoration level, including everything in
@@ -744,6 +798,41 @@ sign in chained assignment."
                         (equal (char-after) ?=))
                return (progn (backward-char) t))))
 
+(defvar python-font-lock-builtin-exceptions-python3
+  '(;; Python 2 and 3:
+    "ArithmeticError" "AssertionError" "AttributeError" "BaseException"
+    "BufferError" "BytesWarning" "DeprecationWarning" "EOFError"
+    "EnvironmentError" "Exception" "FloatingPointError" "FutureWarning"
+    "GeneratorExit" "IOError" "ImportError" "ImportWarning"
+    "IndentationError" "IndexError" "KeyError" "KeyboardInterrupt"
+    "LookupError" "MemoryError" "NameError" "NotImplementedError"
+    "OSError" "OverflowError" "PendingDeprecationWarning"
+    "ReferenceError" "RuntimeError" "RuntimeWarning" "StopIteration"
+    "SyntaxError" "SyntaxWarning" "SystemError" "SystemExit" "TabError"
+    "TypeError" "UnboundLocalError" "UnicodeDecodeError"
+    "UnicodeEncodeError" "UnicodeError" "UnicodeTranslateError"
+    "UnicodeWarning" "UserWarning" "ValueError" "Warning"
+    "ZeroDivisionError"
+    ;; Python 3:
+    "BlockingIOError" "BrokenPipeError" "ChildProcessError"
+    "ConnectionAbortedError" "ConnectionError" "ConnectionRefusedError"
+    "ConnectionResetError" "EncodingWarning" "FileExistsError"
+    "FileNotFoundError" "InterruptedError" "IsADirectoryError"
+    "NotADirectoryError" "ModuleNotFoundError" "PermissionError"
+    "ProcessLookupError" "PythonFinalizationError" "RecursionError"
+    "ResourceWarning" "StopAsyncIteration" "TimeoutError"
+    "BaseExceptionGroup" "ExceptionGroup"
+    ;; OS specific
+    "VMSError" "WindowsError"))
+
+(defvar python-font-lock-builtin-exceptions-python2
+  '("StandardError"))
+
+(defvar python-font-lock-builtin-exceptions
+  (append python-font-lock-builtin-exceptions-python3
+          (when python-2-support
+            python-font-lock-builtin-exceptions-python2)))
+
 (defvar python-font-lock-keywords-maximum-decoration
   `((python--font-lock-f-strings)
     ,@python-font-lock-keywords-level-2
@@ -761,38 +850,9 @@ sign in chained assignment."
                                             (0+ "." (1+ (or word ?_)))))
      (1 font-lock-type-face))
     ;; Builtin Exceptions
-    (,(rx symbol-start
-          (or
-           ;; Python 2 and 3:
-           "ArithmeticError" "AssertionError" "AttributeError" "BaseException"
-           "BufferError" "BytesWarning" "DeprecationWarning" "EOFError"
-           "EnvironmentError" "Exception" "FloatingPointError" "FutureWarning"
-           "GeneratorExit" "IOError" "ImportError" "ImportWarning"
-           "IndentationError" "IndexError" "KeyError" "KeyboardInterrupt"
-           "LookupError" "MemoryError" "NameError" "NotImplementedError"
-           "OSError" "OverflowError" "PendingDeprecationWarning"
-           "ReferenceError" "RuntimeError" "RuntimeWarning" "StopIteration"
-           "SyntaxError" "SyntaxWarning" "SystemError" "SystemExit" "TabError"
-           "TypeError" "UnboundLocalError" "UnicodeDecodeError"
-           "UnicodeEncodeError" "UnicodeError" "UnicodeTranslateError"
-           "UnicodeWarning" "UserWarning" "ValueError" "Warning"
-           "ZeroDivisionError"
-           ;; Python 2:
-           "StandardError"
-           ;; Python 3:
-           "BlockingIOError" "BrokenPipeError" "ChildProcessError"
-           "ConnectionAbortedError" "ConnectionError" "ConnectionRefusedError"
-           "ConnectionResetError" "EncodingWarning" "FileExistsError"
-           "FileNotFoundError" "InterruptedError" "IsADirectoryError"
-           "NotADirectoryError" "ModuleNotFoundError" "PermissionError"
-           "ProcessLookupError" "PythonFinalizationError" "RecursionError"
-           "ResourceWarning" "StopAsyncIteration" "TimeoutError"
-           "BaseExceptionGroup" "ExceptionGroup"
-           ;; OS specific
-           "VMSError" "WindowsError"
-           )
-          symbol-end)
-     . font-lock-type-face)
+    (,(rx-to-string `(seq symbol-start
+                          (or ,@python-font-lock-builtin-exceptions)
+                          symbol-end)) . font-lock-type-face)
     ;; single assignment with/without type hints, e.g.
     ;;   a: int = 5
     ;;   b: Tuple[Optional[int], Union[Sequence[str], str]] = (None, 'foo')
@@ -1000,8 +1060,7 @@ It makes underscores and dots word constituent chars.")
     "and" "in" "is" "not" "or" "not in" "is not"))
 
 (defvar python--treesit-builtin-types
-  '("int" "float" "complex" "bool" "list" "tuple" "range" "str"
-    "bytes" "bytearray" "memoryview" "set" "frozenset" "dict"))
+  python-font-lock-builtin-types)
 
 (defvar python--treesit-type-regex
   (rx-to-string `(seq bol (or
@@ -1010,17 +1069,7 @@ It makes underscores and dots word constituent chars.")
                   eol)))
 
 (defvar python--treesit-builtins
-  (append python--treesit-builtin-types
-          '("abs" "aiter" "all" "anext" "any" "ascii" "bin" "breakpoint"
-            "callable" "chr" "classmethod" "compile"
-            "delattr" "dir" "divmod" "enumerate" "eval" "exec"
-            "filter" "format" "getattr" "globals"
-            "hasattr" "hash" "help" "hex" "id" "input" "isinstance"
-            "issubclass" "iter" "len" "locals" "map" "max"
-            "min" "next" "object" "oct" "open" "ord" "pow"
-            "print" "property" "repr" "reversed" "round"
-            "setattr" "slice" "sorted" "staticmethod" "sum" "super"
-            "type" "vars" "zip" "__import__")))
+  python-font-lock-builtins)
 
 (defvar python--treesit-constants
   '("Ellipsis" "False" "None" "NotImplemented" "True" "__debug__"
@@ -1032,42 +1081,10 @@ It makes underscores and dots word constituent chars.")
     ">>" ">>=" "|" "|=" "~" "@" "@="))
 
 (defvar python--treesit-special-attributes
-  '("__annotations__" "__bases__" "__closure__" "__code__"
-    "__defaults__" "__dict__" "__doc__" "__firstlineno__"
-    "__globals__" "__kwdefaults__" "__name__" "__module__"
-    "__mro__" "__package__" "__qualname__"
-    "__static_attributes__" "__type_params__"
-    "__all__"))
+  python-font-lock-special-attributes)
 
 (defvar python--treesit-exceptions
-  '(;; Python 2 and 3:
-    "ArithmeticError" "AssertionError" "AttributeError" "BaseException"
-    "BufferError" "BytesWarning" "DeprecationWarning" "EOFError"
-    "EnvironmentError" "Exception" "FloatingPointError" "FutureWarning"
-    "GeneratorExit" "IOError" "ImportError" "ImportWarning"
-    "IndentationError" "IndexError" "KeyError" "KeyboardInterrupt"
-    "LookupError" "MemoryError" "NameError" "NotImplementedError"
-    "OSError" "OverflowError" "PendingDeprecationWarning"
-    "ReferenceError" "RuntimeError" "RuntimeWarning" "StopIteration"
-    "SyntaxError" "SyntaxWarning" "SystemError" "SystemExit" "TabError"
-    "TypeError" "UnboundLocalError" "UnicodeDecodeError"
-    "UnicodeEncodeError" "UnicodeError" "UnicodeTranslateError"
-    "UnicodeWarning" "UserWarning" "ValueError" "Warning"
-    "ZeroDivisionError"
-    ;; Python 2:
-    "StandardError"
-    ;; Python 3:
-    "BlockingIOError" "BrokenPipeError" "ChildProcessError"
-    "ConnectionAbortedError" "ConnectionError" "ConnectionRefusedError"
-    "ConnectionResetError" "EncodingWarning" "FileExistsError"
-    "FileNotFoundError" "InterruptedError" "IsADirectoryError"
-    "NotADirectoryError" "ModuleNotFoundError" "PermissionError"
-    "ProcessLookupError" "PythonFinalizationError" "RecursionError"
-    "ResourceWarning" "StopAsyncIteration" "TimeoutError"
-    "BaseExceptionGroup" "ExceptionGroup"
-    ;; OS specific
-    "VMSError" "WindowsError"
-    ))
+  python-font-lock-builtin-exceptions)
 
 (defun python--treesit-fontify-string (node override start end &rest _)
   "Fontify string.
@@ -1105,11 +1122,14 @@ fontified."
                    'font-lock-doc-face
                  'font-lock-string-face))
 
-         (ignore-interpolation (not
-                                (seq-some
-                                 (lambda (feats) (memq 'string-interpolation feats))
-                                 (seq-take treesit-font-lock-feature-list
-                                           (treesit--compute-font-lock-level treesit-font-lock-level)))))
+         (ignore-interpolation
+          (not (seq-some
+                (lambda (feats) (memq 'string-interpolation feats))
+                (seq-take treesit-font-lock-feature-list
+                          (if (fboundp 'treesit--compute-font-lock-level)
+                              (treesit--compute-font-lock-level
+                               treesit-font-lock-level)
+                            treesit-font-lock-level)))))
          ;; If interpolation is enabled, highlight only
          ;; string_start/string_content/string_end children.  Do not
          ;; touch interpolation node that can occur inside of the
@@ -1217,7 +1237,16 @@ fontified."
       name: (identifier) @font-lock-type-face)
      (parameters (identifier) @font-lock-variable-name-face)
      (parameters (typed_parameter (identifier) @font-lock-variable-name-face))
-     (parameters (default_parameter name: (identifier) @font-lock-variable-name-face)))
+     (parameters (default_parameter name: (identifier) @font-lock-variable-name-face))
+     (parameters (typed_default_parameter name: (identifier) @font-lock-variable-name-face))
+     (lambda_parameters (identifier) @font-lock-variable-name-face)
+     (for_in_clause
+      left: (identifier) @font-lock-variable-name-face)
+     ((import_from_statement
+       name: ((dotted_name (identifier) @font-lock-type-face)))
+      (:match "\\`[A-Z][A-Za-z0-9]+\\'" @font-lock-type-face))
+     (import_from_statement
+      name: ((dotted_name (identifier) @font-lock-variable-name-face))))
 
    :feature 'builtin
    :language 'python
@@ -1240,13 +1269,24 @@ fontified."
 
    :feature 'function
    :language 'python
-   '((call function: (identifier) @font-lock-function-call-face)
+   '(((call function: (identifier) @font-lock-type-face)
+      (:match "\\`[A-Z][A-Za-z0-9]+\\'" @font-lock-type-face))
+     (call function: (identifier) @font-lock-function-call-face)
+     (call arguments: (argument_list (keyword_argument
+                                      name: (identifier) @font-lock-property-name-face)))
      (call function: (attribute
                       attribute: (identifier) @font-lock-function-call-face)))
 
    :feature 'constant
    :language 'python
-   '([(true) (false) (none)] @font-lock-constant-face)
+   '([(true) (false) (none)] @font-lock-constant-face
+     ((assignment  (identifier) @font-lock-constant-face)
+      (:match "\\`[A-Z][A-Z0-9_]+\\'" @font-lock-constant-face))
+     ((call arguments: (argument_list (identifier) @font-lock-constant-face))
+      (:match "\\`[A-Z][A-Z0-9_]+\\'" @font-lock-constant-face))
+     ((attribute
+       attribute: (identifier) @font-lock-constant-face)
+      (:match "\\`[A-Z][A-Z0-9_]+\\'" @font-lock-constant-face)))
 
    :feature 'assignment
    :language 'python
@@ -1274,8 +1314,6 @@ fontified."
 
    :feature 'type
    :language 'python
-   ;; Override built-in faces when dict/list are used for type hints.
-   :override t
    `(((identifier) @font-lock-type-face
       (:match ,(rx-to-string
                 `(seq bol (or ,@python--treesit-exceptions)
@@ -1320,7 +1358,9 @@ fontified."
      ((call function: (identifier) @func-name
             (argument_list :anchor (_)
                            (binary_operator) @python--treesit-fontify-union-types-strict))
-      (:match "^is\\(?:instance\\|subclass\\)$" @func-name)))
+      (:match "^is\\(?:instance\\|subclass\\)$" @func-name))
+     ((identifier) @font-lock-type-face
+      (:match "\\`[A-Z][A-Za-z0-9]+\\'" @font-lock-type-face)))
 
    :feature 'escape-sequence
    :language 'python
@@ -2328,8 +2368,11 @@ of the statement."
                            (setq
                             last-string-end
                             (or (if (eq t (nth 3 (syntax-ppss)))
-                                    (re-search-forward
-                                     (rx (syntax string-delimiter)) nil t)
+                                    (cl-loop
+                                     while (re-search-forward
+                                            (rx (or "\"\"\"" "'''")) nil t)
+                                     unless (python-syntax-context 'string)
+                                     return (point))
                                   (ignore-error scan-error
                                     (goto-char string-start)
                                     (python-nav--lisp-forward-sexp)
@@ -2370,9 +2413,54 @@ backward to previous statement."
     (python-nav-beginning-of-statement)
     (setq arg (1+ arg))))
 
+(defvar python-nav-cache nil
+  "Cache to hold the results of navigation functions.")
+
+(defvar python-nav-cache-tick 0
+  "`buffer-chars-modified-tick' when registering the navigation cache.")
+
+(defun python-nav-cache-get (kind)
+  "Get value from the navigation cache.
+If the current buffer is not modified, the navigation cache is searched
+using KIND and the current line number as a key."
+  (and (= (buffer-chars-modified-tick) python-nav-cache-tick)
+       (cdr (assoc (cons kind (line-number-at-pos nil t)) python-nav-cache))))
+
+(defun python-nav-cache-set (kind current target)
+  "Add a key-value pair to the navigation cache.
+Invalidate the navigation cache if the current buffer has been modified.
+Then add a key-value pair to the navigation cache.  The key consists of
+KIND and CURRENT line number, and the value is TARGET position."
+  (let ((tick (buffer-chars-modified-tick)))
+    (when (/= tick python-nav-cache-tick)
+      (setq-local python-nav-cache nil
+                  python-nav-cache-tick tick))
+    (push (cons (cons kind current) target) python-nav-cache)
+    target))
+
+(defun python-nav-with-cache (kind func)
+  "Cached version of the navigation FUNC.
+If a value is obtained from the navigation cache using KIND, it will
+navigate there and return the position.  Otherwise, use FUNC to navigate
+and cache the result."
+  (let ((target (python-nav-cache-get kind)))
+    (if target
+        (progn
+          (goto-char target)
+          (point-marker))
+      (let ((current (line-number-at-pos nil t)))
+        (python-nav-cache-set kind current (funcall func))))))
+
 (defun python-nav-beginning-of-block ()
   "Move to start of current block."
   (interactive "^")
+  (python-nav-with-cache
+   'beginning-of-block #'python-nav--beginning-of-block))
+
+(defun python-nav--beginning-of-block ()
+  "Move to start of current block.
+This is an internal implementation of `python-nav-beginning-of-block'
+without the navigation cache."
   (let ((starting-pos (point)))
     ;; Go to first line beginning a statement
     (while (and (not (bobp))
@@ -2397,6 +2485,13 @@ backward to previous statement."
 (defun python-nav-end-of-block ()
   "Move to end of current block."
   (interactive "^")
+  (python-nav-with-cache
+   'end-of-block #'python-nav--end-of-block))
+
+(defun python-nav--end-of-block ()
+  "Move to end of current block.
+This is an internal implementation of `python-nav-end-of-block' without
+the navigation cache."
   (when (python-nav-beginning-of-block)
     (let ((block-indentation (current-indentation)))
       (python-nav-end-of-statement)
@@ -2927,6 +3022,7 @@ virtualenv related vars."
   (let* ((virtualenv (when python-shell-virtualenv-root
                        (directory-file-name python-shell-virtualenv-root)))
          (res python-shell-process-environment))
+    (push "PYTHON_BASIC_REPL=1" res)
     (when python-shell-unbuffered
       (push "PYTHONUNBUFFERED=1" res))
     (when python-shell-extra-pythonpaths
@@ -3547,11 +3643,13 @@ eventually provide a shell."
 (defconst python-shell-setup-code
   "\
 try:
-    import tty
+    import termios
 except ImportError:
     pass
 else:
-    tty.setraw(0)"
+    attr = termios.tcgetattr(0)
+    attr[3] &= ~termios.ECHO
+    termios.tcsetattr(0, termios.TCSADRAIN, attr)"
   "Code used to setup the inferior Python processes.")
 
 (defconst python-shell-eval-setup-code
@@ -3684,6 +3782,8 @@ variable.
   (setq-local compilation-error-regexp-alist
               python-shell-compilation-regexp-alist)
   (setq-local scroll-conservatively 1)
+  (setq-local comint-dynamic-complete-functions
+              '(comint-c-a-p-replace-by-expanded-history))
   (add-hook 'completion-at-point-functions
             #'python-shell-completion-at-point nil 'local)
   (define-key inferior-python-mode-map "\t"
@@ -4534,6 +4634,13 @@ def __PYTHON_EL_native_completion_setup():
             if not is_ipython:
                 readline.set_completer(new_completer)
             else:
+                # Ensure that rlcompleter.__main__ and __main__ are identical.
+                # (Bug#76205)
+                import sys
+                try:
+                    sys.modules['rlcompleter'].__main__ = sys.modules['__main__']
+                except KeyError:
+                    pass
                 # Try both initializations to cope with all IPython versions.
                 # This works fine for IPython 3.x but not for earlier:
                 readline.set_completer(new_completer)
@@ -5536,9 +5643,8 @@ def __FFAP_get_module_path(objstr):
 (defvar ffap-alist)
 
 (eval-after-load "ffap"
-  '(progn
-     (push '(python-mode . python-ffap-module-path) ffap-alist)
-     (push '(inferior-python-mode . python-ffap-module-path) ffap-alist)))
+  '(dolist (mode '(python-mode python-ts-mode inferior-python-mode))
+     (add-to-list 'ffap-alist `(,mode . python-ffap-module-path))))
 
 
 ;;; Code check
@@ -6011,6 +6117,45 @@ tree-sitter."
   (python-imenu-create-flat-index
    (python-imenu-treesit-create-index)))
 
+
+;;; Tree-sitter things
+
+(defvar python--thing-settings
+  `((python
+     (defun ,(rx (or "function" "class") "_definition"))
+     (sexp (not (or (and named
+                         ,(rx bos (or "module"
+                                      "block"
+                                      "comment")
+                              eos))
+                    (and anonymous
+                         ,(rx bos (or "(" ")" "[" "]" "{" "}" ",")
+                              eos)))))
+     (list ,(rx bos (or "parameters"
+                        "type_parameter"
+                        "parenthesized_list_splat"
+                        "argument_list"
+                        "_list_pattern"
+                        "_tuple_pattern"
+                        "dict_pattern"
+                        "tuple_pattern"
+                        "list_pattern"
+                        "list"
+                        "set"
+                        "tuple"
+                        "dictionary"
+                        "list_comprehension"
+                        "dictionary_comprehension"
+                        "set_comprehension"
+                        "generator_expression"
+                        "parenthesized_expression"
+                        "interpolation")
+                eos))
+     (sentence ,(rx (or "statement"
+                        "clause")))
+     (text ,(rx (or "string" "comment")))))
+  "`treesit-thing-settings' for Python.")
+
 ;;; Misc helpers
 
 (defun python-info-current-defun (&optional include-type)
@@ -6131,12 +6276,25 @@ parent defun name."
 
 (defun python-info-statement-ends-block-p ()
   "Return non-nil if point is at end of block."
-  (let ((end-of-block-pos (save-excursion
-                            (python-nav-end-of-block)))
-        (end-of-statement-pos (save-excursion
-                                (python-nav-end-of-statement))))
-    (and end-of-block-pos end-of-statement-pos
-         (= end-of-block-pos end-of-statement-pos))))
+  (let* (current-statement
+         (current-indentation (save-excursion
+                                (setq current-statement
+                                      (python-nav-beginning-of-statement))
+                                (current-indentation)))
+         next-statement
+         (next-indentation (save-excursion
+                             (python-nav-forward-statement)
+                             (setq next-statement (point))
+                             (current-indentation))))
+    (unless (and (< current-statement next-statement)
+                 (<= current-indentation next-indentation))
+      (and-let* ((end-of-statement-pos (save-excursion
+                                         (python-nav-end-of-statement)
+                                         (python-util-forward-comment -1)
+                                         (point)))
+                 (end-of-block-pos (save-excursion
+                                     (python-nav-end-of-block))))
+        (= end-of-block-pos end-of-statement-pos)))))
 
 (defun python-info-beginning-of-statement-p ()
   "Return non-nil if point is at beginning of statement."
@@ -6157,7 +6315,10 @@ parent defun name."
 
 (defun python-info-end-of-block-p ()
   "Return non-nil if point is at end of block."
-  (and (python-info-end-of-statement-p)
+  (and (= (point) (save-excursion
+                    (python-nav-end-of-statement)
+                    (python-util-forward-comment -1)
+                    (point)))
        (python-info-statement-ends-block-p)))
 
 (define-obsolete-function-alias
@@ -6915,7 +7076,7 @@ Return non-nil if the buffer was actually modified."
             (unless (eq 0 status)
               (error "%s exited with status %s (maybe isort is missing?)"
                      python-interpreter status))
-            (replace-buffer-contents temp)
+            (replace-region-contents (point-min) (point-max) temp)
             (not (eq tick (buffer-chars-modified-tick)))))))))
 
 ;;;###autoload
@@ -6927,6 +7088,12 @@ found in the current project as suggestions.  With a prefix
 argument, restrict the suggestions to imports defining the symbol
 at point.  If there is only one such suggestion, act without
 asking.
+
+If the buffer does not belong to a project, the import statement is
+searched under the buffer's default directory.  For example, if the file
+is located directly under the home directory, all files under the home
+directory will be searched.  Please note that this can take a long time
+and may appear to hang.
 
 When calling from Lisp, use a non-nil NAME to restrict the
 suggestions to imports defining NAME."
@@ -6972,7 +7139,17 @@ asking."
 
 ;;;###autoload
 (defun python-fix-imports ()
-  "Add missing imports and remove unused ones from the current buffer."
+  "Add missing imports and remove unused ones from the current buffer.
+
+If there are missing imports, ask for an import statement using all
+imports found in the current project as suggestions.  If there is only
+one such suggestion, act without asking.
+
+If the buffer does not belong to a project, the import statement is
+searched under the buffer's default directory.  For example, if the file
+is located directly under the home directory, all files under the home
+directory will be searched.  Please note that this can take a long time
+and may appear to hang."
   (interactive)
   (let ((buffer (current-buffer))
         undefined unused add remove)
@@ -7115,6 +7292,7 @@ implementations: `python-mode' and `python-ts-mode'."
           (add-hook 'eldoc-documentation-functions #'python-eldoc-function nil t)
         (add-function :before-until (local 'eldoc-documentation-function)
                       #'python-eldoc-function))))
+  (eldoc-add-command-completions "python-indent-dedent-line-backspace")
 
   ;; TODO: Use tree-sitter to figure out the block in `python-ts-mode'.
   (dolist (mode '(python-mode python-ts-mode))
@@ -7182,7 +7360,9 @@ implementations: `python-mode' and `python-ts-mode'."
 
 \\{python-ts-mode-map}"
   :syntax-table python-mode-syntax-table
-  (when (treesit-ready-p 'python)
+  (when (if (fboundp 'treesit-ensure-installed) ; Emacs 31
+            (treesit-ensure-installed 'python)
+          (treesit-ready-p 'python))
     (setq treesit-primary-parser (treesit-parser-create 'python))
     (setq-local treesit-font-lock-feature-list
                 '(( comment definition)
@@ -7193,25 +7373,14 @@ implementations: `python-mode' and `python-ts-mode'."
     (setq-local treesit-font-lock-settings python--treesit-settings)
     (setq-local imenu-create-index-function
                 #'python-imenu-treesit-create-index)
-    (setq-local treesit-defun-type-regexp (rx (or "function" "class")
-                                              "_definition"))
     (setq-local treesit-defun-name-function
                 #'python--treesit-defun-name)
 
-    (setq-local treesit-sentence-type-regexp
-                (regexp-opt '("statement"
-                              "clause")))
-
-    (setq-local treesit-sexp-type-regexp
-                (regexp-opt '("expression"
-                              "string"
-                              "call"
-                              "operator"
-                              "identifier"
-                              "integer"
-                              "float")))
-
+    (setq-local treesit-thing-settings python--thing-settings)
     (treesit-major-mode-setup)
+    ;; Enable the `sexp' navigation by default
+    (setq-local forward-sexp-function #'treesit-forward-sexp
+                treesit-sexp-thing 'sexp)
 
     (setq-local syntax-propertize-function #'python--treesit-syntax-propertize)
 
@@ -7220,10 +7389,11 @@ implementations: `python-mode' and `python-ts-mode'."
     (when python-indent-guess-indent-offset
       (python-indent-guess-indent-offset))
 
-    (add-to-list 'auto-mode-alist (cons python--auto-mode-alist-regexp  'python-ts-mode))
+    (add-to-list 'auto-mode-alist (cons python--auto-mode-alist-regexp 'python-ts-mode))
     (add-to-list 'interpreter-mode-alist '("python[0-9.]*" . python-ts-mode))))
 
-(derived-mode-add-parents 'python-ts-mode '(python-mode))
+(when (fboundp 'derived-mode-add-parents) ; Emacs 30.1
+  (derived-mode-add-parents 'python-ts-mode '(python-mode)))
 
 ;;; Completion predicates for M-x
 ;; Commands that only make sense when editing Python code.

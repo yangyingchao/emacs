@@ -281,35 +281,6 @@ the string."
   (declare (pure t) (side-effect-free t))
   (string-remove-suffix "\n" string))
 
-(defun replace-region-contents (beg end replace-fn
-                                    &optional max-secs max-costs)
-  "Replace the region between BEG and END using REPLACE-FN.
-REPLACE-FN runs on the current buffer narrowed to the region.  It
-should return either a string or a buffer replacing the region.
-
-The replacement is performed using `replace-buffer-contents'
-which also describes the MAX-SECS and MAX-COSTS arguments and the
-return value.
-
-Note: If the replacement is a string, it'll be placed in a
-temporary buffer so that `replace-buffer-contents' can operate on
-it.  Therefore, if you already have the replacement in a buffer,
-it makes no sense to convert it to a string using
-`buffer-substring' or similar."
-  (save-excursion
-    (save-restriction
-      (narrow-to-region beg end)
-      (goto-char (point-min))
-      (let ((repl (funcall replace-fn)))
-	(if (bufferp repl)
-	    (replace-buffer-contents repl max-secs max-costs)
-	  (let ((source-buffer (current-buffer)))
-	    (with-temp-buffer
-	      (insert repl)
-	      (let ((tmp-buffer (current-buffer)))
-		(set-buffer source-buffer)
-		(replace-buffer-contents tmp-buffer max-secs max-costs)))))))))
-
 ;;;###autoload
 (defmacro named-let (name bindings &rest body)
   "Looping construct taken from Scheme.
@@ -389,8 +360,8 @@ buffer when possible, instead of creating a new one on each call."
 ;;;###autoload
 (defun string-pixel-width (string &optional buffer)
   "Return the width of STRING in pixels.
-If BUFFER is non-nil, use the face remappings from that buffer when
-determining the width.
+If BUFFER is non-nil, use the face remappings, alternative and default
+properties from that buffer when determining the width.
 If you call this function to measure pixel width of a string
 with embedded newlines, it returns the width of the widest
 substring that does not include newlines."
@@ -400,11 +371,14 @@ substring that does not include newlines."
     ;; Keeping a work buffer around is more efficient than creating a
     ;; new temporary buffer.
     (with-work-buffer
-      (if buffer
-          (setq-local face-remapping-alist
-                      (with-current-buffer buffer
-                        face-remapping-alist))
-        (kill-local-variable 'face-remapping-alist))
+      ;; Setup current buffer to correctly compute pixel width.
+      (when buffer
+        (dolist (v '(face-remapping-alist
+                     char-property-alias-alist
+                     default-text-properties))
+          (if (local-variable-p v buffer)
+              (set (make-local-variable v)
+                   (buffer-local-value v buffer)))))
       ;; Avoid deactivating the region as side effect.
       (let (deactivate-mark)
         (insert string))
@@ -413,12 +387,8 @@ substring that does not include newlines."
       ;; (bug#59311).  Disable `line-prefix' and `wrap-prefix',
       ;; for the same reason.
       (add-text-properties
-       (point-min) (point-max) '(display-line-numbers-disable t))
-      ;; Prefer `remove-text-properties' to `propertize' to avoid
-      ;; creating a new string on each call.
-      (remove-text-properties
-       (point-min) (point-max) '(line-prefix nil wrap-prefix nil))
-      (setq line-prefix nil wrap-prefix nil)
+       (point-min) (point-max)
+       '(display-line-numbers-disable t line-prefix "" wrap-prefix ""))
       (car (buffer-text-pixel-size nil nil t)))))
 
 ;;;###autoload
@@ -446,48 +416,81 @@ indivisible unit."
         (setq start (1+ start))))
     (nreverse result)))
 
-;;;###autoload
-(defun add-display-text-property (start end prop value
-                                        &optional object)
-  "Add display property PROP with VALUE to the text from START to END.
-If any text in the region has a non-nil `display' property, those
-properties are retained.
-
-If OBJECT is non-nil, it should be a string or a buffer.  If nil,
-this defaults to the current buffer."
+(defun add-remove--display-text-property (start end spec value
+                                                &optional object remove)
   (let ((sub-start start)
         (sub-end 0)
+        (limit (if (stringp object)
+                   (min (length object) end)
+                 (min end (point-max))))
         disp)
     (while (< sub-end end)
       (setq sub-end (next-single-property-change sub-start 'display object
-                                                 (if (stringp object)
-                                                     (min (length object) end)
-                                                   (min end (point-max)))))
+                                                 limit))
       (if (not (setq disp (get-text-property sub-start 'display object)))
           ;; No old properties in this range.
-          (put-text-property sub-start sub-end 'display (list prop value)
-                             object)
+          (unless remove
+            (put-text-property sub-start sub-end 'display (list spec value)
+                               object))
         ;; We have old properties.
-        (let ((vector nil))
+        (let ((changed nil)
+              type)
           ;; Make disp into a list.
           (setq disp
                 (cond
                  ((vectorp disp)
-                  (setq vector t)
+                  (setq type 'vector)
                   (seq-into disp 'list))
-                 ((not (consp (car disp)))
+                 ((or (not (consp (car-safe disp)))
+                      ;; If disp looks like ((margin ...) ...), that's
+                      ;; still a single display specification.
+                      (eq (caar disp) 'margin))
+                  (setq type 'scalar)
                   (list disp))
                  (t
+                  (setq type 'list)
                   disp)))
           ;; Remove any old instances.
-          (when-let* ((old (assoc prop disp)))
-            (setq disp (delete old disp)))
-          (setq disp (cons (list prop value) disp))
-          (when vector
-            (setq disp (seq-into disp 'vector)))
-          ;; Finally update the range.
-          (put-text-property sub-start sub-end 'display disp object)))
+          (when-let* ((old (assoc spec disp)))
+            ;; If the property value was a list, don't modify the
+            ;; original value in place; it could be used by other
+            ;; regions of text.
+            (setq disp (if (eq type 'list)
+                           (remove old disp)
+                         (delete old disp))
+                  changed t))
+          (unless remove
+            (setq disp (cons (list spec value) disp)
+                  changed t))
+          (when changed
+            (if (not disp)
+                (remove-text-properties sub-start sub-end '(display nil) object)
+              (when (eq type 'vector)
+                (setq disp (seq-into disp 'vector)))
+              ;; Finally update the range.
+              (put-text-property sub-start sub-end 'display disp object)))))
       (setq sub-start sub-end))))
+
+;;;###autoload
+(defun add-display-text-property (start end spec value &optional object)
+  "Add the display specification (SPEC VALUE) to the text from START to END.
+If any text in the region has a non-nil `display' property, the existing
+display specifications are retained.
+
+OBJECT is either a string or a buffer to add the specification to.
+If omitted, OBJECT defaults to the current buffer."
+  (add-remove--display-text-property start end spec value object))
+
+;;;###autoload
+(defun remove-display-text-property (start end spec &optional object)
+  "Remove the display specification SPEC from the text from START to END.
+SPEC is the car of the display specification to remove, e.g. `height'.
+If any text in the region has other display specifications, those specs
+are retained.
+
+OBJECT is either a string or a buffer to remove the specification from.
+If omitted, OBJECT defaults to the current buffer."
+  (add-remove--display-text-property start end spec nil object 'remove))
 
 ;;;###autoload
 (defun read-process-name (prompt)
@@ -551,8 +554,7 @@ as changes in text properties, `buffer-file-coding-system', buffer
 multibyteness, etc. -- will not be noticed, and the buffer will still
 be marked unmodified, effectively ignoring those changes."
   (declare (debug t) (indent 0))
-  (let ((hash (gensym))
-        (buffer (gensym)))
+  (cl-with-gensyms (hash buffer)
     `(let ((,hash (and (not (buffer-modified-p))
                        (buffer-hash)))
            (,buffer (current-buffer)))

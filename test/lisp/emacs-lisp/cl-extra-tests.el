@@ -22,12 +22,55 @@
 (require 'cl-lib)
 (require 'ert)
 
+(ert-deftest cl-lib-test-remprop ()
+  (cl-with-gensyms (x)
+    (should (equal (symbol-plist x) '()))
+    ;; Remove nonexistent property on empty plist.
+    (cl-remprop x 'b)
+    (should (equal (symbol-plist x) '()))
+    (put x 'a 1)
+    (should (equal (symbol-plist x) '(a 1)))
+    ;; Remove nonexistent property on nonempty plist.
+    (cl-remprop x 'b)
+    (should (equal (symbol-plist x) '(a 1)))
+    (put x 'b 2)
+    (put x 'c 3)
+    (put x 'd 4)
+    (should (equal (symbol-plist x) '(a 1 b 2 c 3 d 4)))
+    ;; Remove property that is neither first nor last.
+    (cl-remprop x 'c)
+    (should (equal (symbol-plist x) '(a 1 b 2 d 4)))
+    ;; Remove last property from a plist of length >1.
+    (cl-remprop x 'd)
+    (should (equal (symbol-plist x) '(a 1 b 2)))
+    ;; Remove first property from a plist of length >1.
+    (cl-remprop x 'a)
+    (should (equal (symbol-plist x) '(b 2)))
+    ;; Remove property when there is only one.
+    (cl-remprop x 'b)
+    (should (equal (symbol-plist x) '()))))
+
 (ert-deftest cl-get ()
   (put 'cl-get-test 'x 1)
   (put 'cl-get-test 'y nil)
   (should (eq (cl-get 'cl-get-test 'x) 1))
   (should (eq (cl-get 'cl-get-test 'y :none) nil))
-  (should (eq (cl-get 'cl-get-test 'z :none) :none)))
+  (should (eq (cl-get 'cl-get-test 'z :none) :none))
+  (let ((sym (make-symbol "test")))
+    (put sym 'foo 'bar)
+    (should (equal (cl-get sym 'foo) 'bar))
+    (cl-remprop sym 'foo)
+    (should (equal (cl-get sym 'foo 'default) 'default))))
+
+(ert-deftest cl-lib-test-coerce-to-vector ()
+  (let* ((a (vector))
+         (b (vector 1 a 3))
+         (c (list))
+         (d (list b a)))
+    (should (eql (cl-coerce a 'vector) a))
+    (should (eql (cl-coerce b 'vector) b))
+    (should (equal (cl-coerce c 'vector) (vector)))
+    (should (equal (cl-coerce d 'vector) (vector b a)))))
 
 (ert-deftest cl-extra-test-coerce ()
   (should (equal (cl-coerce "abc" 'list) '(?a ?b ?c)))
@@ -61,23 +104,23 @@
     (should (eq (cl-getf plist 'x) 1))
     (should-not (cl-getf plist 'y :none))
     (should (eq (cl-getf plist 'z :none) :none))
-    (should (eq (cl-incf (cl-getf plist 'x 10) 2) 3))
+    (should (eq (incf (cl-getf plist 'x 10) 2) 3))
     (should (equal plist '(x 3 y nil)))
-    (should-error (cl-incf (cl-getf plist 'y 10) 4) :type 'wrong-type-argument)
+    (should-error (incf (cl-getf plist 'y 10) 4) :type 'wrong-type-argument)
     (should (equal plist '(x 3 y nil)))
-    (should (eq (cl-incf (cl-getf plist 'z 10) 5) 15))
+    (should (eq (incf (cl-getf plist 'z 10) 5) 15))
     (should (equal plist '(z 15 x 3 y nil))))
   (let ((plist '(x 1 y)))
     (should (eq (cl-getf plist 'x) 1))
     (should (eq (cl-getf plist 'y :none) :none))
     (should (eq (cl-getf plist 'z :none) :none))
-    (should (eq (cl-incf (cl-getf plist 'x 10) 2) 3))
+    (should (eq (incf (cl-getf plist 'x 10) 2) 3))
     (should (equal plist '(x 3 y)))
-    (should (eq (cl-incf (cl-getf plist 'y 10) 4) 14))
+    (should (eq (incf (cl-getf plist 'y 10) 4) 14))
     (should (equal plist '(y 14 x 3 y))))
   (let ((plist '(x 1 y . 2)))
     (should (eq (cl-getf plist 'x) 1))
-    (should (eq (cl-incf (cl-getf plist 'x 10) 2) 3))
+    (should (eq (incf (cl-getf plist 'x 10) 2) 3))
     (should (equal plist '(x 3 y . 2)))
     (should-error (cl-getf plist 'y :none) :type 'wrong-type-argument)
     (should-error (cl-getf plist 'z :none) :type 'wrong-type-argument)))
@@ -152,7 +195,8 @@
   (should (equal (cl-concatenate 'vector [1 2 3] [4 5 6])
                  [1 2 3 4 5 6]))
   (should (equal (cl-concatenate 'string "123" "456")
-                 "123456")))
+                 "123456"))
+  (should (equal (cl-concatenate 'list '(1 2) '(3 4) '(5 6)) '(1 2 3 4 5 6))))
 
 (ert-deftest cl-extra-test-mapcan ()
   (should (equal (cl-mapcan #'list '(1 2 3)) '(1 2 3)))
@@ -184,14 +228,14 @@
                  nil)))
 
 (ert-deftest cl-extra-test-notany ()
-  (should (equal (cl-notany #'cl-oddp '(1 3 5)) nil))
-  (should (equal (cl-notany #'cl-oddp '(2 4 6)) t))
-  (should (equal (cl-notany #'cl-oddp '(1 2 3 4 5)) nil)))
+  (should (equal (cl-notany #'oddp '(1 3 5)) nil))
+  (should (equal (cl-notany #'oddp '(2 4 6)) t))
+  (should (equal (cl-notany #'oddp '(1 2 3 4 5)) nil)))
 
 (ert-deftest cl-extra-test-notevery ()
-  (should (equal (cl-notevery #'cl-oddp '(1 3 5)) nil))
-  (should (equal (cl-notevery #'cl-oddp '(2 4 6)) t))
-  (should (equal (cl-notevery #'cl-oddp '(1 2 3 4 5)) t)))
+  (should (equal (cl-notevery #'oddp '(1 3 5)) nil))
+  (should (equal (cl-notevery #'oddp '(2 4 6)) t))
+  (should (equal (cl-notevery #'oddp '(1 2 3 4 5)) t)))
 
 (ert-deftest cl-extra-test-gcd ()
   (should (equal (cl-gcd 4) 4))
@@ -220,8 +264,8 @@
   (should (equal (cl-isqrt 0) 0))
   (should (equal (cl-isqrt 3) 1))
   (should (equal (cl-isqrt 10) 3))
-  (should-error (cl-isqrt -4))
-  (should-error (cl-isqrt 2.5)))
+  (should-error (cl-isqrt -4) :type 'arith-error)
+  (should-error (cl-isqrt 2.5) :type 'arith-error))
 
 (ert-deftest cl-extra-test-floor ()
   (should (equal (cl-floor 4.5) '(4 0.5)))
@@ -258,6 +302,17 @@
   (should (equal (cl-signum -10) -1))
   (should (equal (cl-signum 0) 0)))
 
+(ert-deftest cl-parse-integer ()
+  (should-error (cl-parse-integer "abc"))
+  (should (null (cl-parse-integer "abc" :junk-allowed t)))
+  (should (null (cl-parse-integer "" :junk-allowed t)))
+  (should (= 342391 (cl-parse-integer "0123456789" :radix 8 :junk-allowed t)))
+  (should-error (cl-parse-integer "0123456789" :radix 8))
+  (should (= -239 (cl-parse-integer "-efz" :radix 16 :junk-allowed t)))
+  (should-error (cl-parse-integer "efz" :radix 16))
+  (should (= 239 (cl-parse-integer "zzef" :radix 16 :start 2)))
+  (should (= -123 (cl-parse-integer "	-123  "))))
+
 (ert-deftest cl-extra-test-parse-integer ()
   (should (equal (cl-parse-integer "10") 10))
   (should (equal (cl-parse-integer "-10") -10))
@@ -274,21 +329,17 @@
   (should (equal (cl-subseq '(1 2 3 4 5) 2) '(3 4 5)))
   (should (equal (cl-subseq '(1 2 3 4 5) 1 3) '(2 3))))
 
-(ert-deftest cl-extra-test-concatenate ()
-  (should (equal (cl-concatenate 'string "hello " "world") "hello world"))
-  (should (equal (cl-concatenate 'list '(1 2) '(3 4) '(5 6)) '(1 2 3 4 5 6))))
-
 (ert-deftest cl-extra-test-revappend ()
   (should (equal (cl-revappend '(1 2 3) '(4 5 6)) '(3 2 1 4 5 6))))
 
 (ert-deftest cl-extra-test-nreconc ()
-  (should (equal (cl-nreconc '(1 2 3) '(4 5 6)) '(3 2 1 4 5 6))))
+  (should (equal (cl-nreconc (list 1 2 3) '(4 5 6)) '(3 2 1 4 5 6))))
 
 (ert-deftest cl-extra-test-list-length ()
   (should (equal (cl-list-length '(1 2 3)) 3))
   (should (equal (cl-list-length '()) 0))
   (let ((xl (number-sequence 1 100)))
-    (setcdr (nthcdr 99 xl) xl)
+    (nconc xl xl)
     (should (equal (cl-list-length xl) nil))))
 
 (ert-deftest cl-extra-test-tailp ()
@@ -297,11 +348,105 @@
     (should (cl-tailp l l))
     (should (not (cl-tailp '(4 5) l)))))
 
-(ert-deftest cl-extra-test-remprop ()
-  (let ((sym (make-symbol "test")))
-    (put sym 'foo 'bar)
-    (should (equal (cl-get sym 'foo) 'bar))
-    (cl-remprop sym 'foo)
-    (should (equal (cl-get sym 'foo 'default) 'default))))
+;;;; Method dispatch for derived types.
+
+(cl-deftype multiples-of (&optional m)
+  (let ((multiplep (if (memq m '(nil *))
+                       #'ignore
+		     (lambda (n) (= 0 (% n m))))))
+    `(and integer (satisfies ,multiplep))))
+
+(cl-deftype multiples-of-2 ()
+  '(multiples-of 2))
+
+(cl-deftype multiples-of-3 ()
+  '(multiples-of 3))
+
+(cl-deftype multiples-of-4 ()
+  (declare (parents multiples-of-2))
+  '(and multiples-of-2 (multiples-of 4)))
+
+(cl-deftype unsigned-byte (&optional bits)
+  "Unsigned integer."
+  `(integer 0 ,(if (memq bits '(nil *)) bits (1- (ash 1 bits)))))
+
+(cl-deftype unsigned-16bits ()
+  "Unsigned 16-bits integer."
+  (declare (parents unsigned-byte))
+  '(unsigned-byte 16))
+
+(cl-deftype unsigned-8bits ()
+  "Unsigned 8-bits integer."
+  (declare (parents unsigned-16bits))
+  '(unsigned-byte 8))
+
+(cl-defmethod my-foo ((_n unsigned-byte))
+  (format "unsigned"))
+
+(cl-defmethod my-foo ((_n unsigned-16bits))
+  (format "unsigned 16bits - also %s"
+          (cl-call-next-method)))
+
+(cl-defmethod my-foo ((_n unsigned-8bits))
+  (format "unsigned 8bits - also %s"
+          (cl-call-next-method)))
+
+(ert-deftest cl-types-test ()
+  "Test types definition, cl-types-of and method dispatching."
+
+  ;; Invalid DAG error
+  ;; FIXME: We don't test that any more.
+  ;; (should-error
+  ;;  (eval
+  ;;   '(cl-deftype unsigned-16bits ()
+  ;;      "Unsigned 16-bits integer."
+  ;;      (declare (parents unsigned-8bits))
+  ;;      '(unsigned-byte 16))
+  ;;   lexical-binding
+  ;;   ))
+
+  ;; Test that (cl-types-of 4) is (multiples-of-4 multiples-of-2 ...)
+  ;; Test that (cl-types-of 6) is (multiples-of-3 multiples-of-2 ...)
+  ;; Test that (cl-types-of 12) is (multiples-of-4 multiples-of-3 multiples-of-2 ...)
+  (let ((types '(multiples-of-2 multiples-of-3 multiples-of-4)))
+    (should (equal '(multiples-of-2)
+		   (seq-intersection (cl-types-of 2) types)))
+
+    (should (equal '(multiples-of-4 multiples-of-2)
+		   (seq-intersection (cl-types-of 4) types)))
+
+    (should (equal '(multiples-of-3 multiples-of-2)
+		   (seq-intersection (cl-types-of 6) types)))
+
+    (should (member (seq-intersection (cl-types-of 12) types)
+		    ;; Order between 3 and 4/2 is undefined.
+		    '((multiples-of-3 multiples-of-4 multiples-of-2)
+		      (multiples-of-4 multiples-of-2 multiples-of-3))))
+
+    (should (equal '()
+		   (seq-intersection (cl-types-of 5) types)))
+    )
+
+  ;;; Method dispatching.
+  (should (equal "unsigned 8bits - also unsigned 16bits - also unsigned"
+		 (my-foo 100)))
+
+  (should (equal "unsigned 16bits - also unsigned"
+		 (my-foo 256)))
+
+  (should (equal "unsigned"
+		 (my-foo most-positive-fixnum)))
+  )
+
+(ert-deftest cl-extra-test-random ()
+  (should-error (cl-random -1))
+  (should-error (cl-random -0.5))
+  (should-error (cl-random -1.0e+INF))
+  (should-error (cl-random 0))
+  (should-error (cl-random 0.0))
+  (should-error (cl-random -0.0))
+  (should-error (cl-random 1.0e+INF))
+  (should (eql (cl-random 1) 0)))
+
 
 ;;; cl-extra-tests.el ends here

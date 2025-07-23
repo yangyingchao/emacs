@@ -24,11 +24,11 @@
 
 ;;; Tree-sitter language versions
 ;;
-;; dockerfile-ts-mode is known to work with the following languages and version:
+;; dockerfile-ts-mode has been tested with the following grammars and version:
 ;; - tree-sitter-dockerfile: v0.2.0-1-g087daa2
 ;;
 ;; We try our best to make builtin modes work with latest grammar
-;; versions, so a more recent grammar version has a good chance to work.
+;; versions, so a more recent grammar has a good chance to work too.
 ;; Send us a bug report if it doesn't.
 
 ;;; Commentary:
@@ -39,6 +39,12 @@
 (require 'treesit)
 (eval-when-compile (require 'rx))
 (treesit-declare-unavailable-functions)
+
+(add-to-list
+ 'treesit-language-source-alist
+ '(dockerfile "https://github.com/camdencheek/tree-sitter-dockerfile"
+              :commit "087daa20438a6cc01fa5e6fe6906d77c869d19fe")
+ t)
 
 (defvar dockerfile-ts-mode--syntax-table
   (let ((table (make-syntax-table)))
@@ -97,7 +103,9 @@ continuation to the previous entry."
 
    :language 'dockerfile
    :feature 'image-spec
-   '((image_spec) @font-lock-constant-face)
+   '((image_name)  @font-lock-function-name-face
+     (image_tag)   @font-lock-function-name-face
+     (image_alias) @font-lock-function-name-face)
 
    :language 'dockerfile
    :feature 'keyword
@@ -113,7 +121,29 @@ continuation to the previous entry."
 
    :language 'dockerfile
    :feature 'string
-   '((double_quoted_string) @font-lock-string-face)
+   '((single_quoted_string) @font-lock-string-face
+     (double_quoted_string) @font-lock-string-face
+     (json_string) @font-lock-string-face
+     (path) @font-lock-string-face
+     (arg_instruction
+      default: (unquoted_string) @font-lock-string-face)
+     (env_pair
+      value: (unquoted_string) @font-lock-string-face))
+
+   :language 'dockerfile
+   :feature 'string-expansion
+   :override t
+   '((expansion
+      (["$" "{" "}"] @font-lock-variable-name-face))
+     (expansion
+      (variable) @font-lock-variable-name-face))
+
+   :language 'dockerfile
+   :feature 'identifiers
+   '((arg_instruction
+      name: (unquoted_string) @font-lock-variable-name-face)
+     (env_pair
+      name: (unquoted_string) @font-lock-variable-name-face))
 
    :language 'dockerfile
    :feature 'error
@@ -137,7 +167,7 @@ Return nil if there is no name or if NODE is not a stage node."
   :group 'dockerfile
   :syntax-table dockerfile-ts-mode--syntax-table
 
-  (when (treesit-ready-p 'dockerfile)
+  (when (treesit-ensure-installed 'dockerfile)
     (setq treesit-primary-parser (treesit-parser-create 'dockerfile))
 
     ;; Comments.
@@ -164,7 +194,7 @@ Return nil if there is no name or if NODE is not a stage node."
                 dockerfile-ts-mode--font-lock-settings)
     (setq-local treesit-font-lock-feature-list
                 '((comment)
-                  (keyword string)
+                  (keyword string string-expansion identifiers)
                   (image-spec number)
                   (bracket delimiter error operator)))
 

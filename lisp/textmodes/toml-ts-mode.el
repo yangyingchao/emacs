@@ -36,6 +36,12 @@
 (declare-function treesit-node-child "treesit.c")
 (declare-function treesit-node-child-by-field-name "treesit.c")
 
+(add-to-list
+ 'treesit-language-source-alist
+ '(toml "https://github.com/tree-sitter-grammars/tree-sitter-toml"
+        :commit "64b56832c2cffe41758f28e05c756a3a98d16f41")
+ t)
+
 (defcustom toml-ts-mode-indent-offset 2
   "Number of spaces for each indentation step in `toml-ts-mode'."
   :version "29.1"
@@ -109,6 +115,13 @@
    '((ERROR) @font-lock-warning-face))
   "Font-lock settings for TOML.")
 
+(defvar toml-ts-mode--font-lock-feature-list
+  '((comment)
+    (constant number pair string)
+    (escape-sequence)
+    (delimiter error))
+  "Font-lock feature list for TOML.")
+
 (defun toml-ts-mode--defun-name (node)
   "Return the defun name of NODE.
 Return nil if there is no name or if NODE is not a defun node."
@@ -123,7 +136,7 @@ Return nil if there is no name or if NODE is not a defun node."
   :group 'toml-mode
   :syntax-table toml-ts-mode--syntax-table
 
-  (when (treesit-ready-p 'toml)
+  (when (treesit-ensure-installed 'toml)
     (setq treesit-primary-parser (treesit-parser-create 'toml))
 
     ;; Comments
@@ -137,14 +150,18 @@ Return nil if there is no name or if NODE is not a defun node."
     (setq-local treesit-defun-type-regexp
                 (rx (or "table" "table_array_element")))
     (setq-local treesit-defun-name-function #'toml-ts-mode--defun-name)
+    (setq-local treesit-thing-settings
+                `((toml
+                   (list
+                    ,(rx bos (or "array" "inline_table") eos))
+                   (sentence
+                    ,(rx bos (or "pair") eos))
+                   (text
+                    ,(rx bos (or "comment") eos)))))
 
     ;; Font-lock.
     (setq-local treesit-font-lock-settings toml-ts-mode--font-lock-settings)
-    (setq-local treesit-font-lock-feature-list
-                '((comment)
-                  (constant number pair string)
-                  (escape-sequence)
-                  (delimiter error)))
+    (setq-local treesit-font-lock-feature-list toml-ts-mode--font-lock-feature-list)
 
     ;; Imenu.
     (setq-local treesit-simple-imenu-settings

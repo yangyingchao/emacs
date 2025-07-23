@@ -323,7 +323,7 @@ json_out_string (json_out_t *jo, Lisp_Object str, int skip)
 {
   /* FIXME: this code is slow, make faster! */
 
-  static const char hexchar[16] = "0123456789ABCDEF";
+  static const char hexchar[16] ATTRIBUTE_NONSTRING = "0123456789ABCDEF";
   ptrdiff_t len = SBYTES (str);
   json_make_room (jo, len + 2);
   json_out_byte (jo, '"');
@@ -641,7 +641,7 @@ usage: (json-insert OBJECT &rest ARGS)  */)
   move_gap_both (PT, PT_BYTE);
   if (GAP_SIZE < jo.size)
     make_gap (jo.size - GAP_SIZE);
-  memcpy ((char *) BEG_ADDR + PT_BYTE - BEG_BYTE, jo.buf, jo.size);
+  memcpy (GPT_ADDR, jo.buf, jo.size);
 
   /* No need to keep allocation beyond this point.  */
   unbind_to (count, Qnil);
@@ -1564,14 +1564,14 @@ json_parse_object (struct json_parser *parser)
     case json_object_hashtable:
       {
 	EMACS_INT value = (parser->object_workspace_current - first) / 2;
-	result = make_hash_table (&hashtest_equal, value, Weak_None, false);
+	result = make_hash_table (&hashtest_equal, value, Weak_None);
 	struct Lisp_Hash_Table *h = XHASH_TABLE (result);
 	for (size_t i = first; i < parser->object_workspace_current; i += 2)
 	  {
 	    hash_hash_t hash;
 	    Lisp_Object key = parser->object_workspace[i];
 	    Lisp_Object value = parser->object_workspace[i + 1];
-	    ptrdiff_t i = hash_lookup_get_hash (h, key, &hash);
+	    ptrdiff_t i = hash_find_get_hash (h, key, &hash);
 	    if (i < 0)
 	      hash_put (h, key, value, hash);
 	    else
@@ -1754,15 +1754,16 @@ usage: (json-parse-buffer &rest args) */)
 
   struct json_parser p;
   unsigned char *begin = PT_ADDR;
-  unsigned char *end = GPT_ADDR;
+  unsigned char *end = (GPT == ZV) ? GPT_ADDR : ZV_ADDR;
   unsigned char *secondary_begin = NULL;
   unsigned char *secondary_end = NULL;
-  if (GPT_ADDR < Z_ADDR)
+  if (PT == ZV)
+    begin = end = NULL;
+  else if (GPT > PT && GPT < ZV && GAP_SIZE > 0)
     {
+      end = GPT_ADDR;
       secondary_begin = GAP_END_ADDR;
-      if (secondary_begin < PT_ADDR)
-	secondary_begin = PT_ADDR;
-      secondary_end = Z_ADDR;
+      secondary_end = ZV_ADDR;
     }
 
   json_parser_init (&p, conf, begin, end, secondary_begin,

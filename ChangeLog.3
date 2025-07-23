@@ -47356,7 +47356,7 @@
 	possible bug.
 
 	* lisp/progmodes/flymake.el (flymake--mode-line-counter): Must
-	explicily create a new string unpropertized string
+	explicitly create a new string unpropertized string
 
 2020-12-31  João Távora  <joaotavora@gmail.com>
 
@@ -160588,7 +160588,7 @@
 	to be replaced with an appropriate character reference.  Make
 	‘sgml-quote’ do that.
 
-	While at it, fix entiteis not being unquoted if they lack closing
+	While at it, fix entities not being unquoted if they lack closing
 	semicolon (e.g. ‘&amp’) occurring at the very end of a region.
 	Even though unlikely, make ‘sgml-quote’ handle this scenario.
 
@@ -186568,7 +186568,7 @@
 	Delete a Flymake obsolete alias that can't possibly work
 
 	The function `flymake-ler-make-ler' can't possibly work as an backward
-	compatible interface to existing extensinos (even purely hypothetical
+	compatible interface to existing extensions (even purely hypothetical
 	ones, since none are known).  This is because every diagnostic
 	considered by Flymake has to passed to a report-fn function.
 
@@ -192376,7 +192376,7 @@
 	let-bind `case-fold-search' to nil in order to be case-sensitive
 	when matching a string.  (Bug#27518)
 
-2017-08-11  Stephen Berman  <steve@rosalinde.fritz.box>
+2017-08-11  Stephen Berman  <stephen.berman@gmx.net>
 
 	Fix a minor todo-mode regression
 
@@ -199538,7 +199538,7 @@
 	(tramp-smb-handle-set-file-acl)
 	(tramp-smb-maybe-open-connection): Adapt according to defstruct.
 
-2017-05-24  Stephen Berman  <steve@rosalinde.fritz.box>
+2017-05-24  Stephen Berman  <stephen.berman@gmx.net>
 
 	Fix and improve UI of scroll bar menu (bug#27047)
 
@@ -200272,7 +200272,7 @@
 	(string-trim): Add optional args that serve as defaults per the
 	original behavior.  (Bug#26908)
 
-2017-05-19  Stephen Berman  <steve@rosalinde.fritz.box>
+2017-05-19  Stephen Berman  <stephen.berman@gmx.net>
 
 	Fix typo in last change to auto-hscroll-mode
 
@@ -223233,7 +223233,7 @@
 	called any longer.
 
 	Furthermore, when newline has whitespace syntax, ‘\s-$’ regular
-	expression ends up matching empty lins since ‘\s-’ matches newline
+	expression ends up matching empty lines since ‘\s-’ matches newline
 	characetr of proceeding line.  This leads to needless loop iterations.
 
 	Since previous change to ‘delete-trailing-whitespace’ already introduced

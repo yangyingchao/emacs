@@ -1623,7 +1623,11 @@ no keyword implies `:all'."
 (defun use-package-handler/:custom-face (name _keyword args rest state)
   "Generate use-package custom-face keyword code."
   (use-package-concat
-   (mapcar #'(lambda (def) `(apply #'face-spec-set (backquote ,def))) args)
+   (mapcar #'(lambda (def)
+               `(progn
+                  (apply #'face-spec-set (append (backquote ,def) '(face-defface-spec)))
+                  (put ',(car def) 'face-modified t)))
+           args)
    (use-package-process-keywords name rest state)))
 
 ;;;; :init
@@ -1849,11 +1853,11 @@ Usage:
 :magic-fallback  Form to be added to `magic-fallback-mode-alist'.
 :interpreter     Form to be added to `interpreter-mode-alist'.
 
-:commands        Define autoloads for commands that will be defined by the
-                 package.  This is useful if the package is being lazily
-                 loaded, and you wish to conditionally call functions in your
+:commands        Define autoloads for commands defined by the package.
+                 This is useful if the package is being lazily loaded,
+                 and you wish to conditionally call functions in your
                  `:init' block that are defined in the package.
-:autoload        Similar to :commands, but it for no-interactive one.
+:autoload        Similar to `:commands', but used for non-interactive functions.
 :hook            Specify hook(s) to attach this package to.
 
 :bind            Bind keys, and define autoloads for the bound commands.
@@ -1887,12 +1891,21 @@ Usage:
 :custom          Call `Custom-set' or `set-default' with each variable
                  definition without modifying the Emacs `custom-file'.
                  (compare with `custom-set-variables').
-:custom-face     Call `custom-set-faces' with each face definition.
+:custom-face     Call `face-spec-set' with each face definition.
 :ensure          Loads the package using package.el if necessary.
 :pin             Pin the package to an archive.
 :vc              Install the package directly from a version control system
                  (using `package-vc.el')."
   (declare (indent defun))
+  (when (stringp name)
+    (user-error "String where there should be a symbol.  \
+Try this instead: `(use-package %s ...)'"
+                name))
+  (when (and (consp name) (eq (car name) 'quote))
+    (user-error "Quoted symbol where it should be unquoted.  \
+Try this instead: `(use-package %s ...)'"
+                (symbol-name (cadr name))))
+  (cl-check-type name symbol)
   (unless (memq :disabled args)
     (macroexp-progn
      (use-package-concat

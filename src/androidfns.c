@@ -1271,8 +1271,7 @@ DEFUN ("x-display-grayscale-p", Fx_display_grayscale_p,
   struct android_display_info *dpyinfo;
 
   dpyinfo = check_android_display_info (terminal);
-  return (dpyinfo->n_planes > 1 && dpyinfo->n_planes <= 8
-	  ? Qt : Qnil);
+  return dpyinfo->n_planes > 1 ? Qt : Qnil;
 }
 
 DEFUN ("x-display-pixel-width", Fx_display_pixel_width,
@@ -2449,6 +2448,8 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
 	/* Creating the tip frame failed.  */
 	return unbind_to (count, Qnil);
     }
+  else
+    tip_window = FRAME_ANDROID_WINDOW (XFRAME (tip_frame));
 
   tip_f = XFRAME (tip_frame);
   window = FRAME_ROOT_WINDOW (tip_f);
