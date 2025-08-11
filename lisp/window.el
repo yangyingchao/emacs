@@ -4017,7 +4017,8 @@ COUNT and ALL-FRAMES.  Otherwise, do not return a window for which
 This function uses `next-window' for finding the window to
 select.  The argument ALL-FRAMES has the same meaning as in
 `next-window', but the MINIBUF argument of `next-window' is
-always effectively nil."
+always effectively nil.  Interactively, ALL-FRAMES is always
+nil, which considers all windows on the selected frame."
   (interactive "p\ni\np")
   (let* ((window (selected-window))
          (original-window window)
@@ -4071,6 +4072,14 @@ always effectively nil."
 	(select-window window)
 	;; Always return nil.
 	nil))))
+
+(defun other-window-backward (count &optional all-frames interactive)
+  "Select another window in the reverse cyclic ordering of windows.
+COUNT specifies the number of windows to skip, (by default) backward,
+starting with the selected window, before making the selection.  Like
+`other-window', but moves in the opposite direction."
+  (interactive "p\ni\np")
+  (other-window (- (or count 1)) all-frames interactive))
 
 (defun other-window-prefix ()
   "Display the buffer of the next command in a new window.
@@ -5353,7 +5362,7 @@ Do not select an inactive minibuffer window."
 		 (not (eq frame (window-frame window))))
       (setq frame (window-frame window))
       (set-frame-selected-window frame window)
-      (select-frame-set-input-focus frame))))
+      (select-frame frame))))
 
 (defun quit-restore-window (&optional window bury-or-kill)
   "Quit WINDOW and deal with its buffer.
@@ -11372,6 +11381,7 @@ found by the provided context."
 (define-key ctl-x-map "2" 'split-window-below)
 (define-key ctl-x-map "3" 'split-window-right)
 (define-key ctl-x-map "o" 'other-window)
+(define-key ctl-x-map "O" 'other-window-backward)
 (define-key ctl-x-map "^" 'enlarge-window)
 (define-key ctl-x-map "}" 'enlarge-window-horizontally)
 (define-key ctl-x-map "{" 'shrink-window-horizontally)
@@ -11385,10 +11395,7 @@ found by the provided context."
   :doc "Keymap to repeat `other-window'.  Used in `repeat-mode'."
   :repeat t
   "o" #'other-window
-  "O" (lambda ()
-        (interactive)
-        (setq repeat-map 'other-window-repeat-map)
-        (other-window -1)))
+  "O" #'other-window-backward)
 
 (defvar-keymap resize-window-repeat-map
   :doc "Keymap to repeat window resizing commands.

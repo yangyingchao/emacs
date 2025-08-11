@@ -429,26 +429,23 @@ the log starting from that revision."
              ;; kinds of ranges of revisions for the log to show:
              ;;   - ranges by revision number:   -rN:M
              ;;   - ranges according to the DAG: -rN::M or -rN..M
-             ;; Note that N & M can be revision numbers or changeset IDs
-             ;; (hashes).  In either case a revision number range
+             ;; Note that N and M can be revision numbers or changeset
+             ;; IDs (hashes).  In either case a revision number range
              ;; includes those commits with revision numbers between the
              ;; revision numbers of the commits identified by N and M.
              ;; See <https://repo.mercurial-scm.org/hg/help/revsets>.
              ;;
-             ;; DAG ranges might seem like Git's double-dot notation for
-             ;; ranges, but there is (at least) the following
-             ;; difference: with -rN::M, commits from other branches
-             ;; aren't included in the log.
+             ;; DAG ranges are not the same as Git's double-dot ranges.
+             ;; Git's 'x..y' is more like Mercurial's 'only(y, x)' than
+             ;; it is like Mercurial's x::y.  In addition, with -rN::M,
+             ;; commits from other branches aren't included in the log.
              ;;
              ;; VC has always used ranges by revision numbers, such that
              ;; commits from all branches are included in the log.
-             ;; `vc-log-outgoing' is a special case: there we really
-             ;; need to exclude the incoming revision and its ancestors
-             ;; because those are certainly not outgoing.
              (cond ((not (stringp limit))
                     (format "-r%s:0" start))
                    ((eq vc-log-view-type 'log-outgoing)
-                    (format "-rreverse(%s::%s & !%s)" limit start limit))
+                    (format "-rreverse(only(%s, %s))" start limit))
                    (t
                     (format "-r%s:%s & !%s" start limit limit)))
 	     (nconc
@@ -1217,7 +1214,7 @@ It is based on `log-edit-mode', and has Hg-specific extensions.")
 (defalias 'vc-hg-async-checkins #'always)
 
 (defun vc-hg-checkin (files comment &optional _rev)
-  "Hg-specific version of `vc-backend-checkin'.
+  "Hg-specific version of `vc-BACKEND-checkin'.
 REV is ignored."
   (let ((args (nconc (list "commit" "-m")
                      (vc-hg--extract-headers comment))))
@@ -1680,6 +1677,61 @@ Intended for use via the `vc-hg--async-command' wrapper."
                      "config"
                      (concat "paths." (or remote-name "default")))
       (buffer-substring-no-properties (point-min) (1- (point-max))))))
+
+(defun vc-hg-known-other-working-trees ()
+  "Implementation of `known-other-working-trees' backend function for Hg."
+  ;; Mercurial doesn't maintain records of shared repositories.
+  ;; The first repository knows nothing about shares created from it,
+  ;; and each share only has a reference back to the first repository.
+  ;;
+  ;; Therefore, to support the VC API for other working trees, Emacs
+  ;; needs to maintain records of its own about other working trees.
+  ;; Rather than create something new our strategy is to rely on
+  ;; project.el's knowledge of existing projects.
+  ;; Note that this relies on code calling `vc-hg-add-working-tree'
+  ;; registering the resultant working tree with project.el.
+  (let* ((our-root (vc-hg-root default-directory))
+         (our-sp (expand-file-name ".hg/sharedpath" our-root))
+         our-store shares)
+    (if (file-exists-p our-sp)
+        (with-temp-buffer
+          (insert-file-contents-literally our-sp)
+          (setq our-store (string-trim (buffer-string)))
+          (push (abbreviate-file-name (file-name-directory our-store))
+                shares))
+      (setq our-store (expand-file-name ".hg" our-root)))
+    (dolist (root (project-known-project-roots))
+      (when-let* (((not (equal root our-root)))
+                  (sp (expand-file-name ".hg/sharedpath" root))
+                  ((file-exists-p sp)))
+        (with-temp-buffer
+          (insert-file-contents-literally sp)
+          (when (equal our-store (buffer-string))
+            (push root shares)))))
+    shares))
+
+(defun vc-hg-add-working-tree (directory)
+  "Implementation of `add-working-tree' backend function for Mercurial."
+  (vc-hg-command nil 0 nil "share"
+                 (vc-hg-root default-directory)
+                 (expand-file-name directory)))
+
+(defun vc-hg--shared-p (directory)
+  (file-exists-p (expand-file-name ".hg/sharedpath" directory)))
+
+(defun vc-hg-delete-working-tree (directory)
+  "Implementation of `delete-working-tree' backend function for Mercurial."
+  (if (vc-hg--shared-p directory)
+      (delete-directory directory t t)
+    (user-error "\
+Cannot delete first working tree because this would break other working trees")))
+
+(defun vc-hg-move-working-tree (from to)
+  "Implementation of `move-working-tree' backend function for Mercurial."
+  (if (vc-hg--shared-p from)
+      (rename-file from (directory-file-name to) 1)
+    (user-error "\
+Cannot relocate first working tree because this would break other working trees")))
 
 (provide 'vc-hg)
 
