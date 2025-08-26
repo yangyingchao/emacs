@@ -162,15 +162,26 @@ behavior, customize 'find-function-mode-lower-precedence' to non-nil.
 ** Minibuffer and Completions
 
 +++
-*** New user option 'completion-eager-display'.
-This option configures whether completion commands should display the
-"*Completions*" buffer immediately.  When the option is set to t, all
-completion commands show "*Completions*" immediately, respectively nil
-disables the eager display for all commands.  The default setting auto
-enables eager completion only if requested by the command.
-For more fine-grained control you can also toggle this feature by
-category using the symbol 'eager-display' in the user option
-'completion-category-overrides'.
+*** Support for immediate display of the "*Completions*" buffer.
+Whenever a minibuffer with completion is opened, the "*Completions*"
+buffer will now be displayed immediately if the completion property
+'eager-display', set by the completion table, is non-nil.  This property
+can be overridden for different completion categories by customizing
+'completion-category-overrides'.  Alternatively, the new user option
+'completion-eager-display' can be set to t to force eager display of
+"*Completions*" for all minibuffers, or nil to suppress this for all
+minibuffers.
+
++++
+*** Support for updating "*Completions*" as you type.
+If the "*Completions*" buffer is displayed, it will now be updated as
+you type if the completion property 'eager-update', set by the
+completion table, is non-nil.  This property can be overridden for
+different completion categories by customizing
+'completion-category-overrides'.  Alternatively, the new user option
+'completion-eager-update can be set to t to make "*Completions*" always
+be updated as you type, or nil to suppress this always.  Note that for
+large or inefficient completion tables this can slow down typing.
 
 +++
 *** New user option 'completion-pcm-leading-wildcard'.
@@ -436,6 +447,11 @@ a buffer.  The value must be a condition which is passed to
 With this user option, if non-nil (the default), the tab close button
 will change its appearance if the tab buffer has been modified.
 
+---
+*** New user option 'tab-line-tabs-window-buffers-filter-function'.
+This user option controls which buffers should appear in the tab line.
+By default, this is set to not filter the buffers.
+
 ** Project
 
 ---
@@ -488,12 +504,13 @@ This user option controls the automatic deletion of projects from
 'project-list-file' that cannot be accessed when prompting for a
 project.
 
-The value can be a predicate which takes one argument and should return
-non-nil if the project should be removed.  If set to nil, all the
-inaccessible projects will not be removed automatically.
+The value must be an alist where each element must be in the form:
 
-By default this is set to 'project-prune-zombies-default' function
-which removes all non-remote projects.
+ (WHEN . PREDICATE)
+
+where WHEN specifies where the deletion will be performed, and PREDICATE
+a function which takes one argument, and must return non-nil if the
+project should be removed.
 
 ---
 *** New command 'project-save-some-buffers' bound to 'C-x p C-x s'.
@@ -507,6 +524,16 @@ They now accept numeric prefix arguments to select or create numbered
 shell sessions.  For example, 'C-2 C-x p s' switches to or creates a
 buffer named "*name-of-project-shell<2>*".  By comparison, a plain
 universal argument as in 'C-u C-x p s' always creates a new session.
+
+---
+*** 'project-switch-buffer' re-uniquifies buffer names while prompting.
+When 'uniquify-buffer-name-style' is non-nil, 'project-switch-buffer'
+changes the buffer names to only make them unique within the given
+project, during completion.  That makes some items shorter.
+
+*** 'project-switch-buffer' uses 'project-buffer' as completion category.
+The category defaults are the same as for 'buffer' but any user
+customizations would need to be re-added.
 
 ** Registers
 
@@ -692,6 +719,15 @@ to the value 'fill-region-as-paragraph-semlf' to enable functions like
 'fill-paragraph' and 'fill-region' to fill text using "semantic
 linefeeds".
 
+---
+** Temporary files are named differently when 'file-precious-flag' is set.
+When the user option 'file-precious-flag' is set to a non-nil value,
+Emacs now names the temporary file it creates while saving buffers using
+the original file name with ".tmp" appended to it.  Thus, if saving the
+buffer fails for some reason, and the temporary file is not renamed back
+to the original file's name, you can easily identify which file's saving
+failed.
+
 +++
 ** 'C-u C-x .' clears the fill prefix.
 You can now use 'C-u C-x .' to clear the fill prefix, similarly to how
@@ -716,6 +752,12 @@ That was already the case for the "fancy" UI but is now also true in
 the default UI you get, i.e., when 'register-use-preview' is 'traditional'.
 
 ** Tree-sitter
+
+*** New user option 'treesit-enabled-modes'.
+You can customize it either to t to enable all available ts-modes,
+or to select a list of ts-modes to enable.  Depending on customization,
+it modifies the variable 'major-mode-remap-alist' from the corresponding
+variable 'treesit-major-mode-remap-alist' prepared by ts-mode packages.
 
 *** New user option 'treesit-auto-install-grammar'.
 It controls the automatic installation of tree-sitter grammar libraries
@@ -1190,6 +1232,14 @@ slot.  Symbol macros are created for the accessor functions using
 *** 'whitespace-cleanup' now adds missing newline at end of file.
 If 'whitespace-style' includes 'missing-newline-at-eof' (which is the
 default), the 'whitespace-cleanup' function will now add the newline.
+
+---
+*** 'whitespace-mode' now can prettify page delimiter characters (^L).
+If 'page-delimiters' is set in 'whitespace-style', or the new minor mode
+'whitespace-page-delimiters-mode' is on, the page delimiter characters
+(^L) are displayed as a pretty horizontal line that spans the entire
+width of the window.  The new 'whitespace-page-delimiter' face can be
+used to customize the appearence.
 
 ** Bookmark
 
@@ -2101,14 +2151,18 @@ relevant buffers before generating the contents of a VC Directory buffer
 (like the third-party package Magit does with its status buffer).
 
 +++
-*** New commands 'vc-root-diff-incoming' and 'vc-root-diff-outgoing'.
-These commands report diffs of all the changes that would be pulled and
-would be pushed, respectively.  They are the diff analogues of the
-existing commands 'vc-log-incoming' and 'vc-log-outgoing'.
+*** New commands to report incoming and outgoing diffs.
+'vc-root-diff-incoming' and 'vc-root-diff-outgoing' report diffs of all
+the changes that would be pulled and would be pushed, respectively.
+They are the diff analogues of the existing commands 'vc-log-incoming'
+and 'vc-log-outgoing'.
 
 In particular, 'vc-root-diff-outgoing' is useful as a way to preview
 your push and ensure that all and only the changes you intended to
 include were committed and will be pushed.
+
+'vc-diff-incoming' and 'vc-diff-outgoing' are similar but limited to the
+current VC fileset.
 
 +++
 *** New user option 'vc-use-incoming-outgoing-prefixes'.
@@ -2461,11 +2515,6 @@ file names in above buffers.  The default is nil.
 ---
 ** Flymake
 
-*** Windows without fringes now automatically use margin indicators.
-When 'flymake-indicator-type' is set to 'fringes', as is now the default,
-flymake will automatically fall back to using margin indicators in
-windows without fringes, including any window on a text terminal.
-
 *** Enhanced 'flymake-show-diagnostics-at-end-of-line'
 The new value 'fancy' allowed for this user option will attempt to
 layout diagnostics below the affected line using unicode graphics to
@@ -2628,8 +2677,26 @@ A major mode based on the tree-sitter library for editing "go.work"
 files.  If tree-sitter is properly set-up by the user, it can be
 enabled for files named "go.work".
 
+** New package 'lua-mode'.
+The 'lua-mode' package from Non-GNU ELPA is now included in Emacs.
+
 
 * Incompatible Lisp Changes in Emacs 31.1
+
++++
+** String mutation has been restricted further.
+'aset' on unibyte strings now requires the new character to be a single
+byte (0-255).  On multibyte strings the new character and the character
+being replaced must both be ASCII (0-127).
+
+These rules ensure that mutation will never transform a unibyte string
+to multibyte, and that the size of a string in bytes (as reported by
+'string-bytes') never changes.  They also allow strings to be
+represented more efficiently in the future.
+
+Other functions that use 'aset' to modify string data, such as
+'subst-char-in-string' with a non-nil INPLACE argument, will signal an
+error if called with arguments that would violate these rules.
 
 ** Nested backquotes are not supported any more in Pcase patterns.
 
@@ -2975,6 +3042,11 @@ a remote host.  It must be used in conjunction with the function
 
 +++
 ** 'read-directory-name' now accepts an optional PREDICATE argument.
+
+---
+** JSON parse error line and column are now obsolete.
+The column number is no longer available; the line number will be
+removed in next Emacs release.
 
 
 * Changes in Emacs 31.1 on Non-Free Operating Systems

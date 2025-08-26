@@ -4641,6 +4641,8 @@ with @var{tochar} in @var{string}.  By default, substitution occurs in
 a copy of @var{string}, but if the optional argument @var{inplace} is
 non-@code{nil}, the function modifies the @var{string} itself.  In any
 case, the function returns the resulting string.
+
+For restrictions when altering an existing string, @pxref{Modifying Strings}.
 @end defun
 
 @deffn Command translate-region start end table
@@ -4716,9 +4718,9 @@ value visits file @var{filename} and goes to buffer position
 @var{position}.  Restoring this type of position asks the user for
 confirmation first.
 
-@item @code{(buffer @var{buffer-name})}
-This represents a buffer; jumping to this value switches to buffer
-@var{buffer-name}.
+@item @code{(buffer @var{buffer})}
+This represents a buffer; jumping to this value switches to that
+@var{buffer}.
 @end table
 
   The functions in this section return unpredictable values unless
