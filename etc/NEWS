@@ -172,6 +172,11 @@ can be overridden for different completion categories by customizing
 "*Completions*" for all minibuffers, or nil to suppress this for all
 minibuffers.
 
+---
+*** Support for completion category inheritance.
+You can now define completion categories that inherit properties from
+existing categories, using the new function 'define-completion-category'.
+
 +++
 *** Support for updating "*Completions*" as you type.
 If the "*Completions*" buffer is displayed, it will now be updated as
@@ -182,6 +187,14 @@ different completion categories by customizing
 'completion-eager-update can be set to t to make "*Completions*" always
 be updated as you type, or nil to suppress this always.  Note that for
 large or inefficient completion tables this can slow down typing.
+
+---
+*** 'RET' chooses the completion selected with 'M-<up>/M-<down>'.
+If a completion candidate is selected with 'M-<up>' or 'M-<down>',
+hitting 'RET' will exit completion with that as the result.  This works
+both in minibuffer completion and in-buffer completion.  This supersedes
+'minibuffer-completion-auto-choose', which previously provided similar
+behavior; that variable is now nil by default.
 
 +++
 *** New user option 'completion-pcm-leading-wildcard'.
@@ -427,6 +440,12 @@ When non-nil, it truncates the tab bar, and therefore prevents
 wrapping and resizing the tab bar to more than one line.
 
 ---
+*** New user option 'tab-line-define-keys'.
+When t, the default, it redefines window buffer switching keys
+such as 'C-x <left>' and 'C-x <right>' to tab-line specific variants
+for switching tabs.
+
+---
 *** New command 'tab-line-move-tab-forward' ('C-x M-<right>').
 Together with the new command 'tab-line-move-tab-backward'
 ('C-x M-<left>'), it can be used to move the current tab
@@ -506,10 +525,10 @@ project.
 
 The value must be an alist where each element must be in the form:
 
- (WHEN . PREDICATE)
+    (WHEN . PREDICATE)
 
 where WHEN specifies where the deletion will be performed, and PREDICATE
-a function which takes one argument, and must return non-nil if the
+is a function which takes one argument, and must return non-nil if the
 project should be removed.
 
 ---
@@ -606,6 +625,14 @@ To use the ':foreground' or current text color ensure the 'fill' attribute
 in the SVG is set to 'currentcolor', or set the image spec's ':css'
 value to 'svg {fill: currentcolor;}'.
 
+---
+** Errors signaled by 'emacsclient' connections can now enter the debugger.
+If 'debug-on-error' is non-nil, errors signaled by Lisp programs
+executed due to 'emacsclient' connections will now enter the Lisp
+debugger and show the backtrace.  If 'debug-on-error' is nil, these
+errors will be sent to 'emacsclient', as before, and will be displayed
+on the terminal from which 'emacsclient' was invoked.
+
 
 * Editing Changes in Emacs 31.1
 
@@ -618,7 +645,7 @@ pair with 'completing-read', and removes it from the translation table.
 ** Internationalization
 
 ---
-*** Emacs now supports Unicode version 16.0.
+*** Emacs now supports Unicode Standard version 17.0.
 
 ---
 *** New input method 'greek-polytonic'.
@@ -736,6 +763,17 @@ you could already use 'C-u C-x C-n' to clear the goal column.
 
 * Changes in Specialized Modes and Packages in Emacs 31.1
 
+** Auth Source
+
++++
+*** Non-existing or empty files are ignored in 'auth-sources'.
+File-based data stores are ignored in ‘auth-sources’, if the
+underlying data file does not exist, or is empty.  This is relevant, if
+a new secret is stored in such a file; the first usable entry of
+‘auth-sources’ is selected as target.  If you want also empty or not
+existing files to be selected, set the user option
+‘auth-source-ignore-empty-file’ to nil.
+
 ** Autoinsert
 
 +++
@@ -753,11 +791,14 @@ the default UI you get, i.e., when 'register-use-preview' is 'traditional'.
 
 ** Tree-sitter
 
++++
 *** New user option 'treesit-enabled-modes'.
-You can customize it either to t to enable all available ts-modes,
-or to select a list of ts-modes to enable.  Depending on customization,
-it modifies the variable 'major-mode-remap-alist' from the corresponding
-variable 'treesit-major-mode-remap-alist' prepared by ts-mode packages.
+You can customize it either to t to enable all available tree-sitter
+based modes, or to select a list of tree-sitter based modes to enable.
+Depending on customization, it modifies the variable
+'major-mode-remap-alist' from the corresponding variable
+'treesit-major-mode-remap-alist' prepared by tree-sitter based mode
+packages.
 
 *** New user option 'treesit-auto-install-grammar'.
 It controls the automatic installation of tree-sitter grammar libraries
@@ -975,9 +1016,9 @@ option controls how much is indented for method chaining.
 
 ---
 *** 'php-ts-mode' now depends on 'mhtml-ts-mode'.
-The direct dependency on js-ts-mode, css-ts-mode and html-ts-mode has
-now been replaced by ‘mhtml-ts-mode’.  Navigation, Outline and Imenu
-work for all languages and code maintenance is easier.
+The direct dependency on 'js-ts-mode', 'css-ts-mode' and 'html-ts-mode'
+has now been replaced by ‘mhtml-ts-mode’.  Navigation, Outline and Imenu
+work for all languages, and code maintenance is easier.
 
 ---
 *** 'php-ts-mode-run-php-webserver' can now accept a custom "php.ini" file.
@@ -988,7 +1029,7 @@ argument, 'php-ts-mode-run-php-webserver' prompts for the config file as
 well as for other connection parameters.
 
 ---
-*** The option 'php-ts-mode-css-fontify-colors' has been removed.
+*** The user option 'php-ts-mode-css-fontify-colors' has been removed.
 'mhtml-ts-mode-css-fontify-colors' replaces this option.
 
 ---
@@ -1012,8 +1053,8 @@ When non nil, it highlights unknown PHPDOC tags using
 
 ---
 *** New command 'php-ts-mode-show-ini'.
-Show the location of the PHP ini files, if the buffer is associated to a remote
-PHP file show the remote PHP ini files.
+Show the location of the PHP ini files.  If the current buffer is
+associated to a remote PHP file, show the remote PHP ini files.
 
 ** Rust-ts mode
 
@@ -1234,10 +1275,10 @@ If 'whitespace-style' includes 'missing-newline-at-eof' (which is the
 default), the 'whitespace-cleanup' function will now add the newline.
 
 ---
-*** 'whitespace-mode' now can prettify page delimiter characters (^L).
+*** 'whitespace-mode' now can prettify page delimiter characters ('^L').
 If 'page-delimiters' is set in 'whitespace-style', or the new minor mode
 'whitespace-page-delimiters-mode' is on, the page delimiter characters
-(^L) are displayed as a pretty horizontal line that spans the entire
+('^L') are displayed as a pretty horizontal line that spans the entire
 width of the window.  The new 'whitespace-page-delimiter' face can be
 used to customize the appearence.
 
@@ -1478,9 +1519,10 @@ replies.
 
 ---
 *** 'imap-authenticate' can now use PLAIN authentication.
-"AUTH=PLAIN" support is auto-enabled if the IMAP server supports it.  Pass
-a specific authentication type to 'imap-authenticate' or remove 'plain'
-from 'imap-authenticators' if you do not wish to use "AUTH=PLAIN".
+"AUTH=PLAIN" support is auto-enabled if the IMAP server supports it.  If
+you do not wish to use "AUTH=PLAIN", pass a specific authentication type
+to 'imap-open' for 'imap-authenticate' to use, or remove 'plain' from
+'imap-authenticators'.
 
 ** Rmail
 
@@ -2125,7 +2167,7 @@ statuses to files, and 'C-x v v' behaved subtly differently for the two
 statuses.  The combination of these differences between backends and in
 'C-x v v' behavior was confusing.  Now,
 
-- in VC-Dir, you can use 'C-x v v' on missing files to mark them as
+- in VC Directory, you can use 'C-x v v' on missing files to mark them as
   removed
 - when committing, you can include missing files in a set of files with
   different statuses, just like you've always been able to include
@@ -2163,6 +2205,14 @@ include were committed and will be pushed.
 
 'vc-diff-incoming' and 'vc-diff-outgoing' are similar but limited to the
 current VC fileset.
+
++++
+*** New commands to report diffs of outstanding changes.
+'C-x v B =' ('vc-diff-outgoing-base') and 'C-x v B D'
+('vc-root-diff-outgoing-base') report diffs of changes since the merge
+base with the remote branch, including uncommitted changes.
+They are useful to view all outstanding (unmerged, unpushed) changes on
+the current branch.
 
 +++
 *** New user option 'vc-use-incoming-outgoing-prefixes'.
@@ -2217,6 +2267,16 @@ This replaces and generalizes the old 'vc-annotate-parent-rev'.
 Backend authors should implement the 'incoming-revision' and 'mergebase'
 backend functions instead.  These are jointly sufficient to support the
 'C-x v I' and 'C-x v O' commands.
+
+---
+*** Marking revisions in Log View now works more like other modes.
+Previously, 'm' toggled whether the current revision was marked, and
+didn't advance point.  Now 'm' only adds marks, 'u' removes marks, and
+both advance point, like how marking works in Dired and VC Directory.
+You can get back the old behavior with something like this:
+
+    (with-eval-after-load 'log-view
+      (keymap-set log-view-mode-map "m" #'log-view-toggle-mark-entry))
 
 ** Diff mode
 
@@ -2285,7 +2345,7 @@ packages.
 ** Rcirc
 
 +++
-*** Authentication via NickServ can access password from 'auth-source'.
+*** Authentication via NickServ can access passwords with auth-source.el.
 For details, consult 'rcirc-authinfo'.
 
 ** Xref
@@ -2512,6 +2572,18 @@ If non-nil, FFAP always finds remote files in buffers with remote
 'default-directory'.  If nil, FFAP finds local files first for absolute
 file names in above buffers.  The default is nil.
 
+** Edebug
+
++++
+*** New command 'edebug-bounce-to-previous-value' (bound to 'P').
+This command temporarily displays the outside current buffer with the
+outside point corresponding to the previous value, where the previous
+value is what Edebug has evaluated before its last stop point or what
+the user has evaluated in the context outside of Edebug.
+
+This replaces the binding of command 'edebug-view-outside' to 'P', which
+is still available on 'v'.
+
 ---
 ** Flymake
 
@@ -2541,6 +2613,13 @@ code, message or one-liner message) appear in each output destination.
 The tabulated listings produced by 'flymake-show-buffer-diagnostics' and
 'flymake-show-project-diagnostics' now automatically adjust their column
 widths based on content, optimizing display space and readability.
+
+*** New user option 'elisp-flymake-byte-compile-executable'.
+This allows customizing the Emacs executable used for Flymake byte
+compilation in 'emacs-lisp-mode'.  This option should be set when editing
+Lisp code which will run with a different Emacs version than the running
+Emacs, such as code from an older or newer version of Emacs.  This will
+provide more accurate warnings from byte compilation.
 
 ** SQLite
 
@@ -2595,6 +2674,11 @@ Latin-1 range 0-255.  This hard-coded maximum is replaced by
 'calc-string-maximum-character', and setting it to a higher value allows
 the display of matching vectors as Unicode strings.  The default value
 is 0xFF or 255 to preserve the existing behavior.
+
++++
+*** New user option 'calc-inhibit-startup-message'.
+If it is non-nil, inhibit Calc from printing its startup message.  The
+default value is nil to preserve the existing behavior.
 
 ** Time
 
@@ -2678,7 +2762,12 @@ files.  If tree-sitter is properly set-up by the user, it can be
 enabled for files named "go.work".
 
 ** New package 'lua-mode'.
-The 'lua-mode' package from Non-GNU ELPA is now included in Emacs.
+The 'lua-mode' package from NonGNU ELPA is now included in Emacs.
+
+** New library 'timeout'.
+This library provides functions to throttle or debounce Emacs Lisp
+functions.  This is useful for corralling overeager code that is slow
+and blocks Emacs, or does not provide ways to limit how often it runs.
 
 
 * Incompatible Lisp Changes in Emacs 31.1
@@ -2778,15 +2867,15 @@ on GNU/Linux systems.
 
 ---
 ** New variable 'tty-cursor-movement-use-TAB-BS'.
-The display optimization where the combination TAB characters +
-BACKSPACE is used to move to a position on a TTY frame is now disabled
+The display optimization where the combination 'TAB' characters +
+'BACKSPACE' is used to move to a position on a TTY frame is now disabled
 by default and controlled by this variable; it can be set to non-nil
 to keep the old behavior.  This change is to accomodate screen
 readers.
 
 +++
 ** A thread's current buffer can now be killed.
-We introduce a new attribute for threads called buffer-disposition.
+We introduce a new attribute for threads called 'buffer-disposition'.
 See the new argument in 'make-thread'.  The default value allows the
 thread's current buffer to be killed by another thread.  This does not
 apply to the main thread's buffer.
@@ -2819,6 +2908,12 @@ If the new variable 'load-path-filter-function' is set to the new
 function 'load-path-filter-cache-directory-files', calling 'load' will
 cache the directories it scans and their files, and the following
 lookups should be faster.
+
++++
+** 'let-alist' supports indexing into lists.
+The macro 'let-alist' now interprets symbols containing numbers as list
+indices.  For example, '.key.0' looks up 'key' in the alist and then
+returns its first element.
 
 ** Lexical binding
 
