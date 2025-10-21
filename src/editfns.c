@@ -1693,7 +1693,7 @@ If narrowing is in effect, this function returns only the visible part
 of the buffer.
 
 This function copies the text properties of that part of the buffer
-into the result string; if you don’t want the text properties,
+into the result string; if you don't want the text properties,
 use `buffer-substring-no-properties' instead.  */)
   (void)
 {
@@ -2151,7 +2151,7 @@ a buffer or a string.  But this is deprecated.  */)
   Lisp_Object src = CALLN (Fvector, source_buffer, Qnil, Qnil);
   /* Walk backwards through the lists of changes.  This was also
      cargo-culted from src/analyze.c in GNU Diffutils.  Because we
-     walk backwards, we don’t have to keep the positions in sync.  */
+     walk backwards, we don't have to keep the positions in sync.  */
   while (i >= 0 || j >= 0)
     {
       rarely_quit (++ctx.quitcounter);
@@ -3343,7 +3343,7 @@ The format control string may contain %-sequences meaning to substitute
 the next available argument, or the argument explicitly specified:
 
 %s means produce a string argument.  Actually, produces any object with `princ'.
-%d means produce as signed number in decimal.
+%d or %i means produce a signed number in decimal.
 %o means produce a number in octal.
 %x means produce a number in hex.
 %X is like %x, but uses upper case.
@@ -3355,7 +3355,7 @@ the next available argument, or the argument explicitly specified:
 %c means produce a number as a single character.
 %S means produce any object as an s-expression (using `prin1').
 
-The argument used for %d, %o, %x, %e, %f, %g or %c must be a number.
+The argument used for %d, %i, %o, %x, %e, %f, %g or %c must be a number.
 %o, %x, and %X treat arguments as unsigned if `binary-as-unsigned' is t
   (this is experimental; email 32252@debbugs.gnu.org if you need it).
 Use %% to put a single % into the output.
@@ -3426,7 +3426,7 @@ usage: (format-message STRING &rest OBJECTS)  */)
   return styled_format (nargs, args, true);
 }
 
-/* Implement ‘format-message’ if MESSAGE is true, ‘format’ otherwise.  */
+/* Implement `format-message' if MESSAGE is true, `format' otherwise.  */
 
 static Lisp_Object
 styled_format (ptrdiff_t nargs, Lisp_Object *args, bool message)

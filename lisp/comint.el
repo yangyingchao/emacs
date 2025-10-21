@@ -408,7 +408,8 @@ This variable is buffer-local."
       "Vault" "SSH" "BECOME"
       "Enter Auth" "enter auth" "Old" "old" "New" "new" "login"
       "Kerberos" "CVS" "UNIX" " SMB" "LDAP" "PEM" "SUDO"
-      "[sudo]" "doas" "Repeat" "Bad" "Retype" "Verify")
+      "[sudo]" "[sudo: authenticate]" "[su: authenticate]"
+      "doas" "Repeat" "Bad" "Retype" "Verify")
     t)
    ;; Allow for user name to precede password equivalent (Bug#31075).
    " +.*\\)"
@@ -425,7 +426,8 @@ This variable is buffer-local."
    ;; Default openssh format: "user@host's password:".
    "\\|^[^@ \t\n]+@[^@ \t\n]+'s password: *\\'"
    ;; openssh-8.6p1 format: "(user@host) Password:".
-   "\\|^([^)@ \t\n]+@[^)@ \t\n]+) Password: *\\'")
+   ;; "(user@host) Password for user@host:"  (Bug#79424)
+   "\\|^([^)@ \t\n]+@[^)@ \t\n]+) Password\\(?: for [^)@ \t\n]+@[^)@ \t\n]+\\)?: *\\'")
   "Regexp matching prompts for passwords in the inferior process.
 This is used by `comint-watch-for-password-prompt'."
   :version "31.1"
