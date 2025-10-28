@@ -14000,8 +14000,21 @@ gui_consider_frame_title (Lisp_Object frame)
            || memcmp (title, SDATA (f->name), len) != 0)
           && FRAME_TERMINAL (f)->implicit_set_name_hook)
         {
+	  if (nchars > 128)
+	    {
+	      nchars = 0;
+	      len = 0;
+	      char* ptr = title;
+	      while ((ptr - title < 64) && *ptr <= 127)
+		{
+		  ++nchars;
+		  ++len;
+		  ++ ptr;
+		}
+	    }
+
           Lisp_Object title_string = make_multibyte_string (title, nchars, len);
-          FRAME_TERMINAL (f)->implicit_set_name_hook (f, title_string, Qnil);
+	  FRAME_TERMINAL (f)->implicit_set_name_hook (f, title_string, Qnil);
         }
     }
 }
