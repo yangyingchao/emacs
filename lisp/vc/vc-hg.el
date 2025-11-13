@@ -1518,7 +1518,7 @@ REV is the revision to check out into WORKFILE."
   ;; XXX: We can't pass DIR directly to 'hg status' because that
   ;; returns all ignored files if FILES is non-nil (bug#22481).
   (let ((default-directory dir))
-    (apply #'vc-hg-command (current-buffer) 'async files
+    (apply #'vc-hg-command '(t nil) 'async files
            "status" (concat "-mardu" (if files "i")) "-C"
            (if (version<= "4.2" (vc-hg--program-version))
                '("--config" "commands.status.relative=1")
@@ -1700,7 +1700,7 @@ This runs the command \"hg merge\"."
 (defun vc-hg-command (buffer okstatus file-or-list &rest flags)
   "A wrapper around `vc-do-command' for use in vc-hg.el.
 This function differs from `vc-do-command' in that
-- BUFFER may be nil
+- BUFFER nil means use a buffer called \"*vc*\"
 - it invokes `vc-hg-program' and passes `vc-hg-global-switches' to it
   before FLAGS."
   ;; Commands which pass command line arguments which might
@@ -1905,6 +1905,36 @@ Always has to fetch, like `vc-hg-incoming-revision' does."
             (error "Merge conflicts while trying to delete %s; aborting"
                    rev)))
       (delete-file commands))))
+
+(defun vc-hg--assert-rev-on-current-branch (rev)
+  "Assert that REV is on the current branch."
+  (with-temp-buffer
+    (vc-hg-command t nil nil "log" "--limit=1"
+                   (format "--rev=%s & ancestors(.)" rev)
+                   "--template={node}")
+    (when (bobp)
+      (error "Revision %s is not on the current branch" rev))))
+
+(defun vc-hg--reset-back-to (rev keep)
+  "Strip revisions up to but not including REV.
+If KEEP is non-nil, also pass --keep to `hg strip'."
+  (apply #'vc-hg-command nil 0 nil
+         "--config=extensions.strip="
+         "strip" "--force"
+         (format "--rev=descendants(%s) & !%s" rev rev)
+         (and keep '("--keep"))))
+
+(defun vc-hg-delete-revisions-from-end (rev)
+  "Strip revisions up to but not including REV.
+It is an error if REV is not on the current branch."
+  (vc-hg--assert-rev-on-current-branch rev)
+  (vc-hg--reset-back-to rev nil))
+
+(defun vc-hg-uncommit-revisions-from-end (rev)
+  "Strip revisions up to but not including REV w/o modifying working tree.
+It is an error if REV is not on the current branch."
+  (vc-hg--assert-rev-on-current-branch rev)
+  (vc-hg--reset-back-to rev t))
 
 (provide 'vc-hg)
 
