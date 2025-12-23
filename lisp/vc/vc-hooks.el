@@ -228,24 +228,26 @@ VC commands are globally reachable under the prefix \\[vc-prefix-map]:
 (defmacro vc-error-occurred (&rest body)
   `(condition-case nil (progn ,@body nil) (error t)))
 
-;; We need a notion of per-file properties because the version
-;; control state of a file is expensive to derive --- we compute
-;; them when the file is initially found, keep them up to date
-;; during any subsequent VC operations, and forget them when
-;; the buffer is killed.
+;; We need a notion of per-file properties because the version control
+;; state of a file is expensive to derive -- we compute it when the file
+;; is initially found, keep them up to date during any subsequent VC
+;; operations, and forget them when the buffer is killed.
+;;
+;; In addition we store some whole-repository properties keyed to the
+;; repository root.  We invalidate/update these during VC operations,
+;; but there isn't a point analagous to the killing of a buffer at which
+;; we clear them all out, like there is for per-file properties.
 
 (defvar vc-file-prop-obarray (obarray-make 17)
-  "Obarray for per-file properties.")
+  "Obarray for VC per-file and per-repository properties.")
 
 (defvar vc-touched-properties nil)
 
 (defun vc-file-setprop (file property value)
   "Set per-file VC PROPERTY for FILE to VALUE."
-  (if (and vc-touched-properties
-	   (not (memq property vc-touched-properties)))
-      (setq vc-touched-properties (append (list property)
-					  vc-touched-properties)))
-  (put (intern (expand-file-name file) vc-file-prop-obarray) property value))
+  (cl-pushnew property vc-touched-properties)
+  (put (intern (expand-file-name file) vc-file-prop-obarray)
+       property value))
 
 (defun vc-file-getprop (file property)
   "Get per-file VC PROPERTY for FILE."
@@ -256,6 +258,18 @@ VC commands are globally reachable under the prefix \\[vc-prefix-map]:
   (if (boundp 'vc-parent-buffer)
       (kill-local-variable 'vc-parent-buffer))
   (setplist (intern (expand-file-name file) vc-file-prop-obarray) nil))
+
+(defun vc--repo-setprop (backend property value)
+  "Set per-repository VC PROPERTY to VALUE and return the value."
+  (vc-file-setprop (vc-root-dir backend) property value))
+
+(defun vc--repo-getprop (backend property)
+  "Get per-repository VC PROPERTY."
+  (vc-file-getprop (vc-root-dir backend) property))
+
+(defun vc--repo-clearprops (backend)
+  "Clear all VC whole-repository properties."
+  (vc-file-clearprops (vc-root-dir backend)))
 
 
 ;; We keep properties on each symbol naming a backend as follows:
@@ -565,7 +579,9 @@ underlying VCS that FILE is unregistered; this is in contrast to
 
 (defun vc-symbolic-working-revision (file &optional backend)
   "Return BACKEND's symbolic name for FILE's working revision.
-If FILE is not registered according to cached information, return nil.
+If FILE names an existing directory, the BACKEND argument is mandatory.
+If FILE is not registered according to cached information or names an
+existing directory and BACKEND is nil, return nil.
 If BACKEND does not have a symbolic name for the working revision or
 Emacs doesn't know what it is, call `vc-working-revision' instead.
 
@@ -582,11 +598,17 @@ will do, for it avoids a call out to the underlying VCS."
   ;; BACKEND implements `working-revision-symbol' (because we would be
   ;; sensitive to whether FILE is registered if and only if we defer to
   ;; `vc-working-revision'), which would be a strange interdependence.)
-  (and-let* ((cached-backend (vc-backend file)))
-    (let* ((backend (or backend cached-backend))
-           (fn (vc-find-backend-function backend
-                                         'working-revision-symbol)))
-      (if fn (funcall fn) (vc-working-revision file backend)))))
+  ;;
+  ;; Similarly, for consistency with `vc-working-revision',
+  ;; return nil for directories unless BACKEND is specified
+  ;; (`vc-backend' always returns nil for directories).
+  (let (cached-backend)
+    (and (or (and (file-directory-p file) backend)
+             (setq cached-backend (vc-backend file)))
+         (let* ((backend (or backend cached-backend))
+                (fn (vc-find-backend-function backend
+                                              'working-revision-symbol)))
+           (if fn (funcall fn) (vc-working-revision file backend))))))
 
 (defvar vc-use-short-revision nil
   "If non-nil, VC backend functions should return short revisions if possible.
@@ -1053,11 +1075,11 @@ other commands receive global bindings where they had none before."
 
 (defvar vc-menu-map
   (let ((map (make-sparse-keymap "Version Control")))
-    (define-key map [vc-revision-revert]
-                '(menu-item "Revert Revision" vc-revision-revert
+    (define-key map [vc-revert-or-delete-revision]
+                '(menu-item "Revert Revision" vc-revert-or-delete-revision
                             :help "Undo the effects of a revision"))
-    (define-key map [vc-revision-cherry-pick]
-                '(menu-item "Cherry-Pick Revision" vc-revision-cherry-pick
+    (define-key map [vc-cherry-pick]
+                '(menu-item "Cherry-Pick Revision" vc-cherry-pick
                             :help "Copy the changes from a single revision to this branch"))
     (define-key map [separator1] menu-bar-separator)
     (define-key map [vc-retrieve-tag]

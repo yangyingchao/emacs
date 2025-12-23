@@ -68,7 +68,7 @@
      (while (process-live-p proc)
        (when (input-pending-p)
          (discard-input))
-       (should-not success)
+       (should (memq success '(nil ignore)))
        (sit-for 0.05))
      (sit-for 0.05)))
 
@@ -101,26 +101,18 @@
       (should success))))
 
 (ert-deftest vc-test-exec-after-3 ()
-  "Test SUCCESS argument to `vc-exec-after'."
+  "Test OKSTATUS argument to `vc-exec-after'."
   (with-temp-buffer
-    (let ((proc (start-process-shell-command "test" (current-buffer)
-                                             (if (eq system-type 'windows-nt)
-                                                 "sleep 1 & echo hello"
-                                               "sleep 0.2; echo hello")))
-          (passes (start-process "test2" nil "true"))
+    (let ((proc (start-process-shell-command "test" (current-buffer) "true"))
           success)
-      (vc-exec-after (lambda () (setq success t)) passes)
+      (vc-exec-after (lambda () (setq success t)) 0)
       (vc-test--exec-after-wait)
       (should success)))
 
   (with-temp-buffer
-    (let ((proc (start-process-shell-command "test" (current-buffer)
-                                             (if (eq system-type 'windows-nt)
-                                                 "sleep 1 & echo hello"
-                                               "sleep 0.2; echo hello")))
-          (fails (start-process "test2" nil "false"))
+    (let ((proc (start-process-shell-command "test" (current-buffer) "false"))
           success)
-      (vc-exec-after (lambda () (setq success t)) fails)
+      (vc-exec-after (lambda () (setq success t)) 0)
       (vc-test--exec-after-wait)
       (should-not success))))
 
@@ -131,7 +123,7 @@
                                              (if (eq system-type 'windows-nt)
                                                  "echo hello there & sleep 1"
                                                "echo hello there; sleep 0.2")))
-          success)
+          (success 'ignore))
       ;; Disable the default output, which further moves point.
       (set-process-sentinel proc #'ignore)
 
@@ -146,6 +138,8 @@
         (vc-test--exec-after-wait)
         (should (eq (point) opoint))))))
 
+(defvar vc-sentinel-movepoint)
+
 (ert-deftest vc-test-exec-after-5 ()
   "Test `vc-exec-after' with `vc-sentinel-movepoint' variable."
   (with-temp-buffer
@@ -153,7 +147,7 @@
                                              (if (eq system-type 'windows-nt)
                                                  "echo hello there & sleep 1"
                                                "echo hello there; sleep 0.2")))
-          success)
+          (success 'ignore))
       ;; Disable the default output, which further moves point.
       (set-process-sentinel proc #'ignore)
 
@@ -188,7 +182,7 @@
   (with-temp-buffer
     (let ((proc (vc-do-command '(t nil) 'async "sh" nil
                                "-c" "echo foo; echo >&2 bar"))
-          success)
+          (success 'ignore))
       (vc-test--exec-after-wait)
       (should (equal (buffer-string) "foo\n")))))
 
@@ -197,7 +191,7 @@
   (with-temp-buffer
     (let ((proc (vc-do-command t 'async "sh" nil
                                "-c" "echo foo; echo >&2 bar"))
-          success)
+          (success 'ignore))
       (vc-test--exec-after-wait)
       (goto-char (point-min))
       (should (save-excursion (re-search-forward "foo" nil t)))
@@ -208,7 +202,7 @@
   (with-temp-buffer
     (let ((proc (vc-do-command '(nil t) 'async "sh" nil
                                "-c" "echo foo; echo >&2 bar"))
-          success)
+          (success 'ignore))
       (vc-test--exec-after-wait)
       (should (bobp)))))
 

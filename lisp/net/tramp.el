@@ -36,8 +36,8 @@
 
 ;; This package provides remote file editing, similar to ange-ftp.
 ;; The difference is that ange-ftp uses FTP to transfer files between
-;; the local and the remote host, whereas tramp.el uses a combination
-;; of rsh and rcp or other work-alike programs, such as ssh/scp.
+;; the local and the remote host, whereas Tramp uses a combination of
+;; rsh and rcp or other work-alike programs, such as ssh/scp.
 ;;
 ;; For more detailed instructions, please see the info file.
 ;;
@@ -190,8 +190,8 @@ If the shell must be forced to be interactive, see
 `tramp-encoding-command-interactive'.
 
 Note that this variable is not used for remote commands.  There are
-mechanisms in tramp.el which automatically determine the right shell to
-use for the remote host."
+mechanisms in Tramp which automatically determine the right shell to use
+for the remote host."
   :type '(file :must-match t)
   :link '(info-link :tag "Tramp manual" "(tramp) Remote shell setup"))
 
@@ -661,6 +661,17 @@ I don't think this ever needs to be changed, so please tell me about it
 if you need to change this."
   :type 'string)
 
+(defcustom tramp-keyboard-interactive-authentication-prompt-regexp
+  ;; This shouldn't be needed.  But sometimes, this message happens
+  ;; after the first request, although it shall be prior any
+  ;; authentication request.
+  (rx "-- Keyboard-interactive authentication prompts "
+      "from server: ------------------" (* blank) (* (any "\r\n")))
+    "Regexp matching keyboard-interactive authentication requests.
+The regexp should match at end of buffer."
+  :version "31.1"
+  :type 'regexp)
+
 (defcustom tramp-login-prompt-regexp
   (rx (* nonl) (| "user" "login") (? blank (* nonl)) ":" (* blank))
   "Regexp matching login-like prompts.
@@ -714,7 +725,7 @@ The `sudo' program appears to insert a `^@' character into the prompt."
   (rx-to-string
    `(: bol (* nonl)
        (group (|
-	 ;; JumpCloud.
+	 ;; JumpCloud.  Google Authenticator.
 	 "Verification code"
 	 ;; TACC HPC.  <https://docs.tacc.utexas.edu/basics/mfa/>
 	 "TACC Token Code"))
@@ -2911,7 +2922,9 @@ not in completion mode."
   ;; check, whether DIRECTORY is "/method:" or "/[method/".
   (let ((dir (or directory default-directory "/")))
     (cond
-     ((file-name-absolute-p filename) filename)
+     ((file-name-absolute-p filename)
+      ;; FILENAME could be like "~/".  We must expand this.
+      (tramp-run-real-handler #'expand-file-name (list filename directory)))
      ((and (eq tramp-syntax 'simplified)
            (string-match-p (rx (regexp tramp-postfix-host-regexp) eos) dir))
       (concat dir filename))
@@ -3967,7 +3980,7 @@ BODY is the backend specific code."
 	  ((null (cadr ,destination))
 	   (setq stderr (tramp-get-remote-null-device v)))
 	  ((eq (cadr ,destination) tramp-cache-undefined)
-	   ;; stderr is not impelmemted.
+	   ;; stderr is not implemented.
 	   (tramp-warning v "%s" "STDERR not supported"))))
 	;; t
 	(,destination
@@ -5939,6 +5952,17 @@ of."
 
 (defvar tramp-process-action-regexp nil
   "The regexp used to invoke an action in `tramp-process-one-action'.")
+
+(defun tramp-action-ignore-message (proc vec)
+  "Ignore the message.
+Keep the rest for next check."
+  (with-current-buffer (process-buffer proc)
+    (tramp-message vec 6 "\n%s" (buffer-string))
+    (goto-char (point-min))
+    (tramp-check-for-regexp proc tramp-process-action-regexp)
+    (replace-match "")
+    (tramp-message vec 10 "\n%s" (buffer-string)))
+  nil)
 
 (defun tramp-action-login (_proc vec)
   "Send the login name."

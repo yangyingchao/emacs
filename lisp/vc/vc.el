@@ -647,6 +647,7 @@
 ;;   function is defined for this backend and that symbol, or a symbolic
 ;;   name involving that symbol, is passed to this function as REV, this
 ;;   function may return a symbolic name.
+;;   The implementation should respect the value of vc-use-short-revision.
 ;;
 ;;   Possible future extension: make REV an optional argument, and if
 ;;   nil, default it to FILE's working revision.
@@ -662,6 +663,7 @@
 ;;
 ;;   Return the revision number that follows REV for FILE, or nil if no such
 ;;   revision exists.
+;;   The implementation should respect the value of vc-use-short-revision.
 ;;
 ;; - log-edit-mode ()
 ;;
@@ -2147,10 +2149,15 @@ have changed; continue with old fileset?" (current-buffer))))
                                               patch-string comment)
                            (vc-call-backend backend 'checkin
                                             files comment rev))
-                    (mapc #'vc-delete-automatic-version-backups files))))
+                    (mapc #'vc-delete-automatic-version-backups files)))
+                (done-msg ()
+                  (message "Checking in %s...done" (vc-delistify files))))
         (if do-async
             ;; Rely on `vc-set-async-update' to update properties.
-            (do-it)
+            (let ((ret (do-it)))
+              (when (eq (car-safe ret) 'async)
+                (vc-exec-after #'done-msg nil (cadr ret)))
+              ret)
           (prog2 (message "Checking in %s..." (vc-delistify files))
               (with-vc-properties files (do-it)
                                   `((vc-state . up-to-date)
@@ -2158,7 +2165,7 @@ have changed; continue with old fileset?" (current-buffer))))
                                      . ,(file-attribute-modification-time
 			                 (file-attributes file)))
                                     (vc-working-revision . nil)))
-            (message "Checking in %s...done" (vc-delistify files))))))
+            (done-msg)))))
     'vc-checkin-hook
     backend
     patch-string)))
@@ -2166,22 +2173,121 @@ have changed; continue with old fileset?" (current-buffer))))
 (declare-function diff-buffer-file-names "diff-mode")
 (declare-function diff-reverse-direction "diff-mode")
 
-(defun vc--pick-or-revert (rev reverse comment initial-contents backend)
+(defun vc--pick-or-revert
+    (rev reverse interactive delete comment initial-contents backend)
   "Copy a single revision REV to branch checked out in this working tree.
-REVERSE means to undo the effects of REV, instead.
+
+REVERSE non-nil means to undo the effects of REV, instead.
+This is affected by whether the VCS is centralized or distributed and
+the INTERACTIVE and DELETE arguments, as follows:
+- For a centralized VCS for which Emacs knows how to do true undos, then
+  unless DELETE is the special value `never', do a true undo of REV.
+  This function supports creating new commits undoing the effects of REV
+  for even a centralized VCS with true undos by passing `never' as
+  DELETE (as `vc-revert-revision' does).
+  For centralized VCS, INTERACTIVE is ignored.
+- For a distributed VCS, when INTERACTIVE is non-nil, DELETE is nil, and
+  REV has not yet been pushed, offer to delete REV entirely instead of
+  creating a new commit undoing its EFFECTS.
+  If INTERACTIVE is `no-confirm', don't prompt to confirm the deletion.
+- For a distributed VCS, when DELETE is non-nil (but not `never'), only
+  consider deleting REV, never create a new commit, but subject to
+  `vc-allow-rewriting-published-history'.
+  In this case INTERACTIVE is ignored.
+(This complex calling convention makes for simple usage of this
+workhorse function from the frontend VC commands that provide access to
+all this functionality.)
+
 COMMENT is a comment string; if omitted, a buffer is popped up to accept
 a comment.  If INITIAL-CONTENTS is non-nil, then COMMENT is used as the
 initial contents of the log entry buffer.  If COMMENT is t then use
 BACKEND's default cherry-pick comment for REV without prompting.
-BACKEND is the VC backend to use."
-  (let* ((backend (or backend (vc-responsible-backend default-directory)))
-         ;; `vc-*-prepare-patch' will always give us a patch with file
-         ;; names relative to the VC root, so switch to there now.
-         ;; In particular this is needed for `diff-buffer-file-names' to
-         ;; work properly.
-         (default-directory (vc-call-backend backend 'root default-directory))
-         (patch (vc-call-backend backend 'prepare-patch rev))
-         files whole-patch-string diff-patch-string)
+BACKEND is the VC backend to use.
+
+Return `deleted' if we actually undid/deleted a commit.
+Any other return value means we called `vc-start-logentry'."
+  (cond*
+   ((bind* (backend (or backend
+                        (vc-responsible-backend default-directory)))))
+   ((and reverse (not (eq delete 'never))
+         (null (vc-find-backend-function backend
+                                         'revision-published-p))
+         (vc-find-backend-function backend 'delete-revision))
+    ;; Centralized VCS implementing `delete-revision'.
+    (vc-call-backend backend 'delete-revision rev)
+    'deleted)
+   ((and reverse interactive (not delete)
+         ;; Distributed VCS for which we can do deletions.
+         (vc-find-backend-function backend 'revision-published-p)
+         (vc-find-backend-function backend 'delete-revision)
+         ;; REV is safe to delete.
+         (not (vc-call-backend backend 'revision-published-p rev)))
+    ;; Require confirmation, because the commit is unpublished, and so
+    ;; this might be the only copy of the work in REV.  Don't fall back
+    ;; to making a new commit undoing REV's changes because we don't
+    ;; know the user wants that just because they said "no" to our
+    ;; question here, and we want to avoid two y/n prompts in a row,
+    ;; which is probably a less good UI than this.
+    (cond ((or (eq interactive 'no-confirm)
+               (yes-or-no-p
+                (format "Permanently delete %s from the revision history?"
+                        rev)))
+           (vc-call-backend backend 'delete-revision rev)
+           'deleted)
+          ((derived-mode-p 'log-view-mode)
+           (user-error (substitute-command-keys "\
+Use \\[log-view-revert-revisions] to create new commits \
+undoing changes made by revision(s)")))
+          (t
+           (user-error (substitute-command-keys "\
+Use \\[vc-revert-revision] to create a new commit undoing %s's changes")
+                       rev))))
+   ((and reverse delete (not (eq delete 'never))
+         ;; Distributed VCS for which we can do deletions.
+         (vc-find-backend-function backend 'revision-published-p)
+         (vc-find-backend-function backend 'delete-revision))
+    ;; Even though the user has explicitly requested deletion with a
+    ;; prefix argument / invoking `vc-delete-revision' / invoking
+    ;; `log-view-delete-revisions', by default we still confirm such a
+    ;; destructive operation.
+    ;; However, we want to avoid prompting twice in the case that the
+    ;; user has set `vc-allow-rewriting-published-history' to `ask', and
+    ;; we should avoid prompting at all in the case that
+    ;; `vc-allow-rewriting-published-history' is another non-nil value.
+    ;; These requirements lead to the nested `cond*' form here.
+    (cond*
+     ((and vc-allow-rewriting-published-history
+           (not (eq vc-allow-rewriting-published-history 'ask)))
+      (vc-call-backend backend 'delete-revision rev)
+      'deleted)
+     ((bind* (published (vc-call-backend backend 'revision-published-p rev))))
+     ((and published
+           (eq vc-allow-rewriting-published-history 'ask)
+           (yes-or-no-p
+            (format "Revision %s appears published; allow rewriting history?"
+                    rev)))
+      (vc-call-backend backend 'delete-revision rev)
+      'deleted)
+     (published
+      (user-error "Will not rewrite likely-public history"))
+     ((yes-or-no-p
+       (format "Permanently delete %s from the revision history?"
+               rev))
+      (vc-call-backend backend 'delete-revision rev)
+      'deleted)
+     (t
+      (user-error "Aborted"))))
+   ;; If we get this far we give up on `delete-revision', i.e. we fall
+   ;; back to creating a commit undoing the effects of REV.
+   ;;
+   ;; `vc-*-prepare-patch' will always give us a patch with file names
+   ;; relative to the VC root, so switch to there now.  In particular
+   ;; this is needed for `diff-buffer-file-names' to work properly.
+   ((bind* (default-directory (vc-call-backend backend 'root
+                                               default-directory))
+           (patch (vc-call-backend backend 'prepare-patch rev))
+           files whole-patch-string diff-patch-string))
+   (t
     (with-current-buffer (plist-get patch :buffer)
       (diff-mode)
       (with-restriction
@@ -2218,14 +2324,14 @@ BACKEND is the VC backend to use."
                                           whole-patch-string comment))
                        nil
                        backend
-                       diff-patch-string)))
+                       diff-patch-string))))
 
-;; No bindings in `vc-prefix-map' for the following two commands because
-;; we expect users will usually use `log-view-revision-cherry-pick' and
-;; `log-view-revision-revert', which do have bindings.
+;; No bindings in `vc-prefix-map' for the following three items because
+;; we expect users will usually use `log-view-cherry-pick' and
+;; `log-view-revert-or-delete-revisions', which do have bindings.
 
 ;;;###autoload
-(defun vc-revision-cherry-pick (rev &optional comment initial-contents backend)
+(defun vc-cherry-pick (rev &optional comment initial-contents backend)
   "Copy the changes from a single revision REV to the current branch.
 When called interactively, prompts for REV.
 Typically REV is a revision from another branch, where that branch is
@@ -2256,12 +2362,54 @@ Optional argument BACKEND is the VC backend to use."
                                              nil rev))
                        nil
                        backend)))
-  (vc--pick-or-revert rev nil comment initial-contents backend))
+  (vc--pick-or-revert rev nil nil nil comment initial-contents backend))
 
 ;;;###autoload
-(defun vc-revision-revert (rev &optional comment initial-contents backend)
+(defun vc-revert-or-delete-revision
+    (rev &optional interactive delete comment initial-contents backend)
   "Undo the effects of revision REV.
 When called interactively, prompts for REV.
+
+When called interactively (or with optional argument INTERACTIVE
+non-nil), then if the underlying VCS is distributed and REV has not been
+pushed, offer to entirely delete REV.
+This is instead of creating a new commit undoing the effects of REV.
+
+With a prefix argument (or with optional argument DELETE non-nil),
+only consider deleting REV, never create a new commit.
+In this case INTERACTIVE is ignored.
+This works only if REV has not been pushed, unless you have customized
+`vc-allow-rewriting-published-history' to a non-nil value.
+
+When called from Lisp, there are three calling conventions for the
+COMMENT and INITIAL-CONTENTS optional arguments:
+- COMMENT a string, INITIAL-CONTENTS nil means use that comment string
+  without prompting the user to edit it.
+- COMMENT a string, INITIAL-CONTENTS non-nil means use that comment
+  string as the initial contents of the log entry buffer but stop for
+  editing.
+- COMMENT t means use BACKEND's default revert comment for REV without
+  prompting for editing, and ignore INITIAL-CONTENTS.
+
+Optional argument BACKEND is the VC backend to use.
+
+See also `vc-revert-revision'."
+  (interactive (list (vc-read-revision (if current-prefix-arg
+                                           "Revision to delete: "
+                                         "Revision to revert: "))
+                     t current-prefix-arg))
+  (vc--pick-or-revert rev t interactive delete
+                      comment initial-contents backend))
+
+;;;###autoload
+(defun vc-revert-revision
+  (rev &optional comment initial-contents backend)
+  "Make a commit undoing the effects of revision REV.
+When called interactively, prompts for REV.
+
+This is like `vc-revert-or-delete-revision' except that it only ever
+makes a new commit undoing the effects of REV, instead of considering
+VCS-specific alternative mechanisms to undo the effects of REV.
 
 When called from Lisp, there are three calling conventions for the
 COMMENT and INITIAL-CONTENTS optional arguments:
@@ -2275,7 +2423,104 @@ COMMENT and INITIAL-CONTENTS optional arguments:
 
 Optional argument BACKEND is the VC backend to use."
   (interactive (list (vc-read-revision "Revision to revert: ")))
-  (vc--pick-or-revert rev t comment initial-contents backend))
+  (vc--pick-or-revert rev t nil 'never comment initial-contents backend))
+
+;;;###autoload
+(defun vc-delete-revision (rev &optional backend)
+  "Delete revision REV from the revision history.
+This works only if REV has not been pushed, unless you have customized
+`vc-allow-rewriting-published-history' to a non-nil value.
+
+This is the same as `vc-revert-or-delete-revision' invoked interactively
+with a prefix argument."
+  (interactive (list (vc-read-revision "Revision to delete: ")))
+  (vc--pick-or-revert rev t nil t nil nil backend))
+
+(defun vc--remove-revisions-from-end (rev delete prompt backend)
+  "Delete revisions newer than REV.
+DELETE non-nil means to remove the changes from the working tree.
+DELETE `discard' means to silently discard uncommitted changes.
+PROMPT non-nil means to always get confirmation.  (This is passed by
+`log-view-uncommit-revisions-from-end' and `log-view-delete-revisions'
+because they have single-letter bindings and don't otherwise prompt, so
+might be easy to use accidentally.)
+BACKEND is the VC backend."
+  (let ((backend (or backend (vc-responsible-backend default-directory))))
+    (unless (eq (vc-call-backend backend 'revision-granularity)
+                'repository)
+      (error "Requires VCS with whole-repository revision granularity"))
+    (unless (vc-find-backend-function backend 'revision-published-p)
+      (signal 'vc-not-supported (list 'revision-published-p backend)))
+    ;; Rewinding the end of the branch to REV does not in itself mean
+    ;; rewriting public history because a subsequent pull will generally
+    ;; undo the rewinding.  Rewinding and then making new commits before
+    ;; syncing with the upstream will necessitate merging, but that's
+    ;; just part of the normal workflow with a distributed VCS.
+    ;; Therefore we don't prompt about deleting published revisions (and
+    ;; so we ignore `vc-allow-rewriting-published-history').
+    ;; We do care about deleting *unpublished* revisions, however,
+    ;; because that could potentially mean losing work permanently.
+    (when (if (vc-call-backend backend 'revision-published-p
+                               (vc-call-backend backend
+                                                'working-revision-symbol))
+              (and prompt
+                   (not (y-or-n-p
+                         (format "Uncommit revisions newer than %s?"
+                                 rev))))
+            ;; FIXME: Actually potentially not all revisions newer than
+            ;; REV would be permanently deleted -- only those which are
+            ;; unpushed.  So this prompt is a little misleading.
+            (not (yes-or-no-p
+                  (format "Permanently delete revisions newer than %s?"
+                          rev))))
+      (user-error "Aborted"))
+    (if delete
+        ;; FIXME: As discussed in bug#79408, instead of just failing if
+        ;; the user declines reverting the changes, we would leave
+        ;; behind some sort of conflict for the user to resolve, like we
+        ;; do when there is a merge conflict.
+        (let ((root (vc-root-dir)))
+          (when (vc-dir-status-files root nil backend)
+            (if (eq delete 'discard)
+                (vc-revert-file root)
+              (let ((vc-buffer-overriding-fileset `(,backend (,root))))
+                (vc-revert))))
+          (vc-call-backend backend 'delete-revisions-from-end rev))
+      (vc-call-backend backend 'uncommit-revisions-from-end rev))))
+
+;;;###autoload
+(defun vc-uncommit-revisions-from-end (rev &optional backend)
+  "Delete revisions newer than REV without touching the working tree.
+REV must be on the current branch.  The newer revisions are deleted from
+the revision history but the changes made by those revisions to files in
+the working tree are not undone.
+When called interactively, prompts for REV.
+BACKEND is the VC backend.
+
+To delete revisions from the revision history and also undo the changes
+in the working tree, see `vc-delete-revisions-from-end'."
+  (interactive (list
+                (vc-read-revision "Uncommit revisions newer than revision: ")))
+  (vc--remove-revisions-from-end rev nil nil backend))
+
+;;;###autoload
+(defun vc-delete-revisions-from-end (rev &optional discard backend)
+  "Delete revisions newer than REV.
+REV must be on the current branch.  The newer revisions are deleted from
+the revision history and the changes made by those revisions to files in
+the working tree are undone.
+When called interactively, prompts for REV.
+If the are uncommitted changes, prompts to discard them.
+With a prefix argument (when called from Lisp, with optional argument
+DISCARD non-nil), discard any uncommitted changes without prompting.
+BACKEND is the VC backend.
+
+To delete revisions from the revision history without undoing the
+changes in the working tree, see `vc-uncommit-revisions-from-end'."
+  (interactive (list
+                (vc-read-revision "Delete revisions newer than revision: ")
+                current-prefix-arg))
+  (vc--remove-revisions-from-end rev (if discard 'discard t) nil backend))
 
 (declare-function diff-bounds-of-hunk "diff-mode")
 
@@ -2488,7 +2733,7 @@ Output goes to the buffer BUFFER, which defaults to *vc-diff*.
 BUFFER, if non-nil, should be a buffer or a buffer name.
 Return t if the buffer had changes, nil otherwise."
   (unless buffer
-    (setq buffer "*vc-diff*"))
+    (setq buffer (get-buffer-create "*vc-diff*")))
   (let* ((files (cadr vc-fileset))
 	 (messages (cons (format "Finding changes in %s..."
                                  (vc-delistify files))
@@ -2551,18 +2796,25 @@ Return t if the buffer had changes, nil otherwise."
                      (if async 'async 1) "diff" file
                      (append (vc-switches nil 'diff) `(,(null-device)))))))
         (setq files (nreverse filtered))))
+    (with-current-buffer buffer
+      ;; Make the *vc-diff* buffer read only, the diff-mode key
+      ;; bindings are nicer for read only buffers. pcl-cvs does the
+      ;; same thing.
+      (setq buffer-read-only t)
+      ;; Set the major mode and some local variables before calling into
+      ;; the backend.  This means that the backend can itself set local
+      ;; variables and enable minor modes in BUFFER if it wants to.
+      ;; Call into the backend with the old current buffer, though, so
+      ;; that its operation can be influenced by local variables in that
+      ;; buffer (some discussion in bug#80005).
+      (diff-mode)
+      (setq-local diff-vc-backend (car vc-fileset))
+      (setq-local diff-vc-revisions (list rev1 rev2))
+      (setq-local revert-buffer-function
+                  (lambda (_ignore-auto _noconfirm)
+                    (vc-diff-internal async vc-fileset rev1 rev2 verbose))))
     (vc-call-backend (car vc-fileset) 'diff files rev1 rev2 buffer async)
     (set-buffer buffer)
-    ;; Make the *vc-diff* buffer read only, the diff-mode key
-    ;; bindings are nicer for read only buffers. pcl-cvs does the
-    ;; same thing.
-    (setq buffer-read-only t)
-    (diff-mode)
-    (setq-local diff-vc-backend (car vc-fileset))
-    (setq-local diff-vc-revisions (list rev1 rev2))
-    (setq-local revert-buffer-function
-                (lambda (_ignore-auto _noconfirm)
-                  (vc-diff-internal async vc-fileset rev1 rev2 verbose)))
     (if (and (zerop (buffer-size))
              (not (get-buffer-process (current-buffer))))
         ;; Treat this case specially so as not to pop the buffer.
@@ -2856,8 +3108,9 @@ global binding."
                       ;;                           'revision-granularity)
                       ;;          'repository)
                       ;;      (ignore-errors
-                      ;;        (vc-symbolic-working-revision (caadr fileset)))
-                      (vc-symbolic-working-revision (caadr fileset))
+                      ;;        (vc-symbolic-working-revision (caadr fileset)
+                      ;;                                      backend)))
+                      (vc-symbolic-working-revision (caadr fileset) backend)
                       (called-interactively-p 'interactive))))
 
 ;; For the following two commands, the default meaning for
@@ -3001,17 +3254,17 @@ saving the buffer."
                           (called-interactively-p 'interactive))))))
 
 ;;;###autoload
-(defun vc-root-dir ()
+(defun vc-root-dir (&optional backend)
   "Return the root directory for the current VC tree.
-Return nil if the root directory cannot be identified."
-  (let ((backend (vc-deduce-backend)))
-    (if backend
-        (condition-case err
-            (vc-call-backend backend 'root default-directory)
-          (vc-not-supported
-           (unless (eq (cadr err) 'root)
-             (signal (car err) (cdr err)))
-           nil)))))
+Return nil if the root directory cannot be identified.
+BACKEND is the VC backend."
+  (and-let* ((backend (or backend (vc-deduce-backend))))
+    (condition-case err
+        (vc-call-backend backend 'root default-directory)
+      (vc-not-supported
+       (unless (eq (cadr err) 'root)
+         (signal (car err) (cdr err)))
+       nil))))
 
 ;;;###autoload
 (defun vc-revision-other-window (rev)
@@ -3668,7 +3921,7 @@ Each function runs in the log output buffer without args.")
 
 (defun vc-incoming-outgoing-internal (backend upstream-location buffer-name type)
   (vc-log-internal-common
-   backend buffer-name nil type
+   backend buffer-name (list (vc-root-dir)) type
    (lambda (bk buf type-arg _files)
      (vc-call-backend bk type-arg buf upstream-location))
    (lambda (_bk _files-arg _ret) nil)
@@ -3777,8 +4030,35 @@ The command prompts for the branch whose change log to show."
                     'vc-remote-location-history)))
 
 (defun vc--incoming-revision (backend &optional upstream-location refresh)
-  (or (vc-call-backend backend 'incoming-revision upstream-location refresh)
-      (user-error "No incoming revision -- local-only branch?")))
+  ;; Some backends don't support REFRESH and so always behave as though
+  ;; REFRESH is non-nil.  This is not just for a lack of implementation
+  ;; in Emacs; for example, Mercurial repositories don't store any
+  ;; representation of the incoming revision between running commands.
+  ;;
+  ;; Fetching the incoming revision is often slow, and in many cases the
+  ;; last known incoming revision will serve perfectly well.  For
+  ;; example, when finding revisions that are outgoing, the last known
+  ;; incoming revision is fine except for the rare case in which someone
+  ;; else cherry-picks the very same commits that you have outstanding,
+  ;; and pushes them.  Given this, we implement our own caching.
+  ;;
+  ;; Do store `nil', before signalling an error, if there is no incoming
+  ;; revision, because that's also something that can be slow to
+  ;; determine and so should be remembered.
+  (if-let* ((_ (not refresh))
+            (record (assoc upstream-location
+                           (vc--repo-getprop backend 'vc-incoming-revision))))
+      (cdr record)
+    (let ((res (vc-call-backend backend 'incoming-revision
+                                upstream-location refresh)))
+      (if-let* ((alist (vc--repo-getprop backend 'vc-incoming-revision)))
+          (setf (alist-get upstream-location alist nil nil #'equal)
+                res)
+        (vc--repo-setprop backend
+                          'vc-incoming-revision
+                          `((,upstream-location . ,res))))
+      (or res
+          (user-error "No incoming revision -- local-only branch?")))))
 
 ;;;###autoload
 (defun vc-log-incoming (&optional upstream-location)
@@ -3792,12 +4072,13 @@ can be a remote branch name."
     (vc-incoming-outgoing-internal backend upstream-location
                                    "*vc-incoming*" 'log-incoming)))
 
-(defun vc-default-log-incoming (_backend buffer upstream-location)
-  (vc--with-backend-in-rootdir ""
-    (let ((incoming (vc--incoming-revision backend upstream-location 'refresh)))
-      (vc-call-backend backend 'print-log (list rootdir) buffer t
-                       incoming
-                       (vc-call-backend backend 'mergebase incoming)))))
+(defun vc-default-log-incoming (backend buffer upstream-location)
+  (let ((incoming (vc--incoming-revision backend upstream-location
+                                         'refresh))
+        (default-directory (vc-root-dir backend)))
+    (vc-call-backend backend 'print-log (list default-directory)
+                     buffer t incoming
+                     (vc-call-backend backend 'mergebase incoming))))
 
 ;;;###autoload
 (defun vc-log-outgoing (&optional upstream-location)
@@ -3811,12 +4092,23 @@ can be a remote branch name."
     (vc-incoming-outgoing-internal backend upstream-location
                                    "*vc-outgoing*" 'log-outgoing)))
 
-(defun vc-default-log-outgoing (_backend buffer upstream-location)
-  (vc--with-backend-in-rootdir ""
-    (let ((incoming (vc--incoming-revision backend upstream-location)))
-      (vc-call-backend backend 'print-log (list rootdir) buffer t
-                       ""
-                       (vc-call-backend backend 'mergebase incoming)))))
+(defun vc-default-log-outgoing (backend buffer upstream-location)
+  (let ((incoming (vc--incoming-revision backend upstream-location))
+        (default-directory (vc-root-dir backend)))
+    (vc-call-backend backend 'print-log (list default-directory)
+                     buffer t ""
+                     (vc-call-backend backend 'mergebase incoming))))
+
+(defun vc--count-outgoing (backend)
+  "Return number of changes that will be sent with a `vc-push'."
+  (with-temp-buffer
+    (let ((display-buffer-overriding-action
+           '(display-buffer-no-window (allow-no-window . t))))
+      (vc-incoming-outgoing-internal backend nil
+                                     (current-buffer) 'log-outgoing))
+    (let ((proc (get-buffer-process (current-buffer))))
+      (while (accept-process-output proc)))
+    (how-many log-view-message-re)))
 
 ;;;###autoload
 (defun vc-log-search (pattern)
@@ -3925,14 +4217,18 @@ to the working revision (except for keyword expansion)."
 		   (format "Discard changes in %s? "
 			   (let ((str (vc-delistify files))
 				 (nfiles (length files)))
-			     (if (< (length str) 50)
+			     (if (length< str 50)
 				 str
-			       (format "%d file%s" nfiles
-				       (if (= nfiles 1) "" "s"))))))
-	    (error "Revert canceled")))
+                               (format (ngettext "%d file" "%d files"
+                                                 nfiles)
+                                       nfiles)))))
+	    (error "Revert cancelled")))
       (when diff-buffer
 	(quit-windows-on diff-buffer (eq vc-revert-show-diff 'kill))))
     (vc-revert-files backend files)))
+
+;;;###autoload
+(defalias 'vc-restore #'vc-revert)
 
 ;;;###autoload
 (defun vc-pull (&optional arg)
@@ -3955,10 +4251,14 @@ tip revision are merged into the working file."
     (cond
      ;; If a pull operation is defined, use it.
      ((vc-find-backend-function backend 'pull)
-      (vc-call-backend backend 'pull arg))
+      (vc-call-backend backend 'pull arg)
+      ;; FIXME: Ideally we would only clear out the stored value for the
+      ;; REMOTE-LOCATION from which we are pulling.
+      (vc-run-delayed
+        (vc--repo-setprop backend 'vc-incoming-revision nil)))
      ;; If VCS has `merge-news' functionality (CVS and SVN), use it.
      ((vc-find-backend-function backend 'merge-news)
-      (save-some-buffers ; save buffers visiting files
+      (save-some-buffers                ; save buffers visiting files
        nil (lambda ()
 	     (and (buffer-modified-p)
 		  (let ((file (buffer-file-name)))
@@ -3995,7 +4295,11 @@ It also signals an error in a Bazaar bound branch."
 	 (backend (car vc-fileset)))
 ;;;	 (files (cadr vc-fileset)))
     (if (vc-find-backend-function backend 'push)
-        (vc-call-backend backend 'push arg)
+        (progn (vc-call-backend backend 'push arg)
+               ;; FIXME: Ideally we would only clear out the
+               ;; REMOTE-LOCATION to which we are pushing.
+               (vc-run-delayed
+                 (vc--repo-setprop backend 'vc-incoming-revision nil)))
       (user-error "VC push is unsupported for `%s'" backend))))
 
 ;;;###autoload
@@ -4018,18 +4322,12 @@ It also signals an error in a Bazaar bound branch."
   (let* ((vc-fileset (vc-deduce-fileset t))
 	 (backend (car vc-fileset)))
     (if (vc-find-backend-function backend 'pull)
-        (let ((proc (vc-call-backend backend 'pull arg)))
-          (when (and (processp proc) (process-buffer proc))
-            (with-current-buffer (process-buffer proc)
-              (if (and (eq (process-status proc) 'exit)
-                       (zerop (process-exit-status proc)))
-                  (let ((vc--inhibit-async-window t))
-                    (vc-push arg))
-                (vc-exec-after
-                 (lambda ()
-                   (let ((vc--inhibit-async-window t))
-                     (vc-push arg)))
-                 proc)))))
+        (when-let* ((proc (vc-call-backend backend 'pull arg))
+                    (buf (and (processp proc) (process-buffer proc))))
+          (with-current-buffer buf
+            (vc-run-delayed-success 0
+              (let ((vc--inhibit-async-window t))
+                (vc-push arg)))))
       (user-error "VC pull is unsupported for `%s'" backend))))
 
 (defun vc-version-backup-file (file &optional rev)
@@ -4196,10 +4494,8 @@ file names."
   (dolist (file file-or-files)
     (let ((buf (get-file-buffer file))
           (backend (vc-backend file)))
-      (unless backend
-        (error "File %s is not under version control"
-               (file-name-nondirectory file)))
-      (unless (vc-find-backend-function backend 'delete-file)
+      (unless (or (not backend)
+                  (vc-find-backend-function backend 'delete-file))
         (error "Deleting files under %s is not supported in VC" backend))
       (when (and buf (buffer-modified-p buf))
         (error "Please save or undo your changes before deleting %s" file))
@@ -4222,11 +4518,13 @@ file names."
         (with-current-buffer (or buf (find-file-noselect file))
           (let ((backup-inhibited nil))
 	    (backup-buffer))))
-      ;; Bind `default-directory' so that the command that the backend
-      ;; runs to remove the file is invoked in the correct context.
-      (let ((default-directory (file-name-directory file)))
-        (vc-call-backend backend 'delete-file file))
-      ;; If the backend hasn't deleted the file itself, let's do it for him.
+      (when backend
+        ;; Bind `default-directory' so that the command that the backend
+        ;; runs to remove the file is invoked in the correct context.
+        (let ((default-directory (file-name-directory file)))
+          (vc-call-backend backend 'delete-file file)))
+      ;; For the case of unregistered files, or if the backend didn't
+      ;; actually delete the file.
       (when (file-exists-p file) (delete-file file))
       ;; Forget what VC knew about the file.
       (vc-file-clearprops file)
@@ -5026,6 +5324,34 @@ option to non-nil to skip the prompting."
   :group 'vc
   :version "31.1")
 
+(defun vc--fileset-by-state (fileset)
+  "Return alist of VC states of all files in FILESET.
+The keys into the alist are VC states, and the values are file names.
+For directories in FILESET, the alist includes values for all
+non-ignored, non-up-to-date files within those directories."
+  (let ((backend (car fileset))
+        (remaining (cadr fileset))
+        ret-val)
+    (while remaining
+      (cond* ((bind* (next (pop remaining))))
+             ((atom next)
+              (push next (alist-get (vc-state next backend) ret-val)))
+             ((bind* (file (car next))))
+             ((file-directory-p file)
+              (setq remaining
+                    (nconc (vc-dir-status-files file nil backend)
+                           remaining)))
+             (t
+              (push file (alist-get (cadr next) ret-val)))))
+    ret-val))
+
+(declare-function diff-kill-creations-deletions "diff-mode")
+(declare-function diff-filename-drop-dir "diff-mode")
+(declare-function diff-hunk-file-names "diff-mode")
+(declare-function diff-file-next "diff-mode")
+(defvar diff-hunk-header-re)
+(declare-function vc-dir-resynch-file "vc-dir")
+
 (defun vc--apply-to-other-working-tree
     (directory mirror-dir fileset patch-string move)
   "Workhorse routine for copying/moving changes to other working trees.
@@ -5038,42 +5364,141 @@ determine the changes to copy or move.
 MOVE non-nil means to move instead of copy."
   (unless (or (not move)
               vc-no-confirm-moving-changes
-              (yes-or-no-p
+              (y-or-n-p
                (format "Really %s uncommitted work out of this working tree?"
                        (propertize "move" 'face 'bold))))
     (user-error "Aborted"))
   (vc-buffer-sync-fileset fileset nil)
-  (with-temp-buffer
-    (if (not patch-string)
-        (let ((display-buffer-overriding-action '(display-buffer-no-window
-                                                  (allow-no-window . t))))
-          (vc-diff-internal nil fileset nil nil nil (current-buffer)))
-      (diff-mode)
-      (insert patch-string))
-    (let ((default-directory mirror-dir))
-      (vc-buffer-sync-fileset (diff-vc-deduce-fileset) nil))
-    (when-let* (move
-                (failed (diff-apply-buffer nil nil 'reverse 'test)))
-      ;; If PATCH-STRING is non-nil and this fails, the user called us
-      ;; from a `diff-mode' buffer that doesn't reverse-apply; that's
-      ;; a `user-error'.
-      ;; If PATCH-STRING is nil and this fails, `vc-diff-internal'
-      ;; generated a nonsense diff -- not the user's fault.
-      (funcall (if patch-string #'user-error #'error)
-               (ngettext "%d hunk does not reverse-apply to this working tree"
-                         "%d hunks do not reverse-apply to this working tree"
-                         failed)
-               failed))
-    (let ((default-directory mirror-dir))
-      (when-let* ((failed (diff-apply-buffer)))
-        (user-error (ngettext "%d hunk does not apply to `%s'"
-                              "%d hunks do not apply to `%s'"
-                              failed)
-                    failed directory)))
-    (when move
-      (diff-apply-buffer nil nil 'reverse))
-    (message "Changes %s to `%s'"
-             (if move "moved" "applied") directory)))
+  (let* ((fileset (cl-list* (car fileset)
+                            (mapcar #'file-relative-name (cadr fileset))
+                            (cddr fileset)))
+         (backend (car fileset))
+         (by-state (vc--fileset-by-state fileset))
+         (copies (append (alist-get 'added by-state)
+                         (alist-get 'unregistered by-state)))
+         (deletions (append (alist-get 'removed by-state)
+                            (alist-get 'missing by-state)))
+         (whole-files (append copies deletions))
+         (orig-dd default-directory)
+         non-empty-patch-p)
+    (with-temp-buffer
+      (cond* (patch-string
+              (diff-mode)
+              (insert patch-string))
+             ;; Some backends don't tolerate unregistered files
+             ;; appearing in the fileset for a diff operation.
+             ((bind* (diff-fileset
+                      `(,backend ,(cl-set-difference
+                                   (cadr fileset)
+                                   (alist-get 'unregistered by-state))))))
+             ;; An empty files list makes `vc-diff-internal' diff the
+             ;; whole of `default-directory'.
+             ((cadr diff-fileset)
+              (cl-letf ((display-buffer-overriding-action
+                         '(display-buffer-no-window (allow-no-window . t)))
+                        ;; Try to disable, e.g., Git's rename detection.
+                        ((symbol-value (vc-make-backend-sym backend
+                                                            'diff-switches))
+                         t))
+                (vc-diff-internal nil diff-fileset nil nil nil
+                                  (current-buffer))))
+             (t (require 'diff-mode)))
+      ;; We'll handle any `added', `removed', `missing' and
+      ;; `unregistered' files in FILESET by copying or moving whole
+      ;; files, so remove any of them that show up in the diff
+      ;; (only `added' and `removed' should actually show up).
+      (diff-kill-creations-deletions t)
+      (goto-char (point-min))
+      (if (not (setq non-empty-patch-p
+                     (re-search-forward diff-hunk-header-re nil t)))
+          ;; No hunks, so just sync WHOLE-FILES and skip over testing
+          ;; reverse-application to the source working tree.
+          (let ((default-directory mirror-dir))
+            (vc-buffer-sync-fileset `(,backend ,whole-files) nil))
+        ;; We cannot deal with renames, copies, and combinations of
+        ;; renames and copies with ordinary changes detected by the VCS.
+        ;; If we called `vc-diff-internal' just above then there shouldn't
+        ;; be any, but check to make sure.  And if PATCH-STRING is non-nil
+        ;; then we definitely need to check there aren't any.
+        ;;
+        ;; In order to be able to support these kinds of things, then
+        ;; rather than do it entirely ad hoc here, we probably want new
+        ;; VC states representing renames and copies.
+        ;; There is an old FIXME about this in `vc-state'.  --spwhitton
+        (cl-loop initially
+                 (goto-char (point-min))
+                 (ignore-errors (diff-file-next))
+                 for (name1 name2) = (diff-hunk-file-names)
+                 for name1* = (or (diff-filename-drop-dir name1) name1)
+                 and name2* = (or (diff-filename-drop-dir name2) name2)
+                 unless (equal name1* name2*)
+                 do (funcall (if patch-string #'user-error #'error)
+                             (format "Cannot %s renames and/or copies"
+                                     (if move "move" "apply")))
+                 until (eq (prog1 (point)
+                             (ignore-errors (diff-file-next)))
+                           (point)))
+        (let* ((default-directory mirror-dir)
+               (sync-fileset (diff-vc-deduce-fileset)))
+          (rplacd (last (cadr sync-fileset)) whole-files)
+          (vc-buffer-sync-fileset sync-fileset nil))
+        (when-let* (move
+                    (failed (diff-apply-buffer nil nil 'reverse 'test)))
+          ;; If PATCH-STRING is non-nil and this fails, the user called us
+          ;; from a `diff-mode' buffer that doesn't reverse-apply; that's
+          ;; a `user-error'.
+          ;; If PATCH-STRING is nil and this fails, `vc-diff-internal'
+          ;; generated a nonsense diff -- not the user's fault.
+          (funcall
+           (if patch-string #'user-error #'error)
+           (ngettext "%d hunk does not reverse-apply to this working tree"
+                     "%d hunks do not reverse-apply to this working tree"
+                     failed)
+           failed)))
+      (let ((default-directory mirror-dir)
+            (mirror-states (make-hash-table :test #'equal)))
+        (pcase-dolist (`(,file ,state . ,_)
+                       (vc-dir-status-files mirror-dir nil backend))
+          (puthash file state mirror-states))
+        (dolist (copy copies)
+          (when (file-exists-p copy)
+            (user-error "`%s' already exists in `%s'"
+                        copy mirror-dir)))
+        (dolist (deletion deletions)
+          (when (memq (gethash deletion mirror-states)
+                      '(edited needs-merge unlocked-changes added
+                               conflict unregistered))
+            (user-error "`%s' in `%s' has incompatible state `%s'"
+                        deletion mirror-dir
+                        (gethash deletion mirror-states))))
+        (when-let* (non-empty-patch-p
+                    (failed (diff-apply-buffer)))
+          (user-error (ngettext "%d hunk does not apply to `%s'"
+                                "%d hunks do not apply to `%s'"
+                                failed)
+                      failed directory))
+        ;; For both `added' & `unregistered' files we leave them
+        ;; unregistered in the target working tree, and for `removed' &
+        ;; `missing' files we leave them missing.  This means that if
+        ;; the user wants to throw away their copied changes it's less
+        ;; effort to do so.  If the user does want to check in the
+        ;; copied changes then VC-Dir will implicitly handle registering
+        ;; the additions and deletions as part of `vc-checkin'.
+        (dolist (copy copies)
+          (copy-file (expand-file-name copy orig-dd) copy))
+        (mapc #'delete-file deletions)
+        (when vc-dir-buffers
+          (mapc #'vc-dir-resynch-file whole-files)))
+      (when move
+        (diff-apply-buffer nil nil 'reverse)
+        (mapc (lambda (f) (vc-call-backend backend 'unregister f))
+              (alist-get 'added by-state))
+        (mapc #'delete-file copies)
+        (when vc-dir-buffers
+          (mapc #'vc-dir-resynch-file copies))
+        (vc-revert-files backend deletions))
+      (message "Changes %s to `%s'"
+               (if move "moved" "applied") directory))))
 
 ;;;###autoload
 (defun vc-kill-other-working-tree-buffers (backend)

@@ -90,12 +90,17 @@ All bindings made in CONDITION for the BODY of the non-exit clause
 are passed along to the rest of the clauses in this `cond*' construct.
 
 \\[match*] for documentation of the patterns for use in `match*'."
+  ;; FIXME: Want an Edebug declaration.
   (cond*-convert clauses))
 
-(defmacro match* (pattern _datum)
+;; The following four macros are autoloaded for the sake of syntax
+;; highlighting.
+
+;;;###autoload
+(defmacro match* (_pattern _datum)
   "This specifies matching DATUM against PATTERN.
-It is not really a Lisp function, and it is meaningful
-only in the CONDITION of a `cond*' clause.
+This is not really a Lisp operator; it is meaningful only in the
+CONDITION of a `cond*' clause.
 
 `_' matches any value.
 KEYWORD matches that keyword.
@@ -129,7 +134,7 @@ ATOM (meaning any other kind of non-list not described above)
 \(cdr PATTERN)  matches PATTERN with strict checking of cdrs.
   That means that `list' patterns verify that the final cdr is nil.
   Strict checking is the default.
-\(cdr-safe PATTERN)  matches PATTERN with lax checking of cdrs.
+\(cdr-ignore PATTERN)  matches PATTERN with lax checking of cdrs.
   That means that `list' patterns do not examine the final cdr.
 \(and CONJUNCTS...)  matches each of the CONJUNCTS against the same data.
   If all of them match, this pattern succeeds.
@@ -155,15 +160,32 @@ ATOM (meaning any other kind of non-list not described above)
 \(constrain SYMBOL EXP)
   matches datum if the form EXP is true.
   EXP can refer to symbols bound earlier in the pattern."
-  ;; FIXME: `byte-compile-warn-x' is not necessarily defined here.
-  (byte-compile-warn-x pattern "`match*' used other than as a `cond*' condition"))
+  (macroexp-warn-and-return "`match*' used other than as a `cond*' condition"
+                            nil 'suspicious))
 
-(defmacro bind-and* (&rest bindings)
-  "This macro evaluates BINDINGS like `if-let*'.
-It is not really a Lisp function, and it is meaningful
-only in the CONDITION of a `cond*' clause."
-  ;; FIXME: `byte-compile-warn-x' is not necessarily defined here.
-  (byte-compile-warn-x bindings "`bind-and*' used other than as a `cond*' condition"))
+;;;###autoload
+(defmacro bind* (&rest _bindings)
+  "Evaluate BINDINGS like `let*'.
+This is not really a Lisp operator; it is meaningful only in the
+CONDITION of a `cond*' clause.  See `cond*' for details."
+  (macroexp-warn-and-return "`bind*' used other than as a `cond*' condition"
+                            nil 'suspicious))
+
+;;;###autoload
+(defmacro bind-and* (&rest _bindings)
+  "Evaluate BINDINGS like `if-let*'.
+This is not really a Lisp operator; it is meaningful only in the
+CONDITION of a `cond*' clause.  See `cond*' for details."
+  (macroexp-warn-and-return "`bind-and*' used other than as a `cond*' condition"
+                            nil 'suspicious))
+
+;;;###autoload
+(defmacro pcase* (_pattern _datum)
+  "Evaluate PATTERN and DATUM like an element of BINDINGS in `pcase-let'.
+This is not really a Lisp operator; it is meaningful only in the
+CONDITION of a `cond*' clause.  See `cond*' for details."
+  (macroexp-warn-and-return "`pcase*' used other than as a `cond*' condition"
+                            nil 'suspicious))
 
 (defun cond*-non-exit-clause-p (clause)
   "If CLAUSE, a cond* clause, is a non-exit clause, return t."
@@ -297,7 +319,9 @@ This is used for conditional exit clauses."
              (dolist (bind (cdr condition))
                (push (list (car bind) (list 'and last (cadr bind)))
                      checks)
-               (setq last (car bind)))
+               (when (eq (caar checks) '_)
+                 (setcar (car checks) (make-symbol "s")))
+               (setq last (caar checks)))
              (cond
               ;; For explanations on these cases, see "Ordinary
               ;; Lisp expression is the condition." below.

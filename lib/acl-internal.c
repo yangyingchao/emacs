@@ -17,10 +17,10 @@
 
    Written by Paul Eggert, Andreas Grünbacher, and Bruno Haible.  */
 
+#define ACL_INTERNAL_INLINE _GL_EXTERN_INLINE
 #include <config.h>
 
 /* Specification.  */
-#define ACL_INTERNAL_INLINE _GL_EXTERN_INLINE
 #include "acl-internal.h"
 
 #include "acl.h"
@@ -161,9 +161,7 @@ acl_default_nontrivial (acl_t acl)
 int
 acl_nontrivial (int count, aclent_t *entries)
 {
-  int i;
-
-  for (i = 0; i < count; i++)
+  for (int i = 0; i < count; i++)
     {
       aclent_t *ace = &entries[i];
 
@@ -192,8 +190,6 @@ acl_nontrivial (int count, aclent_t *entries)
 int
 acl_ace_nontrivial (int count, ace_t *entries)
 {
-  int i;
-
   /* The flags in the ace_t structure changed in a binary incompatible way
      when ACL_NO_TRIVIAL etc. were introduced in <sys/acl.h> version 1.15.
      How to distinguish the two conventions at runtime?
@@ -202,7 +198,7 @@ acl_ace_nontrivial (int count, ace_t *entries)
      convention, these values are not used.  */
   int old_convention = 0;
 
-  for (i = 0; i < count; i++)
+  for (int i = 0; i < count; i++)
     if (entries[i].a_flags & (OLD_ACE_OWNER | OLD_ACE_GROUP | OLD_ACE_OTHER))
       {
         old_convention = 1;
@@ -211,7 +207,7 @@ acl_ace_nontrivial (int count, ace_t *entries)
 
   if (old_convention)
     /* Running on Solaris 10.  */
-    for (i = 0; i < count; i++)
+    for (int i = 0; i < count; i++)
       {
         ace_t *ace = &entries[i];
 
@@ -238,12 +234,11 @@ acl_ace_nontrivial (int count, ace_t *entries)
           0  /* everyone@ allow */
         };
 
-      for (i = 0; i < count; i++)
+      for (int i = 0; i < count; i++)
         {
           ace_t *ace = &entries[i];
-          unsigned int index1;
-          unsigned int index2;
 
+          unsigned int index1;
           if (ace->a_type == NEW_ACE_ACCESS_ALLOWED_ACE_TYPE)
             index1 = 1;
           else if (ace->a_type == NEW_ACE_ACCESS_DENIED_ACE_TYPE)
@@ -251,6 +246,7 @@ acl_ace_nontrivial (int count, ace_t *entries)
           else
             return 1;
 
+          unsigned int index2;
           if (ace->a_flags == NEW_ACE_OWNER)
             index2 = 0;
           else if (ace->a_flags == (NEW_ACE_GROUP | NEW_ACE_IDENTIFIER_GROUP))
@@ -374,12 +370,10 @@ acl_ace_nontrivial (int count, ace_t *entries)
 int
 acl_nontrivial (int count, struct acl_entry *entries)
 {
-  int i;
-
   if (count > 3)
     return 1;
 
-  for (i = 0; i < count; i++)
+  for (int i = 0; i < count; i++)
     {
       struct acl_entry *ace = &entries[i];
 
@@ -396,9 +390,7 @@ acl_nontrivial (int count, struct acl_entry *entries)
 int
 aclv_nontrivial (int count, struct acl *entries)
 {
-  int i;
-
-  for (i = 0; i < count; i++)
+  for (int i = 0; i < count; i++)
     {
       struct acl *ace = &entries[i];
 
@@ -424,10 +416,8 @@ int
 acl_nontrivial (struct acl *a)
 {
   /* The normal way to iterate through an ACL is like this:
-       struct acl_entry *ace;
-       for (ace = a->acl_ext; ace != acl_last (a); ace = acl_nxt (ace))
+       for (struct acl_entry *ace = a->acl_ext; ace != acl_last (a); ace = acl_nxt (ace))
          {
-           struct ace_id *aei;
            switch (ace->ace_type)
              {
              case ACC_PERMIT:
@@ -435,7 +425,7 @@ acl_nontrivial (struct acl *a)
              case ACC_SPECIFY:
                ...;
              }
-           for (aei = ace->ace_id; aei != id_last (ace); aei = id_nxt (aei))
+           for (struct ace_id *aei = ace->ace_id; aei != id_last (ace); aei = id_nxt (aei))
              ...
          }
    */
@@ -453,9 +443,8 @@ acl_nfs4_nontrivial (nfs4_acl_int_t *a)
   return (a->aclEntryN > 0 ? 1 : 0);
 #  else
   int count = a->aclEntryN;
-  int i;
 
-  for (i = 0; i < count; i++)
+  for (int i = 0; i < count; i++)
     {
       nfs4_ace_int_t *ace = &a->aclEntry[i];
 
@@ -484,9 +473,7 @@ acl_nfs4_nontrivial (nfs4_acl_int_t *a)
 int
 acl_nontrivial (int count, struct acl *entries)
 {
-  int i;
-
-  for (i = 0; i < count; i++)
+  for (int i = 0; i < count; i++)
     {
       struct acl *ace = &entries[i];
 

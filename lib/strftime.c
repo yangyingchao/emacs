@@ -181,7 +181,9 @@ enum pad_style
 #if SUPPORT_NON_GREG_CALENDARS_IN_STRFTIME
 /* Support for non-Gregorian calendars.  */
 # include "localcharset.h"
-# include "localename.h"
+# if !(defined __APPLE__ && defined __MACH__)
+#  include "localename.h"
+# endif
 # include "calendars.h"
 # define CAL_ARGS(x,y) x, y,
 #else
@@ -1020,8 +1022,7 @@ underlying_strftime (timezone_t tz, char *ubuf, size_t ubufsize,
                 {
                   /* The last word has length >= 3.  */
                   bool found_letter = false;
-                  const char *p;
-                  for (p = space + 1; *p != '\0'; p++)
+                  for (const char *p = space + 1; *p != '\0'; p++)
                     if ((*p >= 'A' && *p <= 'Z')
                         || (*p >= 'a' && *p <= 'z'))
                       {
@@ -1138,9 +1139,9 @@ my_strftime (STREAM_OR_CHAR_T *s, STRFTIME_ARG (size_t maxsize)
 #if SUPPORT_NON_GREG_CALENDARS_IN_STRFTIME
   /* Recognize whether to use a non-Gregorian calendar.  */
   const struct calendar *cal = NULL;
-  struct calendar_date caldate;
   if (strcmp (locale_charset (), "UTF-8") == 0)
     {
+# if !(defined __APPLE__ && defined __MACH__)
       const char *loc = gl_locale_name_unsafe (LC_TIME, "LC_TIME");
       if (strlen (loc) >= 5 && !(loc[5] >= 'A' && loc[5] <= 'Z'))
         {
@@ -1150,15 +1151,45 @@ my_strftime (STREAM_OR_CHAR_T *s, STRFTIME_ARG (size_t maxsize)
             cal = &persian_calendar;
           else if (memcmp (loc, "am_ET", 5) == 0)
             cal = &ethiopian_calendar;
-          if (cal != NULL)
-            {
-              if (cal->from_gregorian (&caldate,
-                                       tp->tm_year + 1900,
-                                       tp->tm_mon,
-                                       tp->tm_mday) < 0)
-                cal = NULL;
-            }
         }
+# else /* defined __APPLE__ && defined __MACH__ */
+      /* Nearly equivalent code for macOS, that avoids the need to link with
+         CoreFoundation.
+         It's not entirely equivalent, because it tests only for the language
+         (Thai, Farsi, Amharic) instead of also for the territory (Thailand,
+         Iran, Ethiopia).  */
+      /* Get the translation of "Monday" in the LC_TIME locale, by calling
+         the underlying strftime function.  */
+      struct tm some_monday; /* 2024-01-01 12:00:00 */
+      memset (&some_monday, '\0', sizeof (struct tm));
+      some_monday.tm_year = 2024 - 1900;
+      some_monday.tm_mon = 1 - 1;
+      some_monday.tm_mday = 1;
+      some_monday.tm_wday = 1; /* Monday */
+      some_monday.tm_hour = 12;
+      some_monday.tm_min = 0;
+      some_monday.tm_sec = 0;
+      char weekday_buf[32];
+      if (strftime (weekday_buf, sizeof (weekday_buf), "%A", &some_monday) > 0)
+        {
+          /* Test for the Thai / Farsi / Amharic translation of "Monday".  */
+          if (streq (weekday_buf, "จันทร์") || streq (weekday_buf, "วันจันทร์"))
+            cal = &thai_calendar;
+          else if (streq (weekday_buf, "ﺩﻮﺸﻨﺒﻫ") || streq (weekday_buf, "دوشنبه"))
+            cal = &persian_calendar;
+          else if (streq (weekday_buf, "ሰኞ"))
+            cal = &ethiopian_calendar;
+        }
+# endif
+    }
+  struct calendar_date caldate;
+  if (cal != NULL)
+    {
+      if (cal->from_gregorian (&caldate,
+                               tp->tm_year + 1900,
+                               tp->tm_mon,
+                               tp->tm_mday) < 0)
+        cal = NULL;
     }
 #endif
   bool tzset_called = false;
@@ -1248,7 +1279,6 @@ __strftime_internal (STREAM_OR_CHAR_T *s, STRFTIME_ARG (size_t maxsize)
 #endif
   retval_t i = 0;
   STREAM_OR_CHAR_T *p = s;
-  const CHAR_T *f;
 #if DO_MULTIBYTE && !defined COMPILE_WIDE
   const char *format_end = NULL;
 #endif
@@ -1260,7 +1290,7 @@ __strftime_internal (STREAM_OR_CHAR_T *s, STRFTIME_ARG (size_t maxsize)
     if (hour12 == 0)
       hour12 = 12;
 
-  for (f = format; *f != '\0'; width = -1, f++)
+  for (const CHAR_T *f = format; *f != '\0'; width = -1, f++)
     {
       enum pad_style pad = ZERO_PAD;
       int modifier;             /* Field modifier ('E', 'O', or 0).  */
@@ -1326,13 +1356,12 @@ __strftime_internal (STREAM_OR_CHAR_T *s, STRFTIME_ARG (size_t maxsize)
              an error, or come back to the initial shift state.  */
           {
             mbstate_t mbstate = mbstate_zero;
-            size_t len = 0;
-            size_t fsize;
 
             if (! format_end)
               format_end = f + strlen (f) + 1;
-            fsize = format_end - f;
+            size_t fsize = format_end - f;
 
+            size_t len = 0;
             do
               {
                 size_t bytes = mbrlen (f + len, fsize - len, &mbstate);
@@ -1659,10 +1688,9 @@ __strftime_internal (STREAM_OR_CHAR_T *s, STRFTIME_ARG (size_t maxsize)
                           {
                             /* The last word has length >= 3.  */
                             bool found_letter = false;
-                            const char *p;
-                            for (p = space + 1; *p != '\0'; p++)
-                              if ((*p >= 'A' && *p <= 'Z')
-                                  || (*p >= 'a' && *p <= 'z'))
+                            for (const char *wp = space + 1; *wp != '\0'; wp++)
+                              if ((*wp >= 'A' && *wp <= 'Z')
+                                  || (*wp >= 'a' && *wp <= 'z'))
                                 {
                                   found_letter = true;
                                   break;
@@ -2057,12 +2085,9 @@ __strftime_internal (STREAM_OR_CHAR_T *s, STRFTIME_ARG (size_t maxsize)
 
         case L_('s'):           /* GNU extension.  */
           {
-            struct tm ltm;
-            time_t t;
-
-            ltm = *tp;
+            struct tm ltm = *tp;
             ltm.tm_yday = -1;
-            t = mktime_z (tz, &ltm);
+            time_t t = mktime_z (tz, &ltm);
             if (ltm.tm_yday < 0)
               {
                 errno = EOVERFLOW;
@@ -2330,9 +2355,6 @@ __strftime_internal (STREAM_OR_CHAR_T *s, STRFTIME_ARG (size_t maxsize)
 
           {
             int diff;
-            int hour_diff;
-            int min_diff;
-            int sec_diff;
 #if HAVE_STRUCT_TM_TM_GMTOFF
             diff = tp->tm_gmtoff;
 #else
@@ -2340,14 +2362,13 @@ __strftime_internal (STREAM_OR_CHAR_T *s, STRFTIME_ARG (size_t maxsize)
               diff = 0;
             else
               {
-                struct tm gtm;
-                struct tm ltm;
-                time_t lt;
-
-                ltm = *tp;
+                struct tm ltm = *tp;
                 ltm.tm_wday = -1;
-                lt = mktime_z (tz, &ltm);
-                if (ltm.tm_wday < 0 || ! localtime_rz (0, &lt, &gtm))
+                time_t lt = mktime_z (tz, &ltm);
+                if (ltm.tm_wday < 0)
+                  break;
+                struct tm gtm;
+                if (! localtime_rz (0, &lt, &gtm))
                   break;
                 diff = tm_diff (&ltm, &gtm);
               }
@@ -2361,9 +2382,9 @@ __strftime_internal (STREAM_OR_CHAR_T *s, STRFTIME_ARG (size_t maxsize)
                                                  0, tp)
                                    == '-');
               }
-            hour_diff = diff / 60 / 60;
-            min_diff = diff / 60 % 60;
-            sec_diff = diff % 60;
+            int hour_diff = diff / 60 / 60;
+            int min_diff = diff / 60 % 60;
+            int sec_diff = diff % 60;
 
             switch (colons)
               {

@@ -495,6 +495,9 @@ Filled in `cconv-analyze-form' but initialized and consulted here.")
 
 (defvar byte-compiler-error-flag)
 
+(defvar bytecomp--code-strings nil
+  "List of unique bytecode strings in this top-level form, for deduplication.")
+
 (defun byte-compile-recurse-toplevel (form non-toplevel-case)
   "Implement `eval-when-compile' and `eval-and-compile'.
 Return the compile-time value of FORM."
@@ -1617,11 +1620,11 @@ extra args."
       (while (and (< start len)
                   (string-match
                    (rx "%"
-                       (? (group (+ digit)) "$")         ; field
-                       (* (in "+ #0-"))                  ; flags
-                       (* digit)                         ; width
-                       (? "." (* digit))                 ; precision
-                       (? (group (in "sdioxXefgcS%"))))  ; spec
+                       (? (group (+ digit)) "$")           ; field
+                       (* (in "+ #0-"))                    ; flags
+                       (* digit)                           ; width
+                       (? "." (* digit))                   ; precision
+                       (? (group (in "sdibBoxXefgcS%"))))  ; spec
                    format-str start))
         (let ((field (if (match-beginning 1)
                          (string-to-number (match-string 1 format-str))
@@ -2417,6 +2420,7 @@ With argument ARG, insert value in current buffer after the form."
 	(byte-compile-depth 0)
 	(byte-compile-maxdepth 0)
 	(byte-compile-output nil)
+        (bytecomp--code-strings nil)
 	;;	  #### This is bound in b-c-close-variables.
 	;;	  (byte-compile-warnings byte-compile-warnings)
         (symbols-with-pos-enabled t))
@@ -2580,6 +2584,7 @@ Call from the source buffer."
 	      byte-compile-depth 0
 	      byte-compile-maxdepth 0
 	      byte-compile-output nil
+              bytecomp--code-strings nil
               byte-compile-jump-tables nil))))
 
 (defun byte-compile-preprocess (form &optional _for-effect)
@@ -2617,7 +2622,7 @@ Call from the source buffer."
 ;; for `byte-compile-dynamic-docstrings'.  Most other things can be output
 ;; as byte-code.
 
-(put 'autoload 'byte-hunk-handler 'byte-compile-file-form-autoload)
+(put 'autoload 'byte-hunk-handler #'byte-compile-file-form-autoload)
 (defun byte-compile-file-form-autoload (form)
   (and (let ((form form))
 	 (while (if (setq form (cdr form)) (macroexp-const-p (car form))))
@@ -2654,8 +2659,8 @@ Call from the source buffer."
     (byte-compile-keep-pending (byte-compile--list-with-n form 3 newdoc)
                                #'byte-compile-normal-call)))
 
-(put 'defvar   'byte-hunk-handler 'byte-compile-file-form-defvar)
-(put 'defconst 'byte-hunk-handler 'byte-compile-file-form-defvar)
+(put 'defvar   'byte-hunk-handler #'byte-compile-file-form-defvar)
+(put 'defconst 'byte-hunk-handler #'byte-compile-file-form-defvar)
 
 (defun byte-compile--check-prefixed-var (sym)
   (when (and (symbolp sym)
@@ -2679,8 +2684,8 @@ Call from the source buffer."
   (byte-compile-defvar form 'toplevel))
 
 (put 'define-abbrev-table 'byte-hunk-handler
-     'byte-compile-file-form-defvar-function)
-(put 'defvaralias 'byte-hunk-handler 'byte-compile-file-form-defvar-function)
+     #'byte-compile-file-form-defvar-function)
+(put 'defvaralias 'byte-hunk-handler #'byte-compile-file-form-defvar-function)
 
 (defun byte-compile-file-form-defvar-function (form)
   (pcase-let (((or `',name (let name nil)) (nth 1 form)))
@@ -2704,7 +2709,7 @@ Call from the source buffer."
     (byte-compile-keep-pending form)))
 
 (put 'custom-declare-variable 'byte-hunk-handler
-     'byte-compile-file-form-defvar-function)
+     #'byte-compile-file-form-defvar-function)
 
 (put 'custom-declare-face 'byte-hunk-handler
      #'byte-compile--custom-declare-face)
@@ -2716,14 +2721,14 @@ Call from the source buffer."
           (setq form (byte-compile--list-with-n form 3 newdocs)))))
     (byte-compile-keep-pending form)))
 
-(put 'require 'byte-hunk-handler 'byte-compile-file-form-require)
+(put 'require 'byte-hunk-handler #'byte-compile-file-form-require)
 (defun byte-compile-file-form-require (form)
-  (let* ((args (mapcar 'eval (cdr form)))
+  (let* ((args (mapcar #'eval (cdr form)))
          ;; The following is for the byte-compile-warn in
          ;; `do-after-load-evaluation' (in subr.el).
          (byte-compile-form-stack (cons (car args) byte-compile-form-stack))
          hist-new prov-cons)
-    (apply 'require args)
+    (apply #'require args)
 
     ;; Record the functions defined by the require in `byte-compile-new-defuns'.
     (setq hist-new load-history)
@@ -3162,9 +3167,16 @@ lambda-expression."
 		    (if lexical-binding
 			(byte-compile-make-args-desc arglist)
 		      bare-arglist)
+                    ;; code string, deduplicated
+                    (let* ((code (cadr compiled))
+                           (prev (member code bytecomp--code-strings)))
+                      (if prev
+                          (car prev)
+                        (push code bytecomp--code-strings)
+                        code))
 		    (append
-		     ;; byte-string, constants-vector, stack depth
-		     (cdr compiled)
+		     ;; constants-vector and stack depth
+		     (drop 2 compiled)
 		     ;; optionally, the doc string.
 		     (when (or doc int) (list doc))
 		     ;; optionally, the interactive spec (and the modes the
@@ -3594,7 +3606,7 @@ This assumes the function has the `important-return-value' property."
 (dolist (f '( funcall apply mapcar mapatoms mapconcat mapc maphash
               mapcan map-char-table map-keymap map-keymap-internal
               functionp
-              seq-do seq-do-indexed seq-sort seq-sort-by seq-group-by
+              seq-do seq-do-indexed seq-sort seq-group-by
               seq-find seq-count
               seq-filter seq-reduce seq-remove seq-keep
               seq-map seq-map-indexed seq-mapn seq-mapcat
@@ -3604,7 +3616,7 @@ This assumes the function has the `important-return-value' property."
               cl-mapcar cl-mapcan cl-mapcon cl-mapc cl-mapl cl-maplist
               ))
   (put f 'funarg-positions '(1)))
-(dolist (f '( defalias fset sort
+(dolist (f '( defalias fset
               replace-regexp-in-string
               add-hook remove-hook advice-remove advice--remove-function
               global-set-key local-set-key keymap-global-set keymap-local-set
@@ -3648,13 +3660,16 @@ This assumes the function has the `important-return-value' property."
 (dolist (fa '((plist-put 4) (alist-get 5) (add-to-list 5)
               (cl-merge 4 :key)
               (custom-declare-variable :set :get :initialize :safe)
+              (define-widget :convert-widget :value-to-internal
+                             :value-to-external :match)
               (make-process :filter :sentinel)
               (make-network-process :filter :sentinel)
               (all-completions 2 3) (try-completion 2 3) (test-completion 2 3)
               (completing-read 2 3)
+              (sort 2 :key :lessp)
+              (seq-sort-by 1 2)
               ))
   (put (car fa) 'funarg-positions (cdr fa)))
-
 
 (defun byte-compile-normal-call (form)
   (when (and (symbolp (car form))

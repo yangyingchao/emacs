@@ -141,8 +141,9 @@ This metadata is an alist.  Currently understood keys are:
 - `cycle-sort-function': function to sort entries when cycling.
    Works like `display-sort-function'.
 - `eager-display': non-nil to request eager display of the
-  completion candidates.  Can also be a function which is invoked
-  after minibuffer setup.
+  completion candidates.
+- `eager-update': non-nil to request updating the display of completion
+  candidates as the user types.
 The metadata of a completion table should be constant between two boundaries."
   (let ((metadata (if (functionp table)
                       (funcall table string pred 'metadata))))
@@ -1278,7 +1279,8 @@ an association list that can specify properties such as:
 - `group-function': function for grouping the completion candidates.
 - `annotation-function': function to add annotations in *Completions*.
 - `affixation-function': function to prepend/append a prefix/suffix.
-- `eager-display': function to show *Completions* eagerly.
+- `eager-display': non-nil to show *Completions* eagerly.
+- `eager-update': non-nil to update *Completions* eagerly.
 
 Categories are symbols such as `buffer' and `file', used when
 completing buffer and file names, respectively.
@@ -1300,7 +1302,8 @@ possible values are the same as in `completions-sort'.
 - `group-function': function for grouping the completion candidates.
 - `annotation-function': function to add annotations in *Completions*.
 - `affixation-function': function to prepend/append a prefix/suffix.
-- `eager-display': function to show *Completions* eagerly.
+- `eager-display': non-nil to show *Completions* eagerly.
+- `eager-update': non-nil to update *Completions* as the user types.
 See more description of metadata in `completion-metadata'.
 
 Categories are symbols such as `buffer' and `file', used when
@@ -1352,6 +1355,10 @@ overrides the default specified in `completion-category-defaults'."
            (cons :tag "Eager display"
                  (const :tag "Select one value from the menu."
                         eager-display)
+                 boolean)
+           (cons :tag "Eager update"
+                 (const :tag "Select one value from the menu."
+                        eager-update)
                  boolean))))
 
 (defun completion--category-override (category tag)
@@ -2753,6 +2760,34 @@ so that the update is less likely to interfere with user typing."
        (completion-in-region-mode (completion-help-at-point t))
        ((completion--eager-update-p (minibuffer-prompt-end))
         (minibuffer-completion-help))))))
+
+(defvar completion-eager-display--timer nil)
+
+(defun completions--eager-display ()
+  "Try to display *Completions* without blocking input."
+  ;; If the user has left the minibuffer, give up on eager display of
+  ;; *Completions*.
+  (when (minibufferp nil t)
+    (when (while-no-input
+            (let ((non-essential t))
+              (minibuffer-completion-help)))
+      ;; If we got interrupted, try again the next time the user is idle.
+      (completions--start-eager-display))))
+
+(defun completions--start-eager-display ()
+  "Maybe display the *Completions* buffer when the user is next idle.
+
+Only displays if `completion-eager-display' is t, or if eager display
+has been requested by the completion table."
+  (when completion-eager-display
+    (when (or (eq completion-eager-display t)
+              (completion-metadata-get
+               (completion-metadata
+                (buffer-substring-no-properties (minibuffer-prompt-end) (point))
+                minibuffer-completion-table minibuffer-completion-predicate)
+               'eager-display))
+      (setq completion-eager-display--timer
+            (run-with-idle-timer 0 nil #'completions--eager-display)))))
 
 (defun completions--post-command-update ()
   "Update displayed *Completions* buffer after command, once."
@@ -4171,8 +4206,8 @@ a submatch 1, then completion can add something at (match-end 1).
 This is used when the delimiter needs to be of size zero (e.g. the transition
 from lowercase to uppercase characters).")
 
-(defun completion-pcm--prepare-delim-re (delims)
-  (setq completion-pcm--delim-wild-regex (concat "[" delims "*]")))
+(defun completion-pcm--delim-re (delims)
+  (concat "[" delims "*]"))
 
 (defcustom completion-pcm-word-delimiters "-_./:| "
   "A string of characters treated as word delimiters for completion.
@@ -4185,7 +4220,8 @@ expression (not containing character ranges like `a-z')."
   :set (lambda (symbol value)
          (set-default symbol value)
          ;; Refresh other vars.
-         (completion-pcm--prepare-delim-re value))
+         (setq completion-pcm--delim-wild-regex
+               (completion-pcm--delim-re value)))
   :initialize 'custom-initialize-reset
   :type 'string)
 
@@ -4325,7 +4361,9 @@ one wildcard."
                 (concat
                  (when group "\\(")
                  (if (all (lambda (x) (eq x 'any-delim)) (cdr segment))
-                     (concat completion-pcm--delim-wild-regex "*?")
+                     (concat (completion-pcm--delim-re
+                              completion-pcm-word-delimiters)
+                             "*?")
                    "[^z-a]*?")
                  (when group "\\)")))))
            segments
@@ -5139,18 +5177,7 @@ See `completing-read' for the meaning of the arguments."
                 (setq-local minibuffer--original-buffer buffer)
                 ;; Copy the value from original buffer to the minibuffer.
                 (setq-local completion-ignore-case c-i-c)
-                ;; Show the completion help eagerly if
-                ;; `completion-eager-display' is t or if eager display
-                ;; has been requested by the completion table.
-                (when completion-eager-display
-                  (let* ((md (completion-metadata
-                              (buffer-substring-no-properties
-                               (minibuffer-prompt-end) (point))
-                              collection predicate))
-                         (fun (completion-metadata-get md 'eager-display)))
-                    (when (or fun (eq completion-eager-display t))
-                      (funcall (if (functionp fun)
-                                   fun #'minibuffer-completion-help))))))
+                (completions--start-eager-display))
             (read-from-minibuffer prompt initial-input keymap
                                   nil hist def inherit-input-method))))
     (when (and (equal result "") def)

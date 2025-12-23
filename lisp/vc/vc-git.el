@@ -299,7 +299,7 @@ Good example of file name that needs this: \"test[56].xx\".")
          ;; with other backend's `vc-*-registered' functions which are
          ;; quieter in the case that the VCS isn't installed.  So check
          ;; up here that git(1) is available.  See also bug#18481.
-         (executable-find vc-git-program)
+         (executable-find vc-git-program t)
          (with-temp-buffer
            (let* (process-file-side-effects
                   ;; Do not use the `file-name-directory' here: git-ls-files
@@ -712,18 +712,23 @@ or an empty string if none."
 
 ;; Follows vc-git-command (or vc-do-async-command), which uses vc-do-command
 ;; from vc-dispatcher.
-(declare-function vc-exec-after "vc-dispatcher" (code &optional success))
+(declare-function vc-exec-after "vc-dispatcher" (code &optional okstatus proc))
 ;; Follows vc-exec-after.
 (declare-function vc-set-async-update "vc-dispatcher" (process-buffer))
 
 (defun vc-git-dir-status-goto-stage (git-state)
   ;; TODO: Look into reimplementing this using `git status --porcelain=v2'.
-  (let ((files (vc-git-dir-status-state->files git-state)))
+  (let ((files (vc-git-dir-status-state->files git-state))
+        (allowed-exit 1))
     (erase-buffer)
     (pcase (vc-git-dir-status-state->stage git-state)
       ('update-index
        (if files
-           (vc-git-command (current-buffer) 'async files "add" "--refresh" "--")
+           (progn (vc-git-command (current-buffer) 'async files
+                                  "add" "--refresh" "--")
+                  ;; git-add exits 128 if some of FILES are untracked;
+                  ;; we can ignore that (bug#79999).
+                  (setq allowed-exit 128))
          (vc-git-command (current-buffer) 'async nil
                          "update-index" "--refresh")))
       ('ls-files-added
@@ -749,7 +754,7 @@ or an empty string if none."
       ('diff-index
        (vc-git-command (current-buffer) 'async files
                        "diff-index" "--relative" "-z" "-M" "HEAD" "--")))
-    (vc-run-delayed
+    (vc-run-delayed-success allowed-exit
       (vc-git-after-dir-status-stage git-state))))
 
 (defun vc-git-dir-status-files (_dir files update-function)
@@ -1320,16 +1325,18 @@ It is an error to supply both or neither."
                         (and (not patch-string)
                              (if only (list "--only" "--") '("-a")))))
       (if vc-async-checkin
-          (progn (vc-wait-for-process-before-save
-                  (apply #'vc-do-async-command buffer root
-                         vc-git-program (nconc args files))
-                  "Finishing checking in files...")
-                 (with-current-buffer buffer
-                   (vc-run-delayed
-                     (vc-compilation-mode 'git)
-                     (funcall post)))
-                 (vc-set-async-update buffer)
-                 (list 'async (get-buffer-process buffer)))
+          (let ((proc (apply #'vc-do-async-command buffer root
+                             vc-git-program (nconc args files))))
+            (set-process-query-on-exit-flag proc t)
+            (vc-wait-for-process-before-save
+             proc
+             "Finishing checking in files...")
+            (with-current-buffer buffer
+              (vc-run-delayed
+                (vc-compilation-mode 'git)
+                (funcall post)))
+            (vc-set-async-update buffer)
+            (list 'async (get-buffer-process buffer)))
         (apply #'vc-git-command nil 0 files args)
         (funcall post)))))
 
@@ -1527,6 +1534,7 @@ If PROMPT is non-nil, prompt for the Git command to run."
             vc-filter-command-function))
          (proc (apply #'vc-do-async-command
                       buffer root git-program command extra-args)))
+    (set-process-query-on-exit-flag proc t)
     ;; "git pull" includes progress output that uses ^M to move point
     ;; to the beginning of the line.  Just translate these to newlines
     ;; (but don't do anything with the CRLF sequence).
@@ -1746,7 +1754,15 @@ If LIMIT is a non-empty string, use it as a base revision."
 
 (defun vc-git-incoming-revision (&optional upstream-location refresh)
   (let ((rev (or upstream-location "@{upstream}")))
-    (when (or refresh (null (vc-git--rev-parse rev)))
+    (when (and (or refresh (null (vc-git--rev-parse rev)))
+               ;; If the branch has no upstream, and we weren't supplied
+               ;; with one, then fetching is always useless (bug#79952).
+               (or upstream-location
+                   (and-let* ((branch (vc-git--current-branch)))
+                     (with-temp-buffer
+                       (vc-git--out-ok "config" "--get"
+                                       (format "branch.%s.remote"
+                                               branch))))))
       (vc-git-command nil 0 nil "fetch"
                       (and upstream-location
                            ;; Extract remote from "remote/branch".
@@ -1875,7 +1891,7 @@ This requires git 1.8.4 or later, for the \"-L\" option of \"git log\"."
   ;; but since Git is one of the two backends that support this operation
   ;; so far, it's hard to tell; hg doesn't need this.
   (with-temp-buffer
-    (vc-call-backend 'git 'diff (list file) "HEAD" nil (current-buffer))
+    (vc-call-backend 'Git 'diff (list file) "HEAD" nil (current-buffer))
     (goto-char (point-min))
     (let ((last-offset 0)
           (from-offset nil)
@@ -2219,7 +2235,8 @@ This requires git 1.8.4 or later, for the \"-L\" option of \"git log\"."
 (defun vc-git-revision-published-p (rev)
   "Whether we think REV has been pushed such that it is public history.
 Considers only the current branch.  Does not fetch."
-  (let ((branch (vc-git--current-branch)))
+  (let ((branch (vc-git--current-branch))
+        (rev (vc-git--rev-parse rev)))
     (vc-git--assert-revision-on-branch rev branch)
     (and
      ;; BRANCH has an upstream.
@@ -2339,10 +2356,10 @@ It is an error if REV is not on the current branch."
   (vc-git-command nil 0 nil "reset" "--hard" rev))
 
 (defun vc-git-uncommit-revisions-from-end (rev)
-  "Soft reset back to REV.
+  "Mixed reset back to REV.
 It is an error if REV is not on the current branch."
   (vc-git--assert-revision-on-branch rev (vc-git--current-branch))
-  (vc-git-command nil 0 nil "reset" "--soft" rev))
+  (vc-git-command nil 0 nil "reset" "--mixed" rev))
 
 (defvar vc-git-extra-menu-map
   (let ((map (make-sparse-keymap)))
@@ -2711,44 +2728,56 @@ page for the meanings of these attributes."
   "A wrapper around `vc-do-command' for use in vc-git.el.
 The difference to `vc-do-command' is that this function always invokes
 `vc-git-program'."
-  (let ((coding-system-for-read
-         (or coding-system-for-read vc-git-log-output-coding-system))
-        ;; Commands which pass command line arguments which might
-        ;; contain non-ASCII have to bind `coding-system-for-write' to
-        ;; `locale-coding-system' when (eq system-type 'windows-nt)
-        ;; because MS-Windows has the limitation that command line
-        ;; arguments must be in the system codepage.  We do that only
-        ;; within the commands which must do it, instead of implementing
-        ;; it here, even though that means code repetition.  This is
-        ;; because this let-binding has the disadvantage of overriding
-        ;; any `coding-system-for-write' explicitly selected by the user
-        ;; (e.g. with C-x RET c), or by enclosing function calls.  So we
-        ;; want to do it only for commands which really require it.
-	(coding-system-for-write
-         (or coding-system-for-write vc-git-commits-coding-system))
-        (process-environment
-         (append
-          `("GIT_DIR"
-            ,@(when vc-git-use-literal-pathspecs
-                '("GIT_LITERAL_PATHSPECS=1"))
-            ;; Avoid repository locking during background operations
-            ;; (bug#21559).
-            ,@(when revert-buffer-in-progress
-                '("GIT_OPTIONAL_LOCKS=0")))
-          process-environment)))
+  (let* ((coding-system-for-read
+          (or coding-system-for-read vc-git-log-output-coding-system))
+         ;; Commands which pass command line arguments which might
+         ;; contain non-ASCII have to bind `coding-system-for-write' to
+         ;; `locale-coding-system' when (eq system-type 'windows-nt)
+         ;; because MS-Windows has the limitation that command line
+         ;; arguments must be in the system codepage.  We do that only
+         ;; within the commands which must do it, instead of implementing
+         ;; it here, even though that means code repetition.  This is
+         ;; because this let-binding has the disadvantage of overriding
+         ;; any `coding-system-for-write' explicitly selected by the user
+         ;; (e.g. with C-x RET c), or by enclosing function calls.  So we
+         ;; want to do it only for commands which really require it.
+	 (coding-system-for-write
+          (or coding-system-for-write vc-git-commits-coding-system))
+         (process-environment
+          (append
+           `("GIT_DIR"
+             ,@(and vc-git-use-literal-pathspecs
+                    '("GIT_LITERAL_PATHSPECS=1"))
+             ;; Avoid repository locking during background operations
+             ;; (bug#21559).
+             ,@(and revert-buffer-in-progress
+                    '("GIT_OPTIONAL_LOCKS=0")))
+           process-environment))
+         (file1 (and (not (cdr-safe file-or-list))
+                     (or (car-safe file-or-list) file-or-list)))
+         (file-list-is-rootdir (and file1
+                                    (directory-name-p file1)
+                                    (equal file1 (vc-git-root file1))))
+         (default-directory (if file-list-is-rootdir
+                                file1
+                              default-directory)))
     (apply #'vc-do-command (or buffer "*vc*") okstatus vc-git-program
-           ;; https://debbugs.gnu.org/16897
-           (unless (vc-git--file-list-is-rootdir file-or-list)
-             file-or-list)
+           ;; Three cases:
+           ;; - operating on root directory and command is one where doing
+           ;;   so requires passing "." to have the usual effect
+           ;;   (e.g. 'git checkout --'   will do nothing;
+           ;;         'git checkout -- .' will revert all files as desired)
+           ;; - operating on root directory and command is one where we
+           ;;   must pass no list of files to have the usual effect
+           ;;   (e.g. 'git log' for root logs as discussed in bug#16897)
+           ;; - not operating on root directory,
+           ;;   pass FILE-OR-LIST along as normal.
+           (cond ((and file-list-is-rootdir
+                       (member (car flags) '("checkout")))
+                  ".")
+                 ((not file-list-is-rootdir)
+                  file-or-list))
            (cons "--no-pager" flags))))
-
-(defun vc-git--file-list-is-rootdir (file-or-list)
-  (and (not (cdr-safe file-or-list))
-       (let ((file (or (car-safe file-or-list)
-                       file-or-list)))
-         (and file
-              (directory-name-p file)
-              (equal file (vc-git-root file))))))
 
 (defun vc-git--empty-db-p ()
   "Check if the git db is empty (no commit done yet)."

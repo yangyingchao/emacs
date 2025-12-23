@@ -2635,13 +2635,7 @@ conv_sockaddr_to_lisp (struct sockaddr *sa, ptrdiff_t len)
            to walk past the end of the object looking for the name
            terminator, however.  */
         if (name_length > 0 && sockun->sun_path[0] != '\0')
-          {
-            const char *terminator
-	      = memchr (sockun->sun_path, '\0', name_length);
-
-            if (terminator)
-              name_length = terminator - (const char *) sockun->sun_path;
-          }
+	  name_length = strnlen (sockun->sun_path, name_length);
 
 	return make_unibyte_string (sockun->sun_path, name_length);
       }
@@ -5844,6 +5838,18 @@ wait_reading_process_output (intmax_t time_limit, int nsecs, int read_kbd,
 
       if (nfds == 0)
 	{
+	  if (!read_kbd && update_tick != process_tick)
+	    {
+	      /* This is for the case where we bypassed a similar call
+                 above, after the first thread_select, because some
+                 input was available, but later found in the second
+                 thread_select that input was only "from keyboard",
+                 which we need to ignore because we were called with
+                 read_kbd zero.  We should therefore process the changed
+                 status of sub-processes.  */
+	      got_some_output = status_notify (NULL, wait_proc);
+	      if (do_display) redisplay_preserve_echo_area (113);
+	    }
           /* Exit the main loop if we've passed the requested timeout,
              or have read some bytes from our wait_proc (either directly
              in this call or indirectly through timers / process filters),
