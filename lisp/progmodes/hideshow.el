@@ -1,6 +1,6 @@
 ;;; hideshow.el --- Minor mode to hide/show comment or code blocks  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1994-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1994-2026 Free Software Foundation, Inc.
 
 ;; Author: Thien-Thi Nguyen <ttn@gnu.org>
 ;;      Dan Nicolaescu <dann@gnu.org>
@@ -178,7 +178,7 @@
 
 ;; *** Tree-sitter support
 ;;
-;; All the treesit based modes already have support for hidding/showing
+;; All the treesit based modes already have support for hiding/showing
 ;; using the treesit thing `list' (see `treesit-major-mode-setup').
 ;;
 ;; However, for some modes the `list' thing is not enough for detecting

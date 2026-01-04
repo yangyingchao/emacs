@@ -1,6 +1,6 @@
 /* NeXT/Open/GNUstep / macOS communication module.      -*- coding: utf-8 -*-
 
-Copyright (C) 1989, 1993-1994, 2005-2006, 2008-2025 Free Software
+Copyright (C) 1989, 1993-1994, 2005-2006, 2008-2026 Free Software
 Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -3957,7 +3957,7 @@ ns_maybe_dumpglyphs_background (struct glyph_string *s, char force_p)
 	  struct ns_display_info *dpyinfo = FRAME_DISPLAY_INFO (s->f);
 #ifdef NS_IMPL_COCOA
 	  /* On cocoa emacs the stipple is stored as a mask CGImage.
-	     First we want to clear the background with the bg colour */
+	     First we want to clear the background with the bg color.  */
 	  [[NSColor colorWithUnsignedLong:face->background] set];
 	  r = NSMakeRect (s->x, s->y + box_line_width,
 			  s->background_width,
@@ -3978,7 +3978,7 @@ ns_maybe_dumpglyphs_background (struct glyph_string *s, char force_p)
 	  CGContextClipToRect (context, r);
 	  CGContextScaleCTM (context, 1, -1);
 
-	  /* Stamp the foreground colour using the stipple mask */
+	  /* Stamp the foreground color using the stipple mask */
 	  [[NSColor colorWithUnsignedLong:face->foreground] set];
 	  CGRect imageSize = CGRectMake (0, 0, CGImageGetWidth (mask),
 					 CGImageGetHeight (mask));

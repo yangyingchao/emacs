@@ -1,6 +1,6 @@
 ;;; system-taskbar.el --- System GUI taskbar/dock/launcher status display -*- lexical-binding: t -*-
 
-;; Copyright (C) 2025 Free Software Foundation, Inc.
+;; Copyright (C) 2025-2026 Free Software Foundation, Inc.
 
 ;; Author: Stephane Marks
 ;; Maintainer: emacs-devel@gnu.org
@@ -162,11 +162,12 @@ to find what works for your system."
   (when noninteractive
     (warn "Batch mode does not support `system-taskbar'"))
   (cond (system-taskbar-mode
-         (if (system-taskbar--set-back-end)
-             (system-taskbar--enable)
-           (warn "System does not support `system-taskbar'"))
-         (when system-taskbar-use-progress-reporter
-           (system-taskbar-progress-reporter-install)))
+         (if (and (system-taskbar--set-back-end)
+                  (system-taskbar--enable))
+             (when system-taskbar-use-progress-reporter
+               (system-taskbar-progress-reporter-install))
+           (setq system-taskbar-mode nil)
+           (warn "`system-taskbar' could not be initialized")))
         (t
          (system-taskbar-progress-reporter-remove)
          (when system-taskbar--back-end
@@ -366,7 +367,7 @@ Note: The Unity D-Bus protocol supports only integer badges."
                                          &optional urgency timeout)
   "Request URGENCY user attention on the system taskbar Emacs icon.
 The request will time out within the TIMEOUT seconds interval.
-The Unity D-Bus protocol does not support differentiated urgencies."
+The Unity D-Bus protocol does not support differentiated urgency levels."
   (setq system-taskbar--dbus-attention urgency)
   (system-taskbar--dbus-send-signal
    `((:dict-entry "urgent"

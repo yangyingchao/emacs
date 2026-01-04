@@ -1,6 +1,6 @@
 ;;; eglot.el --- The Emacs Client for LSP servers  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2018-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2018-2026 Free Software Foundation, Inc.
 
 ;; Version: 1.19
 ;; Author: João Távora <joaotavora@gmail.com>
@@ -2175,7 +2175,7 @@ and just return it.  PROMPT shouldn't end with a question mark."
     (define-key map [remap display-local-help] #'eldoc-doc-buffer)
     map))
 
-(defvar-local eglot--flymake-push-report-fn nil
+(defvar-local eglot--flymake-report-fn nil
   "Current flymake report function for this buffer.")
 
 (defvar-local eglot--saved-bindings nil
@@ -2223,13 +2223,16 @@ Use `eglot-managed-p' to determine if current buffer is managed.")
 
 (defvar eglot--highlights nil "Overlays for `eglot-highlight-eldoc-function'.")
 
-(defvar-local eglot--diagnostics nil
-  "A list (DIAGNOSTICS VERSION RESULT-ID) for current buffer.
+(defvar-local eglot--pulled-diagnostics nil
+  "A list (DIAGNOSTICS RESULT-ID) \"pulled\" for current buffer.
+DIAGNOSTICS is a list of Flymake diagnostics objects.  RESULT-ID
+identifies this diagnostic result as is used for incremental updates.")
+
+(defvar-local eglot--pushed-diagnostics nil
+  "A list (DIAGNOSTICS VERSION) \"pushed\" for current buffer.
 DIAGNOSTICS is a list of Flymake diagnostics objects.  VERSION is the
 LSP Document version reported for DIAGNOSTICS (comparable to
-`eglot--docver') or nil if server didn't bother.  RESULT-ID is an
-optional string identifying this diagnostic result for pull
-diagnostics, used for incremental updates.")
+`eglot--docver') or nil if server didn't bother.")
 
 (defvar-local eglot--suggestion-overlay (make-overlay 0 0)
   "Overlay for `eglot-code-action-suggestion'.")
@@ -2309,10 +2312,11 @@ diagnostics, used for incremental updates.")
     (cl-loop for (var . saved-binding) in eglot--saved-bindings
              do (set (make-local-variable var) saved-binding))
     (remove-function (local 'imenu-create-index-function) #'eglot-imenu)
-    (when eglot--flymake-push-report-fn
-      (setq eglot--diagnostics nil)
-      (eglot--flymake-push)
-      (setq eglot--flymake-push-report-fn nil))
+    (when eglot--flymake-report-fn
+      (setq eglot--pulled-diagnostics nil
+            eglot--pushed-diagnostics nil)
+      (eglot--flymake-report)
+      (setq eglot--flymake-report-fn nil))
     (run-hooks 'eglot-managed-mode-hook)
     (let ((server eglot--cached-server))
       (setq eglot--cached-server nil)
@@ -2355,9 +2359,7 @@ diagnostics, used for incremental updates.")
   (when revert-buffer-preserve-modes
     (eglot--signal-textDocument/didOpen)
     (when eglot-semantic-tokens-mode
-      (trace-values "OH YEAH!?")
-      (eglot-semantic-tokens-mode))
-    ))
+      (eglot-semantic-tokens-mode))))
 
 (defun eglot--maybe-activate-editing-mode ()
   "Maybe activate `eglot--managed-mode'.
@@ -2367,7 +2369,8 @@ If it is activated, also signal textDocument/didOpen."
     ;; Called when `revert-buffer-in-progress-p' is t but
     ;; `revert-buffer-preserve-modes' is nil.
     (when (and buffer-file-name (eglot-current-server))
-      (setq eglot--diagnostics nil)
+      (setq eglot--pulled-diagnostics nil
+            eglot--pushed-diagnostics nil)
       (eglot--managed-mode)
       (eglot--signal-textDocument/didOpen)
       ;; Run user hook after 'textDocument/didOpen' so server knows
@@ -2788,11 +2791,11 @@ expensive cached value of `file-truename'.")
            collect (eglot--flymake-make-diag diag-spec version)
            into diags
            finally
-           (setq eglot--diagnostics (list diags version nil))
+           (setq eglot--pushed-diagnostics (list diags version))
            (when (not (null flymake-no-changes-timeout ))
                ;; only add to current report if Flymake
                ;; starts on idle-timer (github#957)
-             (eglot--flymake-push))))
+             (eglot--flymake-report))))
       (cl-loop
        for diag-spec across diagnostics
        collect (eglot--dbind ((Diagnostic) code range message severity source) diag-spec
@@ -3234,26 +3237,26 @@ publishes diagnostics.  Between calls to this function, REPORT-FN
 may be called multiple times (respecting the protocol of
 `flymake-diagnostic-functions')."
   (cond (eglot--managed-mode
-         (setq eglot--flymake-push-report-fn report-fn)
+         (setq eglot--flymake-report-fn report-fn)
          (cond
           ;; Use pull diagnostics if server supports it
           ((eglot-server-capable :diagnosticProvider)
            (eglot--flymake-pull))
           ;; Otherwise push whatever we might have, and wait for
           ;; `textDocument/publishDiagnostics'.
-          (t (eglot--flymake-push))))
+          (t (eglot--flymake-report))))
         (t
          (funcall report-fn nil))))
 
 (cl-defun eglot--flymake-pull (&aux (server (eglot--current-server-or-lose))
                                     (origin (current-buffer)))
   "Pull diagnostics from server, for all managed buffers.
-When response arrives call registered `eglot--flymake-push-report-fn'."
+When response arrives call registered `eglot--flymake-report-fn'."
   (cl-flet
       ((pull-for (buf &optional then)
          (with-current-buffer buf
            (let ((version eglot--docver)
-                 (prev-result-id (nth 2 eglot--diagnostics)))
+                 (prev-result-id (cadr eglot--pulled-diagnostics)))
              (eglot--async-request
               server
               :textDocument/diagnostic
@@ -3266,16 +3269,15 @@ When response arrives call registered `eglot--flymake-push-report-fn'."
                 (eglot--when-live-buffer buf
                   (pcase kind
                     ("full"
-                     (setq eglot--diagnostics
+                     (setq eglot--pulled-diagnostics
                            (list
                             (cl-loop
                              for spec across items
                              collect (eglot--flymake-make-diag spec version))
-                            version
                             resultId))
-                     (eglot--flymake-push))
+                     (eglot--flymake-report))
                     ("unchanged"
-                     (when (eq buf origin) (eglot--flymake-push 'void)))))
+                     (when (eq buf origin) (eglot--flymake-report 'void)))))
                 (when then (funcall then)))
               :hint :textDocument/diagnostic)))))
     ;; JT@2025-12-15: No known server yet supports "relatedDocuments" so
@@ -3288,15 +3290,18 @@ When response arrives call registered `eglot--flymake-push-report-fn'."
                   (mapc #'pull-for
                         (remove origin (eglot--managed-buffers server))))))))
 
-(cl-defun eglot--flymake-push
-    (&optional void &aux (diags (nth 0 eglot--diagnostics))
-               (version (nth 1 eglot--diagnostics)))
-  "Push previously collected diagnostics to `eglot--flymake-push-report-fn'.
+(cl-defun eglot--flymake-report
+    (&optional void
+     &aux
+     (diags (append (car eglot--pulled-diagnostics)
+                    (car eglot--pushed-diagnostics)))
+     (version (cadr eglot--pushed-diagnostics)))
+  "Push previously collected diagnostics to `eglot--flymake-report-fn'.
 If VOID, knowingly push a dummy do-nothing update."
-  (unless eglot--flymake-push-report-fn
+  (unless eglot--flymake-report-fn
     ;; Occasionally called from contexts where report-fn not setup, such
     ;; as a `didOpen''ed but yet undisplayed buffer.
-    (cl-return-from eglot--flymake-push))
+    (cl-return-from eglot--flymake-report))
   (eglot--widening
    (if (or void (and version (< version eglot--docver)))
        ;; Here, we don't have anything interesting to give to Flymake: we
@@ -3305,9 +3310,9 @@ If VOID, knowingly push a dummy do-nothing update."
        ;; we're alive and clear a possible "Wait" state.  We hackingly
        ;; achieve this by reporting an empty list and making sure it
        ;; pertains to a 0-length region.
-       (funcall eglot--flymake-push-report-fn nil
+       (funcall eglot--flymake-report-fn nil
                 :region (cons (point-min) (point-min)))
-     (funcall eglot--flymake-push-report-fn diags
+     (funcall eglot--flymake-report-fn diags
               ;; If the buffer hasn't changed since last
               ;; call to the report function, flymake won't
               ;; delete old diagnostics.  Using :region
@@ -3936,19 +3941,27 @@ for which LSP on-type-formatting should be requested."
        :success-fn
        (lambda (highlights)
          (mapc #'delete-overlay eglot--highlights)
-         (setq eglot--highlights
-               (eglot--when-buffer-window buf
-                 (mapcar
-                  (eglot--lambda ((DocumentHighlight) range)
-                    (pcase-let ((`(,beg . ,end)
-                                 (eglot-range-region range)))
-                      (let ((ov (make-overlay beg end)))
-                        (overlay-put ov 'face 'eglot-highlight-symbol-face)
-                        (overlay-put ov 'eglot--overlay t)
-                        (overlay-put ov 'modification-hooks
-                                     `(,(lambda (o &rest _) (delete-overlay o))))
-                        ov)))
-                  highlights))))
+         (setq eglot--highlights nil)
+         (eglot--when-buffer-window buf
+           ;; Don't highlight occurrences that aren't
+           ;; visible. (bug#80072).
+           (let* ((w (car (get-buffer-window-list)))
+                  (ws (window-start w)) (we (window-end w))
+                  (ls (1- (line-number-at-pos ws t)))
+                  (le (1- (line-number-at-pos we t))))
+             (mapc
+              (eglot--lambda ((DocumentHighlight) range)
+                (when-let* ((l (cl-getf (cl-getf range :start) :line))
+                            (_ (and (>= l ls) (<= l le))))
+                  (pcase-let ((`(,beg . ,end)
+                               (eglot-range-region range)))
+                    (let ((ov (make-overlay beg end)))
+                      (overlay-put ov 'face 'eglot-highlight-symbol-face)
+                      (overlay-put ov 'eglot--overlay t)
+                      (overlay-put ov 'modification-hooks
+                                   `(,(lambda (o &rest _) (delete-overlay o))))
+                      (push ov eglot--highlights)))))
+              highlights))))
        :hint :textDocument/documentHighlight)
       nil)))
 
@@ -4337,7 +4350,7 @@ at point.  With prefix argument, prompt for ACTION-KIND."
 GLOBS is a list of (COMPILED-GLOB . KIND) pairs, where COMPILED-GLOB is
 a compiled glob predicate and KIND is a bitmask of change types.  DIR is
 the directory to watch (nil means entire project).  IN-ROOT says if DIR
-happens to be inside or maching the project root."
+happens to be inside or matching the project root."
   (cl-labels
       ((subdirs-using-project ()
          (delete-dups
@@ -4803,8 +4816,8 @@ See `eglot--semtok-request' implementation for details.")
                 ;;               eglot--docver docver (c :orig-docver) (c :req-docver))
                 ;; This skip is different from the one below.  Comparing
                 ;; the lexical `docver' to the original request's
-                ;; `:orig-docver' allows skipping the outdated reponse
-                ;; of a dispatched request that has been overriden by
+                ;; `:orig-docver' allows skipping the outdated response
+                ;; of a dispatched request that has been overridden by
                 ;; another (perhaps not dispatched yet) request.
                 (when (eq docver (c :orig-docver))
                   (setf (c :docver) (c :req-docver)

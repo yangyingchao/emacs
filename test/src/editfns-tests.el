@@ -1,6 +1,6 @@
 ;;; editfns-tests.el --- tests for editfns.c  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2016-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2016-2026 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -368,7 +368,7 @@ Execute tests as described by `editfns-tests--transpose-regions-tests'."
               (should (equal (mapcar #'marker-position pmarkers) pmpos))
             ;; Meh.  This more or less blindly duplicates function
             ;; transpose_markers, since I have been too lazy to
-            ;; reproduce the arithmetics myself.
+            ;; reproduce the arithmetic myself.
             (setq pmpos
                   (mapcar
                    (lambda (pos)

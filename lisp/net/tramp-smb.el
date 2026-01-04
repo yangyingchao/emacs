@@ -1,6 +1,6 @@
 ;;; tramp-smb.el --- Tramp access functions for SMB servers  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2002-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2026 Free Software Foundation, Inc.
 
 ;; Author: Michael Albinus <michael.albinus@gmx.de>
 ;; Keywords: comm, processes
@@ -2074,7 +2074,7 @@ If ARGUMENT is non-nil, use it as argument for
 
 	      (let* (coding-system-for-read
 		     (process-connection-type tramp-process-connection-type)
-		     ;; There might be some unfortune values of
+		     ;; There might be some unfortunate values of
                      ;; `tramp-smb-connection-local-default-system-variables'.
                      ;(path-separator (default-value 'path-separator))
                      ;(null-device (default-value 'null-device))

@@ -1,6 +1,6 @@
 ;;; vc-dispatcher.el --- generic command-dispatcher facility.  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2008-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2008-2026 Free Software Foundation, Inc.
 
 ;; Author: FSF (see below for full credits)
 ;; Keywords: vc tools
@@ -122,7 +122,7 @@ dispatcher client mode imposes itself."
 ;; This hook was undeclared and undocumented until declared obsolete.
 ;; I believe it can be replaced with `vc-log-after-operation-hook'; if
 ;; someone can demonstrate a case where this is wanted too, we can
-;; unobsolete it.  --spwhitton
+;; bring it back.  --spwhitton
 (defvar vc-finish-logentry-hook nil
   "Additional hook run at the end of `vc-finish-logentry'.")
 (make-obsolete-variable 'vc-finish-logentry-hook 'vc-log-after-operation-hook

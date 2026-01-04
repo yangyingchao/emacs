@@ -1,6 +1,6 @@
 /* Generic frame functions.
 
-Copyright (C) 1993-1995, 1997, 1999-2025 Free Software Foundation, Inc.
+Copyright (C) 1993-1995, 1997, 1999-2026 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -1986,7 +1986,7 @@ do_switch_frame (Lisp_Object frame, int track, int for_deletion, Lisp_Object nor
      the one you're actually typing in.  */
 
   /* FIXME/tty: I don't understand this.  (The comment above is from
-     Jim BLandy 1993 BTW, and the frame_ancestor_p from 2017.)
+     Jim Blandy 1993 BTW, and the frame_ancestor_p from 2017.)
 
      Setting the last event frame to nil leads to switch-frame events
      being generated even if they normally wouldn't be because the frame
@@ -7196,6 +7196,8 @@ syms_of_frame (void)
   DEFSYM (Qfont_parameter, "font-parameter");
   DEFSYM (Qforce, "force");
   DEFSYM (Qinhibit, "inhibit");
+  DEFSYM (Qcloned_from, "cloned-from");
+  DEFSYM (Qundeleted, "undeleted");
 
   for (int i = 0; i < ARRAYELTS (frame_parms); i++)
     {
@@ -7580,6 +7582,8 @@ allow `make-frame' to show the current buffer even if its hidden.  */);
 #else
   frame_internal_parameters = list3 (Qname, Qparent_id, Qwindow_id);
 #endif
+  frame_internal_parameters = Fcons (Qcloned_from, frame_internal_parameters);
+  frame_internal_parameters = Fcons (Qundeleted, frame_internal_parameters);
 
   DEFVAR_LISP ("alter-fullscreen-frames", alter_fullscreen_frames,
 	       doc: /* How to handle requests to resize fullscreen frames.

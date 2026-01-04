@@ -1,6 +1,6 @@
 ;;; tramp.el --- Transparent Remote Access, Multiple Protocol  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1998-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1998-2026 Free Software Foundation, Inc.
 
 ;; Author: Kai Großjohann <kai.grossjohann@gmx.net>
 ;;         Michael Albinus <michael.albinus@gmx.de>
@@ -785,7 +785,7 @@ The regexp should match at end of buffer."
 	 "Place your finger on the reader again"
 	 "Swipe your finger again"
 	 "Swipe was too short, try again"
-	 "Your finger was not centred, try swiping your finger again"
+	 "Your finger was not centered, try swiping your finger again"
 	 "Remove your finger, and try swiping your finger again")
       (* nonl) (* (any "\r\n")))
   "Regexp matching fingerprint prompts.
@@ -2545,7 +2545,7 @@ Must be handled by the callers."
       res)))
 
 (defun tramp-add-external-operation (operation function backend)
-  "Add FUNTION to Tramp BACKEND as handler for OPERATION.
+  "Add FUNCTION to Tramp BACKEND as handler for OPERATION.
 OPERATION must not be one of the magic operations listed in Info
 node `(elisp) Magic File Names'.  FUNCTION must have the same argument
 list as OPERATION.  BACKEND, a symbol, must be one of the Tramp backend
@@ -3044,14 +3044,7 @@ BODY is the backend specific code."
 	      tramp--last-hop-directory
 	      (tramp-make-tramp-file-name (tramp-dissect-hop-name hop))))
 
-      (let (;; When `tramp-syntax' is `simplified', we need a default method.
-	    (tramp-default-method
-	     (and (string-empty-p tramp-postfix-method-format)
-		  tramp-default-method))
-	    (tramp-default-method-alist
-	     (and (string-empty-p tramp-postfix-method-format)
-		  tramp-default-method-alist))
-	    tramp-default-user tramp-default-user-alist
+      (let (tramp-default-user tramp-default-user-alist
 	    tramp-default-host tramp-default-host-alist)
 
 	;; Possible completion structures.
@@ -3823,8 +3816,8 @@ BODY is the backend specific code."
 
 (defmacro tramp-skeleton-make-process (args null-command stderr-file &rest body)
   "Skeleton for `tramp-*-handle-make-process'.
-NULL-COMMAND indicates a possible empty command.  STDERR-FILE means,
-that a stederr file is supported.  BODY is the backend specific code."
+NULL-COMMAND indicates a possible empty command.  STDERR-FILE means
+that a stderr file is supported.  BODY is the backend specific code."
   (declare (indent 3) (debug t))
   `(when ,args
      (with-parsed-tramp-file-name (expand-file-name default-directory) nil
