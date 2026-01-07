@@ -7,7 +7,7 @@
 ;; Maintainer: João Távora <joaotavora@gmail.com>
 ;; URL: https://github.com/joaotavora/eglot
 ;; Keywords: convenience, languages
-;; Package-Requires: ((emacs "26.3") (eldoc "1.14.0") (external-completion "0.1") (flymake "1.4.2") (jsonrpc "1.0.26") (project "0.9.8") (seq "2.23") (xref "1.6.2"))
+;; Package-Requires: ((emacs "26.3") (eldoc "1.14.0") (external-completion "0.1") (flymake "1.4.2") (jsonrpc "1.0.26") (project "0.11.2") (seq "2.23") (xref "1.6.2"))
 
 ;; This is a GNU ELPA :core package.  Avoid adding functionality
 ;; that is not available in the version of Emacs recorded above or any
@@ -1309,7 +1309,7 @@ If optional MARKERS, make markers instead."
 (cl-defmethod initialize-instance :before ((_server eglot-lsp-server) &optional args)
   (cl-remf args :initializationOptions))
 
-(defvar-local eglot--docver 0
+(defvar-local eglot--docver -1
   "LSP document version.  Bumped on `eglot--after-change'.")
 
 (defvar eglot--servers-by-project (make-hash-table :test #'equal)
@@ -2286,6 +2286,7 @@ LSP Document version reported for DIAGNOSTICS (comparable to
       (eldoc-mode 1))
     (cl-pushnew (current-buffer) (eglot--managed-buffers (eglot-current-server))))
    (t
+    (setq eglot--docver -1)
     (eglot-inlay-hints-mode -1)
     (eglot-semantic-tokens-mode -1)
     (eglot--delete-overlays 'eglot--overlay)
@@ -2952,7 +2953,7 @@ buffer."
 
 (cl-defmethod jsonrpc-connection-ready-p ((_server eglot-lsp-server) _what)
   "Tell if SERVER is ready for WHAT in current buffer."
-  (and (cl-call-next-method) (not eglot--recent-changes)))
+  (and (cl-call-next-method) (not (cl-minusp eglot--docver)) (not eglot--recent-changes)))
 
 (defvar-local eglot--change-idle-timer nil "Idle timer for didChange signals.")
 
@@ -3158,6 +3159,7 @@ When called interactively, use the currently active server"
 
 (defun eglot--signal-textDocument/didClose ()
   "Send textDocument/didClose to server."
+  (setq eglot--docver -1)
   (with-demoted-errors
       "[eglot] error sending textDocument/didClose: %s"
     (jsonrpc-notify
@@ -3291,33 +3293,35 @@ When response arrives call registered `eglot--flymake-report-fn'."
                         (remove origin (eglot--managed-buffers server))))))))
 
 (cl-defun eglot--flymake-report
-    (&optional void
+    (&optional keep
      &aux
-     (diags (append (car eglot--pulled-diagnostics)
-                    (car eglot--pushed-diagnostics)))
-     (version (cadr eglot--pushed-diagnostics)))
+     (pushed-docver (cadr eglot--pushed-diagnostics))
+     (pushed-outdated-p (and pushed-docver (< pushed-docver eglot--docver))))
   "Push previously collected diagnostics to `eglot--flymake-report-fn'.
-If VOID, knowingly push a dummy do-nothing update."
+If KEEP, knowingly push a dummy do-nothing update."
   (unless eglot--flymake-report-fn
     ;; Occasionally called from contexts where report-fn not setup, such
     ;; as a `didOpen''ed but yet undisplayed buffer.
     (cl-return-from eglot--flymake-report))
   (eglot--widening
-   (if (or void (and version (< version eglot--docver)))
-       ;; Here, we don't have anything interesting to give to Flymake: we
-       ;; just want to keep whatever diagnostics it has annotated in the
-       ;; buffer. However, as a nice-to-have, we still want to signal
-       ;; we're alive and clear a possible "Wait" state.  We hackingly
-       ;; achieve this by reporting an empty list and making sure it
-       ;; pertains to a 0-length region.
+   (if (or keep (and (null eglot--pulled-diagnostics) pushed-outdated-p))
+       ;; Here, we don't have anything interesting to give to
+       ;; Flymake.  Either a textDocument/diagnostics response
+       ;; specifically told use that nothing changed, or
+       ;; `flymake-start' kicked in before server had a chance to
+       ;; push something.  We just want to keep whatever diagnostics
+       ;; it has annotated in the buffer but as a nice-to-have, we
+       ;; want to signal we're alive and clear a possible "Wait"
+       ;; state.  We hackingly achieve this by reporting an empty
+       ;; list and making sure it pertains to a 0-length region.
        (funcall eglot--flymake-report-fn nil
                 :region (cons (point-min) (point-min)))
-     (funcall eglot--flymake-report-fn diags
-              ;; If the buffer hasn't changed since last
-              ;; call to the report function, flymake won't
-              ;; delete old diagnostics.  Using :region
-              ;; keyword forces flymake to delete
-              ;; them (github#159).
+     ;; Using :region keyword always forces Flymake to delete them
+     ;; (github#159).
+     (funcall eglot--flymake-report-fn
+              (append (car eglot--pulled-diagnostics)
+                      (unless pushed-outdated-p
+                        (car eglot--pushed-diagnostics)))
               :region (cons (point-min) (point-max))))))
 
 (defun eglot-xref-backend () "Eglot xref backend." 'eglot)
