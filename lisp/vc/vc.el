@@ -1474,7 +1474,7 @@ BEWARE: this function may change the current buffer."
         (vc-deduce-fileset not-state-changing allow-unregistered state-model-only-files)))
      ((and (not buffer-file-name)
 	   (setq backend (vc-responsible-backend default-directory)))
-      (list backend nil))
+      (list backend (list default-directory)))
      ((and allow-unregistered (not (vc-registered buffer-file-name)))
       (if state-model-only-files
 	  (list (vc-backend-for-registration (buffer-file-name))
@@ -4062,9 +4062,9 @@ that some users might prefer for interactive usage."
   "Read the name of a branch to log.
 FILESET, if non-nil, means to pass the current VC fileset to
 `vc-read-revision'."
-  (let ((branch (vc-read-revision "Branch to log: "
-                                  (and fileset
-                                       (cadr (vc-deduce-fileset t))))))
+  (let* ((fileset (and fileset (vc-deduce-fileset t)))
+         (branch (vc-read-revision "Branch to log: "
+                                   (cadr fileset) (car fileset))))
     (when (string-empty-p branch)
       (user-error "No branch specified"))
     branch))
@@ -5471,7 +5471,8 @@ MOVE non-nil means to move instead of copy."
     (with-temp-buffer
       (cond* (patch-string
               (diff-mode)
-              (insert patch-string))
+              (let ((inhibit-read-only t)) ; `diff-default-read-only'.
+                (insert patch-string)))
              ;; Some backends don't tolerate unregistered files
              ;; appearing in the fileset for a diff operation.
              ((bind* (diff-fileset
