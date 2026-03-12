@@ -143,6 +143,12 @@ instead of its now-obsolete variable.
 
 ** Network Security Manager (NSM) is now more strict.
 
+---
+** New char-table 'special-mirror-table' for mirroring special glyphs.
+This char-table is used to mirror special glyphs (truncation and
+continuation) when the user has defined an alternative representation
+for those characters via display tables.
+
 *** NSM warns about TLS 1.1 by default.
 It has been deprecated by RFC 8996, published in 2021.
 
@@ -437,7 +443,7 @@ possible according to the values of 'split-width-threshold' and
 to prefer to split horizontally if the window's frame is a "landscape"
 frame, and vertically if it is a "portrait" frame.  (A frame is
 considered to be "portrait" if its vertical dimension in pixels is
-greater or equal to its horizontal dimension, otherwise it's considered
+greater or equal to its horizontal dimension, otherwise it is considered
 to be "landscape".)  Previous versions of Emacs always tried to split
 vertically first, so to get previous behavior, you can customize this
 option to 'vertical'.  The value 'horizontal' always prefers the
@@ -445,7 +451,7 @@ horizontal split.
 
 ---
 The default value of 'split-width-threshold' is changed from 160 to 150.
-After splitting it's still comfortable to read text filled to 75 columns.
+After splitting it is still comfortable to read text filled to 75 columns.
 
 +++
 *** New argument INDIRECT for 'get-buffer-window-list'.
@@ -497,23 +503,23 @@ determines whether to call 'delete-frame'.
 +++
 *** New function 'frame-use-time'.
 This function is the frame equivalent of the function 'window-use-time'
-for a window.  The result is the `window-use-time' of a frame's most
+for a window.  The result is the 'window-use-time' of a frame's most
 recently used window.
 
 +++
-*** New function 'get-mru-frame'.
-This function returns the most recently used frame from among all
-frames, or those visible or iconified on the same terminal as the
-selected frame.  A frame can be excluded, for example, the selected
-frame, as it will always be the most recently used frame on the current
-terminal.
+*** New functions 'get-mru-frames' and 'get-mru-frame'.
+'get-mru-frames' returns a list of frames sorted by their most recent
+use time from among all frames, or those visible or iconified on the
+same terminal as the selected frame.  Child frames can be excluded.  A
+single frame can be excluded, for example, the selected frame.
+'get-mru-frame' returns the single most recently used frame.
 
 ---
 *** After deleting, 'delete-frame' now selects the most recently used frame.
 Previously, after deleting a specified frame, 'delete-frame' would
 select the oldest visible frame on the same terminal.  To revert to the
-old behavior, set the new user option
-'after-delete-frame-select-mru-frame' to nil.
+old behavior, set the new variable 'after-delete-frame-select-mru-frame'
+to nil.
 
 +++
 *** New value 'force' for user option 'frame-inhibit-implied-resize'.
@@ -764,7 +770,7 @@ the Project menu will be shown on the mode line only for projects with
 local files.
 
 *** The "VC-aware" project backend caches the current project and its name.
-The duration for which the values are cached depends on whether it's
+The duration for which the values are cached depends on whether it is
 called from 'non-essential' context, and it determined by variables
 'project-vc-cache-timeout' and 'project-vc-non-essential-cache-timeout'.
 
@@ -866,9 +872,16 @@ purple bar cursor on compatible terminals as well.  See the Info node
 "(emacs) Cursor Display" for more information.
 
 ---
-** New command 'copy-theme-options'
+** New command 'copy-theme-options'.
 You can use this command to copy options from a theme into your user
 configuration.
+
+---
+** New user option 'multiple-terminals-merge-keyboards'.
+Customizing this option to non-nil disables entering single-keyboard
+mode in most cases in which Emacs would by default enter that mode.
+This can make things work better for some cases of X forwarding; see the
+docstring for the new option.
 
 
 * Editing Changes in Emacs 31.1
@@ -1022,14 +1035,20 @@ This mode keeps modified lines centered horizontally according to the
 value of 'fill-column', by calling 'center-line' on each non-empty line
 of the modified region.
 
++++
+** New command 'unfill-paragraph'.
+This is the inverse of 'M-q' ('fill-paragraph').
+
 
 * Changes in Specialized Modes and Packages in Emacs 31.1
 
-** Delete-selection mode
-*** New face 'delete-selection-replacement' for the replacement text
+** Delete Selection mode
+
+*** New face 'delete-selection-replacement' for the replacement text.
 This comes with a change to how we track what is considered "the
 replacement text", which should be more robust now, and is made
 more clear by the highlighting.
+
 ** Editorconfig
 
 ---
@@ -1241,6 +1260,18 @@ information.
 *** 'treesit-language-at-point-function' is now optional.
 Multi-language major modes can rely on the default return value from
 'treesit-language-at' that uses the new function 'treesit-parsers-at'.
+
++++
+*** Tree-sitter thing functions now work better with multiple parsers.
+The following functions now handle better the case when there are
+multiple parsers at point: 'treesit-thing-prev', 'treesit-thing-next',
+'treesit-navigate-thing', 'treesit-thing-at'.  When there are multiple
+parsers at point, instead of using whatever 'treesit-node-at' returns at
+point, these functions now try every relevant parser in descending order
+of relevance.  (Deeper-embedded parsers have higher relevance.)  These
+functions now also take an additional optional argument, PARSER, that
+allows caller to specify a parser or language to use.  That also means
+'treesit-beginning/end-of-defun' now can move across parsers.
 
 +++
 *** New command 'treesit-explore'.
@@ -1581,18 +1612,18 @@ terminal emulators. Control sequences and escape sequences are still processed
 correctly regardless of margin position.
 
 ---
-** SMerge
+** SMerge mode
 
 *** New 'repeat-map' for SMerge conflict resolution commands.
 With 'repeat-mode' enabled, after invoking an SMerge command (for
 example, 'C-c ^ n'), you can repeat further SMerge commands by typing
-just the final key (for example, n, p, u, l).
+just the final key (for example, 'n', 'p', 'u', 'l').
 
 *** New command 'smerge-extend' extends a conflict over surrounding lines.
 
 *** New command 'smerge-refine-exchange-point' to jump to the other side.
 When used inside a refined chunk, it jumps to the matching position in
-the "other" side of the refinement: if you're in the new text, it jumps
+the "other" side of the refinement: if you are in the new text, it jumps
 to the corresponding position in the old text and vice versa.
 
 *** New user option 'smerge-refine-shadow-cursor'.
@@ -1602,6 +1633,8 @@ is in the "upper" version, and vice versa.  The "shadow cursor" is
 just the character corresponding to the position where
 'smerge-refine-exchange-point' would jump, shown in a new distinct
 face 'smerge-refine-shadow-cursor', by default a box face.
+
+*** 'smerge-refine-regions' can compare regions in different buffers.
 
 ** Cursor Sensor mode
 
@@ -1641,7 +1674,7 @@ browser windows under Wayland using the xdg_activation_v1 protocol.
 
 *** 'RET' can visit URLs in read-only buffers.
 In some keymaps such as 'ansi-osc-hyperlink-map', 'browse-url-button-map',
-'goto-address-highlight-keymap', 'bug-reference-map' it's possible now
+'goto-address-highlight-keymap', 'bug-reference-map' it is possible now
 to visit URLs by typing just 'RET' instead of 'C-c RET' in read-only buffers.
 
 *** Removed support for some obsolete web browsers.
@@ -1666,15 +1699,16 @@ the list of types to which a value belongs.
 These functions or macros have been added to Emacs Lisp, and the old
 names are now aliases for the built-in equivalents:
 
-- 'cl-incf'   renamed to 'incf'
-- 'cl-decf'   renamed to 'decf'
-- 'cl-oddp'   renamed to 'oddp'
-- 'cl-evenp'  renamed to 'evenp'
-- 'cl-plusp'  renamed to 'plusp'
-- 'cl-minusp' renamed to 'minusp'
+- 'cl-incf'      renamed to 'incf'
+- 'cl-decf'      renamed to 'decf'
+- 'cl-oddp'      renamed to 'oddp'
+- 'cl-evenp'     renamed to 'evenp'
+- 'cl-plusp'     renamed to 'plusp'
+- 'cl-minusp'    renamed to 'minusp'
+- 'cl-member-if' renamed to 'member-if'
 
-The old names are considered deprecated, and will be marked as obsolete
-in some future release.
+'cl-member-if' is marked obsolete.  The other names are deprecated too,
+and will be marked as obsolete in a future release.
 
 +++
 *** 'cl-labels' now also accepts '(FUNC EXP)' bindings, like 'cl-flet'.
@@ -1765,6 +1799,16 @@ between items in the "*Open Recent*" buffer likewise displays such
 messages.  To suppress these messages, customize the user option
 'recentf-suppress-open-file-help' to non-nil.  The default value of this
 option is nil.
+
+---
+*** New user option 'recentf-exclude-ignored-extensions'.
+Add the new predicate function 'recentf-exclude-file-by-extension-p' to
+the list that is the value of the user option 'recentf-exclude' to
+ignore files with certain extensions.  By default, adding this function
+to 'recentf-exclude' ignores files whose extensions are listed in
+'completion-ignored-extensions'; you can specify a different list of
+extensions by customizing the new user option
+'recentf-exclude-ignored-extensions'.
 
 ** Saveplace
 
@@ -2809,7 +2853,7 @@ stash at point (deleting the stash at point is also bound to 'C-k').
 
 +++
 *** New VC Directory command 'V' ('vc-dir-root-next-action').
-This is like 'v' ('vc-next-action') but applies to the whole VC-Dir
+This is like 'v' ('vc-next-action') but applies to the whole VC Directory
 buffer, ignoring the position of point and any marks.  This is useful to
 check in all local changes at once.
 
@@ -2900,6 +2944,11 @@ You can disable this by customizing 'vc-dir-show-outgoing-count' to nil.
 +++
 *** New user option 'vc-async-checkin' to enable async checkin operations.
 Currently only supported by the Git and Mercurial backends.
+
++++
+*** New user option 'vc-display-failed-async-commands'.
+If non-nil, displays the buffer with the output of the failed command
+when an asynchronous VC command (e.g., pulls and pushes) fails.
 
 ---
 *** New 'log-edit-hook' option to display diff of changes to commit.
@@ -3091,6 +3140,11 @@ can be used to install such packages, but you can customise the
 presentation style of these suggestions using
 'package-autosuggest-style'.
 
++++
+*** New user option 'package-retention-policy'.
+This user option controls what previous packages versions to keep on
+upgrade.  By default, this is set to nil, to keep the previous behavior.
+
 ** Rcirc
 
 +++
@@ -3249,6 +3303,16 @@ functions defined later than the variable, as is common for minor modes.
 This is intended for customizing directory-local variables in the
 current directory's ".dir-locals.el" file.
 
++++
+*** New keybinding 'C-c C-k' for 'Custom-reset-standard'
+
++++
+*** New command 'Custom-goto-first-choice' (bound to 'C-c C-i')
+When first opening the customization interface for a user option, you
+can use this command as a shortcut to jump to the first actionable
+button or field (for instance an on/off button for boolean options, or a
+text field for other values).
+
 ** Pulse
 
 --
@@ -3312,7 +3376,7 @@ and the buffers like the completions buffer that enable
 *** New value 'window' for the user option 'global-hl-line-sticky-flag'.
 Unlike the value t that highlights the line with buffer's point,
 it highlights the line with window's point.  Also it uses the new face
-`hl-line-nonselected' for highlighting the line with window's point
+'hl-line-nonselected' for highlighting the line with window's point
 in non-selected windows.
 
 ---
@@ -3361,7 +3425,7 @@ If non-nil, FFAP always finds remote files in buffers with remote
 file names in above buffers.  The default is nil.
 
 +++
-*** New theme 'newcomers-presets'
+*** New theme 'newcomers-presets'.
 This new theme configures user options and minor modes that might
 interest new users, but would otherwise be too invasive to enable by
 default.  Recall that an Emacs theme is a generic collection of
@@ -3641,7 +3705,7 @@ value "java org.antlr.Tool") when 'antlr-tool-version' has the value
 'antlr-v3'.
 
 *** Command 'antlr-mode' now also works on ANTLR v3 or v4 grammars.
-If the variable 'antlr-tool-version' is not set locally, e.g. by the
+If the variable 'antlr-tool-version' is not set locally, e.g., by the
 file’s local variables specs, the command sets its local value to
 'antlr-v2' if a keyword "class" or "header" appears at the beginning of
 the source, or to 'antlr-v3' otherwise.
@@ -3932,11 +3996,15 @@ Affected APIs include 'defface', 'set-face-attribute', their callers,
 and other similar functions.
 
 +++
-Original behavior of 'overlays-in' and 'overlays-at' has been restored.
-Before Emacs 29.1, the list of overlays returned by these two functions
-included overlays outside of the current narrowing of the buffer.  This
-behavior has been restored.  As result, 'remove-overlays' can now again
-remove overlays outside of the narrowing, as it did before Emacs 29.1.
+** Original behavior of 'overlays-in' and 'overlays-at' has been restored.
+Before Emacs 28.1, the list of overlays returned by these two functions
+included overlays outside of the current narrowing of the buffer, and
+there wasn't a special exception for including empty overlays at end of
+accessible portion of the buffer.  This behavior has been restored, and
+the special behavior for empty overlays is again reserved only to the
+actual end of buffer, disregarding the narrowing.  As result,
+'remove-overlays' can now again remove overlays outside of the
+narrowing, as it did before Emacs 28.1.
 
 ---
 ** 'help-setup-xref' now re-enables the major mode of the Help buffer.
@@ -4032,9 +4100,14 @@ signal an error if they are given a non-integer.
 These work like 'drop' and 'take' but use a predicate instead of counting.
 
 +++
-** New functions 'any' and 'all'.
-These return non-nil for lists where any and all elements, respectively,
+** New function 'all' and function alias 'any'.
+These return non-nil for lists where all and any elements, respectively,
 satisfy a given predicate.
+
++++
+** 'equal' now compares circular lists without raising an error.
+Comparing very deeply nested objects will still fail, but 'equal'
+will no longer signal the 'circular-list' error.
 
 +++
 ** The 'defvar-local' macro second argument is now optional.
@@ -4320,9 +4393,17 @@ of an inherently asynchronous command such as 'compile'.
 These produce the binary representation of a number.
 '%#b' and '%#B' prefix the bits with '0b' and '0B', respectively.
 
-** 'pp-eval-expression' can now insert results into the current buffer
+** 'pp-eval-expression' can now insert results into the current buffer.
 With a prefix argument, 'pp-eval-expression' inserts the result into the
 current buffer, just like 'eval-expression' already did.
+
++++
+** New function 'multiple-command-partition-arguments'.
+This function partitions a list of command arguments that might be
+arbitrarily long.  It can be used in cases in which it's known to be
+safe to run the command multiple times on subsequent partitions of the
+list of arguments.  The variable 'command-line-max-length' controls the
+partitioning.
 
 
 * Changes in Emacs 31.1 on Non-Free Operating Systems
@@ -4411,6 +4492,11 @@ other free systems.
 Transformed images are smoothed using the bilinear interpolation by
 means of the GDI+ library.
 
+---
+** Emacs on MS-Windows is now capable of exporting frame screenshots to files.
+The new primitive 'w32-export-frame' can be used to export a screenshot
+of a specified frame to an image file in one of the supported image
+formats, such as JPEG or PNG.
 ---
 ** Emacs on MS-Windows now supports the ':data' keyword for 'play-sound'.
 In addition to ':file FILE' for playing a sound from a file, ':data

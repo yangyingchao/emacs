@@ -32,15 +32,16 @@
 ;; We define a `newcomers-presets-mode' that we can use to execute custom code
 ;; that we cannot express by setting existing users options.
 
+;; FIXME: Themes should be able to define these kinds of mode-specific
+;; customizations.
 (defvar newcomers-presets-mode-enabled-local-modes
-  '((prog-mode-hook . display-line-numbers-mode)
-    (prog-mode-hook . flymake-mode)
-    (prog-mode-hook . flyspell-prog-mode)
+  `((prog-mode-hook ,#'display-line-numbers-mode
+                    ,#'flymake-mode
+                    ,#'flyspell-prog-mode)
 
-    (text-mode-hook . display-line-numbers-mode)
-    (text-mode-hook . flyspell-mode)
-    )
-  "Alist mapping hooks to functions.
+    (text-mode-hook ,#'display-line-numbers-mode
+                    ,#'flyspell-mode))
+  "Alist mapping hooks to a list of function to add to the hook.
 The functions are added to the corresponding hooks when enabling
 `newcomers-presets-mode', and removed when disabling the mode.")
 
@@ -65,18 +66,19 @@ This minor mode will enable and disable the theme on startup."
       (disable-theme 'newcomers-presets)))
   ;; TODO: extend `custom-theme-set-variables' to support function local
   ;; hooks.
-  (pcase-dolist (`(,hook . ,fn) newcomers-presets-mode-enabled-local-modes)
-    (cond
-     (newcomers-presets-mode
-      ;; We check if a function is already in the hook, to avoid
-      ;; removing it later if the user disables the theme.
-      (when (run-hook-wrapped hook (lambda (ent &rest _) (eq fn ent)))
-        (push fn (get hook newcomers-presets--dnt-prop)))
-      (add-hook hook fn))
-     (t
-      (unless (memq fn (get hook newcomers-presets--dnt-prop))
-        (remove-hook hook fn))
-      (put hook newcomers-presets--dnt-prop '())))))
+  (pcase-dolist (`(,hook . ,fns) newcomers-presets-mode-enabled-local-modes)
+    (dolist (fn fns)
+      (cond
+       (newcomers-presets-mode
+        ;; We check if a function is already in the hook, to avoid
+        ;; removing it later if the user disables the theme.
+        (when (run-hook-wrapped hook (lambda (ent &rest _) (eq fn ent)))
+          (push fn (get hook newcomers-presets--dnt-prop)))
+        (add-hook hook fn))
+       (t
+        (unless (memq fn (get hook newcomers-presets--dnt-prop))
+          (remove-hook hook fn))
+        (put hook newcomers-presets--dnt-prop '()))))))
 
 ;;;###theme-autoload
 (deftheme newcomers-presets
@@ -92,6 +94,7 @@ This minor mode will enable and disable the theme on startup."
  '(font-use-system-font t)
  '(frame-resize-pixelwise t)
  '(window-resize-pixelwise t)
+ '(mode-line-compact 'long)
 
 ;;;; Mouse-related options
  '(context-menu-mode t)
@@ -113,13 +116,23 @@ This minor mode will enable and disable the theme on startup."
  '(repeat-mode t)
  '(delete-selection-mode t)
  '(editorconfig-mode t)
+ '(indent-tabs-mode nil)
+ '(imenu-auto-rescan t)
+ '(view-read-only t)
 
 ;;;; Directory managment-related options
  '(dired-auto-revert-buffer t)
  '(dired-mouse-drag-files t)
+ '(shell-command-prompt-show-cwd t)
 
 ;;;; File-related options
+ '(etags-regen-mode t)
  '(vc-auto-revert-mode t)
+ '(vc-deduce-backend-nonvc-modes t)
+ '(vc-dir-save-some-buffers-on-revert t)
+ '(vc-find-revision-no-save t)
+ '(vc-follow-symlinks t)
+ '(vc-use-incoming-outgoing-prefixes t)
 
 ;;;; Completion-related options
  '(minibuffer-visible-completions t)
@@ -136,7 +149,9 @@ This minor mode will enable and disable the theme on startup."
  '(package-autosuggest-mode t)
  '(package-menu-use-current-if-no-marks nil)
 
- )
+;;;; Frame and window-related options
+ '(tab-bar-history-mode t)
+ '(tab-bar-show 0))
 
 (provide-theme 'newcomers-presets)
 ;;; newcomers-presets-theme.el ends here
