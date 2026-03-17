@@ -3397,7 +3397,7 @@ Go to the history element by the absolute history position HIST-POS."
 The same as `command-error-default-function' but display error messages
 at the end of the minibuffer using `minibuffer-message' to not obscure
 the minibuffer contents."
-  (if (memq 'minibuffer-quit (get (car data) 'error-conditions))
+  (if (error-has-type-p data 'minibuffer-quit)
       (ding t)
     (discard-input)
     (ding))
@@ -9691,7 +9691,6 @@ face if `blink-matching-paren-highlight-offscreen' is non-nil."
               regions
               "..."))
             (openparen-next-char-idx (1+ openparen-idx)))
-        (setq line-string (substring-no-properties line-string))
         (concat
          (substring line-string
                     0 openparen-idx)
@@ -9699,8 +9698,9 @@ face if `blink-matching-paren-highlight-offscreen' is non-nil."
                 (substring line-string
                            openparen-idx openparen-next-char-idx)))
            (if blink-matching-paren-highlight-offscreen
-               (propertize matched-offscreen-openparen
-                           'face 'blink-matching-paren-offscreen)
+               (propertize
+                (substring-no-properties matched-offscreen-openparen)
+                'face 'blink-matching-paren-offscreen)
              matched-offscreen-openparen))
          (substring line-string
                     openparen-next-char-idx))))))

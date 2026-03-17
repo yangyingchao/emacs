@@ -105,6 +105,7 @@ This minor mode will enable and disable the theme on startup."
  '(mouse-drag-and-drop-region t)
  '(mouse-drag-and-drop-region-cross-program t)
  '(mouse-drag-mode-line-buffer t)
+ '(global-xref-mouse-mode t)
 
 ;;;; Persistence-related options
  '(savehist-mode t)
@@ -149,7 +150,8 @@ This minor mode will enable and disable the theme on startup."
  '(package-autosuggest-mode t)
  '(package-menu-use-current-if-no-marks nil)
 
-;;;; Frame and window-related options
+;;;; Frame- and window-related options
+ '(frame-inhibit-implied-resize t)
  '(tab-bar-history-mode t)
  '(tab-bar-show 0))
 
