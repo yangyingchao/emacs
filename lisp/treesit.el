@@ -753,10 +753,10 @@ that encompasses the region between START and END."
                                 (numberp (cdr range-offset)))
                      (signal 'treesit-error (list "Value of :offset option should be a pair of numbers" range-offset)))
                    (setq offset range-offset)))
-        (:range-fn (let ((range-fn (pop query-specs)))
-                     (unless (functionp range-fn)
-                       (signal 'treesit-error (list "Value of :range-fn option should be a function" range-fn)))
-                     (setq range-fn range-fn)))
+        (:range-fn (let ((fn (pop query-specs)))
+                     (unless (functionp fn)
+                       (signal 'treesit-error (list "Value of :range-fn option should be a function" fn)))
+                     (setq range-fn fn)))
         (query (if (functionp query)
                    (push (list query nil nil) result)
                  (when (null embed)
@@ -5849,7 +5849,7 @@ language."
   "Pattern matching"
   (treesit-query-capture
    :no-eval (treesit-query-capture node '((identifier) @id "return" @ret))
-   :eg-result-string "((id . #<treesit-node (identifier) in 195-196>) (ret . #<treesit-node "return" in 338-344>))")
+   :eg-result-string "((id . #<treesit-node (identifier) in 195-196>) (ret . #<treesit-node \"return\" in 338-344>))")
   (treesit-query-compile
    :no-eval (treesit-query-compile 'c '((identifier) @id "return" @ret))
    :eg-result-string "#<treesit-compiled-query>")
