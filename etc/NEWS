@@ -2451,6 +2451,13 @@ This can be used by external ELPA packages for performance optimizations
 in special cases.  For more information, see "(tramp) New operations" in
 the Tramp manual.
 
++++
+*** New user option 'tramp-propagate-emacsclient-tramp'.
+When this option is non-nil, Tramp propagates the environment variable
+EMACSCLIENT_TRAMP with a proper value to remote processes.  This is
+helpful if you want to start emacsclient on a remote host from a process
+started inside Emacs.
+
 ** Isearch and Replace
 
 *** Typing 'd' during 'query-replace' shows the diff buffer with replacements.
@@ -3979,6 +3986,21 @@ all versions, sleep events require Windows 8 or later).
 
 
 * Incompatible Lisp Changes in Emacs 31.1
+
++++
+** Boundaries of 'cursor-sensor-functions' now obey stickiness.
+'cursor-sensor-mode' now uses 'get-pos-property' to decide whether a
+boundary is considered as inside or outside.
+
+This means that by default, the boundaries have changed: the end
+position of a stretch of a 'cursor-sensor-functions' text property
+used to be considered outside of the stretch whereas it is now
+considered as inside.  You can recover the previous behavior by
+controlling the stickiness, for example with a call like:
+
+    (add-text-properties BEG END
+                         '(cursor-sensor-functions (MY-FUNCTION)
+                           rear-nonsticky (cursor-sensor-functions)))
 
 +++
 ** 'makunbound' on a variable alias undoes the alias.

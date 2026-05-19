@@ -595,15 +595,16 @@ servers."
   :type 'boolean)
 
 (defface eglot-code-action-indicator-face
-  '((t (:inherit font-lock-escape-face :weight bold)))
+  '((t (:inherit warning :weight bold)))
   "Face used for code action suggestions.")
 
 (defcustom eglot-code-action-indications
-  '(eldoc-hint margin)
+  '(eldoc-hint left-fringe margin)
   "How Eglot indicates there's are code actions available at point.
 Value is a list of symbols, more than one can be specified:
 
 - `eldoc-hint': ElDoc is used to hint about at-point actions;
+- `left-fringe': A special indicator appears on the left fringe;
 - `margin': A special indicator appears in the margin;
 - `nearby': A special indicator appears near point;
 - `mode-line': A special indicator appears in the mode-line.
@@ -612,15 +613,19 @@ If the list is empty, Eglot will not hint about code actions at point.
 
 Note additionally:
 
-- `margin' and `nearby' are incompatible.  If both are specified,
-  the latter takes priority;
-- `mode-line' only works if `eglot-mode-line-action-suggestion' exists in
-  `eglot-mode-line-format' (which see)."
+- Some values are incompatible; if one or more of `nearby',
+  `left-fringe' and `margin' are specified, earlier values take
+  precedence.
+- The indicators for many of these are customizable via
+ `eglot-code-action-indicator' (which see), except for `left-fringe'.
+- `mode-line' only works if `eglot-mode-line-action-suggestion' exists
+  in `eglot-mode-line-format' (which see)."
   :type '(set
           :tag "Tick the ones you're interested in"
           (const :tag "ElDoc textual hint" eldoc-hint)
           (const :tag "Right besides point" nearby)
           (const :tag "In mode line" mode-line)
+          (const :tag "In left fringe" left-fringe)
           (const :tag "In margin" margin))
   :package-version '(Eglot . "1.19"))
 
@@ -720,9 +725,18 @@ This can be useful when using docker to run a language server.")
   (if (>= emacs-major-version 27) (executable-find command remote)
     (executable-find command)))
 
+(declare-function treesit-grammar-location "treesit.c")
+
+(defun eglot--builtin-mdown-p ()
+  (and (fboundp 'markdown-ts-view-mode)
+       (fboundp 'treesit-grammar-location)
+       (treesit-grammar-location 'markdown)))
+
 (defun eglot--accepted-formats ()
-  (if (and (not eglot-prefer-plaintext) (fboundp 'gfm-view-mode))
-      ["markdown" "plaintext"] ["plaintext"]))
+  (if (and (not eglot-prefer-plaintext)
+           (or (fboundp 'gfm-view-mode) (eglot--builtin-mdown-p)))
+      ["markdown" "plaintext"]
+    ["plaintext"]))
 
 (defconst eglot--uri-path-allowed-chars
   (let ((vec (copy-sequence url-path-allowed-chars)))
@@ -2225,48 +2239,50 @@ Doubles as an indicator of snippet support."
            (unless (bound-and-true-p yas-minor-mode) (yas-minor-mode 1))
            (apply #'yas-expand-snippet args)))))
 
-(defun eglot--format-markup (markup &optional mode)
+(cl-defun eglot--format-markup
+    (markup &optional mode
+            &aux string lang render extract)
   "Format MARKUP according to LSP's spec.
-MARKUP is either an LSP MarkedString or MarkupContent object."
-  (let (string render-mode language)
-    (cond ((stringp markup)
-           (setq string markup
-                 render-mode (or mode 'gfm-view-mode)))
-          ((setq language (plist-get markup :language))
-           ;; Deprecated MarkedString
-           (setq string (concat "```" language "\n"
-                                (plist-get markup :value) "\n```")
-                 render-mode (or mode 'gfm-view-mode)))
-          (t
-           ;; MarkupContent
-           (setq string (plist-get markup :value)
-                 render-mode
-                 (or mode
-                     (pcase (plist-get markup :kind)
-                       ("markdown" 'gfm-view-mode)
-                       ("plaintext" 'text-mode)
-                       (_ major-mode))))))
+MARKUP is either an LSP MarkedString or MarkupContent object.
+If MODE, force MODE to be used for fontifying MARKUP."
+  (cl-labels
+      ((gfm-extract ()
+         ;; For `gfm-view-mode', the `invisible' regions are set to
+         ;; `markdown-markup'.  Set them to 't' on extraction, since
+         ;; this has actual meaning in the "*eldoc*" buffer where we're
+         ;; taking this string (#bug79552).
+         (cl-loop with inhibit-read-only = t
+                  for from = (point-min) then to
+                  while (< from (point-max))
+                  for inv = (get-text-property from 'invisible)
+                  for to = (or (next-single-property-change from 'invisible)
+                               (point-max))
+                  when inv
+                  do (put-text-property from to 'invisible t)
+                  finally return (buffer-string)))
+       (calc2 (forced-mode)
+         (cond
+          (forced-mode              `(,forced-mode))
+          ((eglot--builtin-mdown-p) `(,#'markdown-ts-view-mode))
+          ((fboundp 'gfm-view-mode) `(,#'gfm-view-mode ,#'gfm-extract))
+          (t                        `(#'text-mode))))
+       (calc (s &optional (forced-mode mode) &aux (x (calc2 forced-mode)))
+         (setq string s render (car x) extract (or (cadr x) #'buffer-string))))
+    (cond ((stringp markup) (calc markup))            ; plain string
+          ((setq lang (plist-get markup :language))   ; deprecated MarkedString
+           (calc (format "```%s\n%s\n```" lang (plist-get markup :value))))
+          (t (calc (plist-get markup :value)          ; Assume MarkupContent
+                   (or mode (pcase (plist-get markup :kind)
+                              ("markdown" nil)
+                              ("plaintext" 'text-mode)
+                              (_ major-mode))))))
     (with-temp-buffer
       (setq-local markdown-fontify-code-blocks-natively t)
       (insert string)
-      (let ((inhibit-message t)
-            (message-log-max nil))
-        (ignore-errors (delay-mode-hooks (funcall render-mode)))
+      (let ((inhibit-message t) (message-log-max nil))
+        (ignore-errors (delay-mode-hooks (funcall render)))
         (font-lock-ensure)
-        (goto-char (point-min))
-        (let ((inhibit-read-only t))
-          ;; If `render-mode' is `gfm-view-mode', the `invisible'
-          ;; regions are set to `markdown-markup'.  Set them to 't'
-          ;; instead, since this has actual meaning in the "*eldoc*"
-          ;; buffer where we're taking this string (#bug79552).
-          (cl-loop for from = (point) then to
-                   while (< from (point-max))
-                   for inv = (get-text-property from 'invisible)
-                   for to = (or (next-single-property-change from 'invisible)
-                                (point-max))
-                   when inv
-                   do (put-text-property from to 'invisible t)))
-        (string-trim (buffer-string))))))
+        (string-trim (funcall extract))))))
 
 (defun eglot--read-server (prompt &optional dont-if-just-the-one)
   "Read a running Eglot server from minibuffer using PROMPT.
@@ -4712,6 +4728,19 @@ at point.  With prefix argument, prompt for ACTION-KIND."
 (eglot--code-action eglot-code-action-rewrite "refactor.rewrite")
 (eglot--code-action eglot-code-action-quickfix "quickfix")
 
+(define-fringe-bitmap 'eglot--fringe-action
+  [#b00000111
+   #b00001110
+   #b00011100
+   #b00111000
+   #b01111111
+   #b00001110
+   #b01011100
+   #b01111000
+   #b01110000
+   #b01111000]
+  nil nil 'center)
+
 (defun eglot-code-action-suggestion (cb &rest _ignored)
   "A member of `eldoc-documentation-functions', for suggesting actions."
   (when (and (eglot-server-capable :codeActionProvider)
@@ -4751,13 +4780,19 @@ at point.  With prefix argument, prompt for ACTION-KIND."
                  (overlay-put
                   ov
                   'before-string
-                  (cond ((memq 'nearby eglot-code-action-indications)
-                         tooltip)
-                        ((memq 'margin eglot-code-action-indications)
-                         (propertize "⚡"
-                                     'display
-                                     `((margin left-margin)
-                                       ,tooltip)))))
+                  (cond
+                   ((memq 'nearby eglot-code-action-indications)
+                    tooltip)
+                   ((and
+                     (memq 'left-fringe eglot-code-action-indications)
+                     (< 0 (nth 0 (window-fringes))))
+                    (propertize
+                     "⚡" 'display `(left-fringe
+                                     eglot--fringe-action
+                                     eglot-code-action-indicator-face)))
+                   ((memq 'margin eglot-code-action-indications)
+                    (propertize
+                     "⚡" 'display `((margin left-margin) ,tooltip)))))
                  (setq eglot--suggestion-overlay ov))))
            (when use-text-p (funcall cb blurb))))
        :hint :textDocument/codeAction)
