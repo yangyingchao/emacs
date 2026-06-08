@@ -161,7 +161,7 @@ proceed to mark and unmark other entries, without asking."
   :version "31.1")
 
 (defcustom vc-dir-auto-hide-up-to-date nil
-  "Whether VC-Dir automatically removes \\+`up-to-date'/\\+`ignored' files from display.
+  "Whether VC-Dir auto-removes \\+`up-to-date'/\\+`ignored' files from display.
 
 If the value is nil, files shown in the VC-Dir buffer will remain on
 display if they become \\+`up-to-date' or \\+`ignored'.
@@ -646,7 +646,8 @@ Also update some VC file properties from ENTRIES."
                        (or (null next)
                            (vc-dir-fileinfo->directory (ewoc-data next)))))
                 (ewoc-delete vc-ewoc crt)))
-              (setq crt prev))))))
+              (setq crt prev))))
+        (cl-assert (null to-remove))))
     ;; Update VC file properties.
     (pcase-dolist (`(,file ,state ,_extra) entries)
       (vc-file-setprop file 'vc-backend
@@ -1521,7 +1522,7 @@ Throw an error if another update process is in progress."
       (error "Another update process is in progress, cannot run two at a time")
     (let ((def-dir default-directory)
 	  (backend vc-dir-backend))
-      (when vc-dir-save-some-buffers-on-revert
+      (when (and vc-dir-save-some-buffers-on-revert (not non-essential))
         (vc-buffer-sync-fileset `(,vc-dir-backend (,def-dir)) t))
       (vc-set-mode-line-busy-indicator)
       ;; Call the `dir-status' backend function.
