@@ -28133,7 +28133,8 @@ do_ewmh_fullscreen (struct frame *f)
 		  || cur == FULLSCREEN_MAXIMIZED)
 		set_wm_state (frame, false, dpyinfo->Xatom_net_wm_state_fullscreen,
 			      dpyinfo->Xatom_net_wm_state_maximized_vert);
-	      if (cur != FULLSCREEN_MAXIMIZED || x_frame_normalize_before_maximize)
+	      if ((cur != FULLSCREEN_MAXIMIZED  && cur != FULLSCREEN_BOTH)
+		  || x_frame_normalize_before_maximize)
 		set_wm_state (frame, true,
 			      dpyinfo->Xatom_net_wm_state_maximized_horz, None);
 	    }
@@ -28153,7 +28154,8 @@ do_ewmh_fullscreen (struct frame *f)
 		  || cur == FULLSCREEN_MAXIMIZED)
 		set_wm_state (frame, false, dpyinfo->Xatom_net_wm_state_fullscreen,
 			      dpyinfo->Xatom_net_wm_state_maximized_horz);
-	      if (cur != FULLSCREEN_MAXIMIZED || x_frame_normalize_before_maximize)
+	      if ((cur != FULLSCREEN_MAXIMIZED && cur != FULLSCREEN_BOTH)
+		  || x_frame_normalize_before_maximize)
 		set_wm_state (frame, true,
 			      dpyinfo->Xatom_net_wm_state_maximized_vert, None);
 	    }
@@ -32364,6 +32366,13 @@ static struct textconv_interface text_conversion_interface =
 void
 init_xterm (void)
 {
+#if defined(HAVE_XWIDGETS) && !defined(HAVE_PGTK)
+  /* Emacs uses off-screen gtk widgets for webkit views, which do not support
+     DMABUF or Compositing Mode; webkit aborts unless we disable those.  */
+    xputenv ("WEBKIT_DISABLE_DMABUF_RENDERER=1");
+    xputenv ("WEBKIT_DISABLE_COMPOSITING_MODE=1");
+#endif
+
 #ifndef HAVE_XINPUT2
   /* Emacs can handle only core input events when built without XI2
      support, so make sure Gtk doesn't use Xinput or Xinput2

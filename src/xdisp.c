@@ -15334,16 +15334,24 @@ handle_tab_bar_click (struct frame *f, int x, int y, bool down_p,
 
   if (down_p)
     {
-      /* Show the clicked button in pressed state.  */
+      /* Show the clicked button in pressed state, but only when
+	 the click was on the close button.  Clicking elsewhere on
+	 the tab should not change the close button's appearance,
+	 so just keep the ordinary mouse-face highlight.  */
       if (!NILP (Vmouse_highlight))
-	show_mouse_face (hlinfo, DRAW_IMAGE_SUNKEN, true);
+	show_mouse_face (hlinfo, close_p ? DRAW_IMAGE_SUNKEN : DRAW_MOUSE_FACE,
+			 true);
       f->last_tab_bar_item = prop_idx; /* record the pressed tab */
     }
   else
     {
-      /* Show item in released state.  */
+      /* Show item in released state.  Only change the close button's
+	 appearance when the click was on it.  Elsewhere keep the
+	 ordinary mouse-face highlight to avoid the close button
+	 blinking on release.  */
       if (!NILP (Vmouse_highlight))
-	show_mouse_face (hlinfo, DRAW_IMAGE_RAISED, true);
+	show_mouse_face (hlinfo, close_p ? DRAW_IMAGE_RAISED : DRAW_MOUSE_FACE,
+			 true);
       f->last_tab_bar_item = -1;
     }
 
@@ -24468,11 +24476,10 @@ extend_face_to_end_of_line (struct it *it)
 	     to fill the rest.  */
 	  if (WINDOW_LEFT_MARGIN_WIDTH (it->w) > 0
 	      && (it->glyph_row->used[LEFT_MARGIN_AREA]
-		  < WINDOW_LEFT_MARGIN_WIDTH (it->w)))
+		  < WINDOW_LEFT_MARGIN_COLS (it->w)))
 	    {
 	      int used = it->glyph_row->used[LEFT_MARGIN_AREA];
-	      int remaining_pixels = (WINDOW_LEFT_MARGIN_WIDTH (it->w)
-				      * FRAME_COLUMN_WIDTH (f));
+	      int remaining_pixels = WINDOW_LEFT_MARGIN_WIDTH (it->w);
 
 	      /* Subtract width of existing glyphs.  */
 	      struct glyph *g = it->glyph_row->glyphs[LEFT_MARGIN_AREA];
@@ -24507,11 +24514,10 @@ extend_face_to_end_of_line (struct it *it)
 	     to fill the rest.  */
 	  if (WINDOW_RIGHT_MARGIN_WIDTH (it->w) > 0
 	      && (it->glyph_row->used[RIGHT_MARGIN_AREA]
-		  < WINDOW_RIGHT_MARGIN_WIDTH (it->w)))
+		  < WINDOW_RIGHT_MARGIN_COLS (it->w)))
 	    {
 	      int used = it->glyph_row->used[RIGHT_MARGIN_AREA];
-	      int remaining_pixels = (WINDOW_RIGHT_MARGIN_WIDTH (it->w)
-				      * FRAME_COLUMN_WIDTH (f));
+	      int remaining_pixels = WINDOW_RIGHT_MARGIN_WIDTH (it->w);
 
 	      /* Subtract width of existing glyphs.  */
 	      struct glyph *g = it->glyph_row->glyphs[RIGHT_MARGIN_AREA];
@@ -28941,14 +28947,24 @@ store_mode_line_string (const char *string, Lisp_Object lisp_string,
       if (!NILP (mode_line_string_face))
 	{
 	  Lisp_Object face;
-	  if (NILP (props))
-	    props = Ftext_properties_at (make_fixnum (0), lisp_string);
-	  face = plist_get (props, Qface);
+	  Lisp_Object string_face =
+	    plist_get (Ftext_properties_at (make_fixnum (0), lisp_string),
+		       Qface);
+	  /* Use the face in PROPS, if any, falling back to the face of
+	     LISP_STRING.  */
+	  face = string_face;
+	  if (!NILP (props))
+	    {
+	      Lisp_Object propface = plist_get (props, Qface);
+	      if (!NILP (propface))
+		face = propface;
+	    }
 	  if (NILP (face))
 	    face = mode_line_string_face;
 	  else
 	    face = list2 (face, mode_line_string_face);
-	  props = list2 (Qface, face);
+	  props = Fcopy_sequence (props);
+	  props = plist_put (props, Qface, face);
 	  if (copy_string)
 	    lisp_string = Fcopy_sequence (lisp_string);
 	}
@@ -28990,7 +29006,7 @@ By default, the format is evaluated for the currently selected window.
 Optional second arg FACE specifies the face property to put on all
 characters for which no face is specified.  The value nil means the
 default face.  The value t means whatever face the window's mode line
-currently uses (either `mode-line' or `mode-line-inactive',
+currently uses (either `mode-line-active' or `mode-line-inactive',
 depending on whether the window is the selected window or not).
 An integer value means the value string has no text
 properties.
@@ -29006,7 +29022,7 @@ are the selected window and the WINDOW's buffer).  */)
   struct window *w;
   struct buffer *old_buffer = NULL;
   int face_id;
-  bool no_props = FIXNUMP (face);
+  bool no_props = INTEGERP (face);
   specpdl_ref count = SPECPDL_INDEX ();
   Lisp_Object str;
   int string_start = 0;
@@ -29040,6 +29056,13 @@ are the selected window and the WINDOW's buffer).  */)
     : EQ (face, Qtab_bar) ? TAB_BAR_FACE_ID
     : EQ (face, Qtool_bar) ? TOOL_BAR_FACE_ID
     : DEFAULT_FACE_ID;
+
+  if (EQ (face, Qt))
+    face = EQ (window, selected_window)
+      ? Qmode_line_active
+      : Qmode_line_inactive;
+  else if (EQ (face, Qdefault))
+    face = Qnil;
 
   old_buffer = current_buffer;
 
