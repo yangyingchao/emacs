@@ -2326,7 +2326,11 @@ WINDOW must be a live window and defaults to the selected one.
 
 The return value is a list of elements (BUFFER WINDOW-START POS),
 where BUFFER is a buffer, WINDOW-START is the start position of the
-window for that buffer, and POS is a window-specific point value.  */)
+window for that buffer, and POS is a window-specific point value.
+
+In rare ocasions BUFFER may have been already killed.  It's therefore
+advisable to always check the return value for the occurrence of dead
+buffers before using it.  */)
   (Lisp_Object window)
 {
   return decode_live_window (window)->prev_buffers;
@@ -9450,7 +9454,10 @@ windows in the same combination.
 Other values are reserved for future use.
 
 A specific split operation may ignore the value of this variable if it
-is affected by a non-nil value of `window-combination-limit'.  */);
+is affected by a non-nil value of `window-combination-limit'.  If you
+want to use a sequence of `split-window' calls to produce a specific,
+predefined layout of windows on a frame, bind this variable temporarily
+to nil.  */);
   Vwindow_combination_resize = Qnil;
 
   DEFVAR_LISP ("window-combination-limit", Vwindow_combination_limit,
