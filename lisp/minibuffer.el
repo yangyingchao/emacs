@@ -2742,6 +2742,13 @@ The candidate will still be chosen by `choose-completion' unless
     (goto-char (or (next-single-property-change (point) 'completion--string)
                    (point-max)))))
 
+(defun completions--clear-selection ()
+  "Clear the selected candidate in the completions buffer.
+
+Unlike `completions--deselect' this fully clears all selected-completion
+state from the buffer."
+  (goto-char (point-min)))
+
 (defun completions--should-show-p (metadata &optional force-eager-update)
   "Return non-nil if *Completions* should be automatically updated or displayed.
 
@@ -3020,7 +3027,7 @@ has been requested by the completion table."
     (with-selected-window win
       ;; Move point off any completions, so we don't move point there
       ;; again the next time `minibuffer-completion-help' is called.
-      (goto-char (point-min))
+      (completions--clear-selection)
       (bury-buffer))))
 
 (defun exit-minibuffer ()
@@ -3125,8 +3132,6 @@ Also respects the obsolete wrapper hook `completion-in-region-functions'.
       completion-in-region-functions (start end collection predicate)
     (let ((minibuffer-completion-table collection)
           (minibuffer-completion-predicate predicate))
-      ;; HACK: if the text we are completing is already in a field, we
-      ;; want the completion field to take priority (e.g. Bug#6830).
       (when completion-in-region-mode-predicate
         (setq completion-in-region--data
 	      `(,(if (markerp start) start (copy-marker start))
@@ -4775,9 +4780,19 @@ the same set of elements."
                     (setq prefix (substring prefix 0 (length fixed))))
                   (push prefix res)
                   ;; Push all the wildcards in this stretch, to preserve `point' and
-                  ;; `star' wildcards before ELEM.
-                  (dolist (wildcard wildcards)
-                    (push wildcard res))
+                  ;; `star' wildcards before ELEM.  Collapse multiple `star's down to one
+                  ;; on each side of point. (bug#81394)
+                  (let ((star-seen nil))
+                    (dolist (wildcard wildcards)
+                      (cond
+                       ((eq wildcard 'star)
+                        (unless star-seen
+                          (push 'star res))
+                        (setq star-seen t))
+                       (t
+                        (when (eq wildcard 'point)
+                          (setq star-seen nil))
+                        (push wildcard res)))))
                   ;; Extract common suffix additionally to common prefix.
                   ;; Don't do it for `any' since it could lead to a merged
                   ;; completion that doesn't itself match the candidates.

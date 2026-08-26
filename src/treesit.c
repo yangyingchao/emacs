@@ -2565,7 +2565,6 @@ embedding increments the embed level by 1.  */)
   return XTS_PARSER (parser)->embed_level;
 }
 
-/* TODO: Mention in manual, once the API stabilizes.  */
 DEFUN ("treesit-parser-set-embed-level",
        Ftreesit_parser_set_embed_level, Streesit_parser_set_embed_level,
        2, 2, 0,
@@ -4260,10 +4259,14 @@ treesit_cursor_helper_1 (TSTreeCursor *cursor, TSNode *target,
     return true;
 
   /* ts_tree_cursor_goto_first_child_for_byte is significantly faster,
-     so despite it having problems (see bug#60127), we try it
-     first.  */
-  if (ts_tree_cursor_goto_first_child_for_byte (cursor, start_pos) == -1
-      && !ts_tree_cursor_goto_first_child (cursor))
+     so despite it having problems (see bug#60127), we try it first.
+     Also, ts_tree_cursor_goto_first_child_for_byte can't find
+     zero-width nodes (which exist and are legit, e.g., markdown's
+     block_continuation), because a zero-width node can't contain a pos
+     (end > pos); instead, it'll falsely return the next child.  */
+  if (!((start_pos != end_pos
+	 && ts_tree_cursor_goto_first_child_for_byte (cursor, start_pos) != -1)
+	|| ts_tree_cursor_goto_first_child (cursor)))
     return false;
 
   /* Go through each sibling that could contain TARGET.  Because of

@@ -6684,8 +6684,10 @@ and KILLP is t if a prefix arg was specified."
 
 (defun char-uppercase-p (char)
   "Return non-nil if CHAR is an upper-case character.
+A character is considered upper-case if there's a corresponding
+lower-case character.
 If the Unicode tables are not yet available, e.g. during bootstrap,
-then gives correct answers only for ASCII characters."
+this function gives correct return values only for ASCII characters."
   (cond ((unicode-property-table-internal 'lowercase)
          (characterp (get-char-code-property char 'lowercase)))
         ((<= ?A char ?Z))))
@@ -10174,8 +10176,11 @@ the completions is popped up and down."
           (last-col (progn
                       (first-completion)
                       (goto-char (pos-eol))
-                      (goto-char (previous-single-property-change
-                                  (point) 'mouse-face))
+                      ;; Go to the beginning of the candidate.  We loop
+                      ;; to move past any completion annotations.
+                      (while (not (get-text-property (point) 'mouse-face))
+                        (goto-char
+                         (previous-single-property-change (point) 'mouse-face)))
                       (current-column))))
       (if (zerop last-col)
           ;; If there is only one column of completions, the last
@@ -10267,7 +10272,9 @@ Also see the `completion-auto-wrap' variable."
                          (not (eq completions-format 'vertical))))
             (if (and (eq completion-auto-select t) tabcommand
                      (minibufferp completion-reference-buffer))
-                (throw 'bound nil)
+                (progn
+                  (completions--clear-selection)
+                  (throw 'bound nil))
               (first-completion))))
         (when (and (eq completions-format 'vertical)
                    (or last
@@ -10319,8 +10326,8 @@ Also see the `completion-auto-wrap' variable."
                    (completion--move-to-candidate-start))
                   ((and (eq completion-auto-select t) tabcommand
                         (minibufferp completion-reference-buffer))
-                   (progn
-                     (throw 'bound nil)))
+                   (completions--clear-selection)
+                   (throw 'bound nil))
                   (t
                    (last-completion)))))
         (setq n (1+ n))))
