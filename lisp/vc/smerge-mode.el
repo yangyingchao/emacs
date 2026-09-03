@@ -1652,8 +1652,10 @@ buffer names."
 		      (windows smerge-ediff-windows))
 		  (ediff-cleanup-mess)
 		  (with-current-buffer buf
-		    (erase-buffer)
-		    (insert-buffer-substring buffer-C)
+                    (let ((inhibit-read-only t))
+                      (erase-buffer)
+		      (insert-buffer-substring buffer-C)
+                      (save-buffer))
 		    (kill-buffer buffer-A)
 		    (kill-buffer buffer-B)
 		    (kill-buffer buffer-C)
