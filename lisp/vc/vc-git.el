@@ -408,13 +408,13 @@ in the order given by `git status'."
   ;; upstream.  We'd need to check against the upstream tracking
   ;; branch for that (an extra process call or two).
   (let* ((args
-          `("status" "--porcelain" "-z"
-            ;; Just to be explicit, it's the default anyway.
-            "--untracked-files"
-            ,@(when (version<= "1.7.6.3" (vc-git--program-version))
-                '("--ignored"))
+          `("status" "--porcelain" "-z" "--untracked-files"
+            ,@(and (version<= "1.7.6.3" (vc-git--program-version))
+                   '("--ignored"))
             "--"))
-        (status (apply #'vc-git--run-command-string file args)))
+         (status (apply #'vc-git--run-command-string file args))
+         (root (vc-git-root default-directory))
+         (file-rel (file-relative-name file root)))
     (if (null status)
         ;; If status is nil, there was an error calling git, likely because
         ;; the file is not in a git repo.
@@ -423,9 +423,13 @@ in the order given by `git status'."
       ;; note that a renamed file takes up two null values and needs to be
       ;; treated slightly more carefully.
       (vc-git--git-status-to-vc-state
-       (mapcar (lambda (s)
-                 (substring s 0 2))
-               (split-string status "\0" t))))))
+       ;; Work around Git bug demonstrated in Emacs bug#81625: this 'git
+       ;; status' call can return results for files other than FILE.
+       ;; Match on FILE-REL because --porcelain means results are always
+       ;; relative to the repository root.
+       (cl-loop for line in (split-string status "\0" t)
+                when (equal (substring line 3) file-rel)
+                collect (substring line 0 2))))))
 
 (defun vc-git-working-revision (_file)
   "Git-specific version of `vc-working-revision'."
@@ -2899,13 +2903,6 @@ page for the meanings of these attributes."
                (equal subcommand "status"))
            '("GIT_OPTIONAL_LOCKS=0"))))
 
-;; This is for the same purpose as `vc-git--env-vars' except that it
-;; covers older Git, which doesn't recognise the environment variable.
-(defun vc-git--no-optional-locks (subcommand)
-  (and (or revert-buffer-in-progress
-           (equal subcommand "status"))
-       '("--no-optional-locks")))
-
 (defun vc-git-command (buffer okstatus file-or-list &rest flags)
   "A wrapper around `vc-do-command' for use in vc-git.el.
 The difference to `vc-do-command' is that this function always invokes
@@ -2951,9 +2948,7 @@ The difference to `vc-do-command' is that this function always invokes
                   ".")
                  ((not file-list-is-rootdir)
                   file-or-list))
-           (cons "--no-pager"
-                 (append (vc-git--no-optional-locks (car flags))
-                         flags)))))
+           (cons "--no-pager" flags))))
 
 (defun vc-git--empty-db-p ()
   "Check if the git db is empty (no commit done yet)."
@@ -2973,9 +2968,7 @@ The difference to `vc-do-command' is that this function always invokes
 	(process-environment (append (vc-git--env-vars command)
                                      process-environment)))
     (apply #'process-file vc-git-program infile buffer nil
-           (cons "--no-pager"
-                 (append (vc-git--no-optional-locks command)
-                         (cons command args))))))
+           "--no-pager" command args)))
 
 (defun vc-git--out-ok (command &rest args)
   "Run `git COMMAND ARGS...' and insert standard output in current buffer.
